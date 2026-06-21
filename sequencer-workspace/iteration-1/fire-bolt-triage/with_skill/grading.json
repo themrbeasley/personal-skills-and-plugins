@@ -1,0 +1,83 @@
+{
+  "expectations": [
+    {
+      "text": "Identifies ItemMacro as an obsolete/dead module",
+      "passed": true,
+      "evidence": "Opens with: 'Item Macro is dead. It was superseded by built-in DND5e Activity macros in DND5e 3.x+.' Triage report: 'Item Macro module is obsolete.'"
+    },
+    {
+      "text": "Does NOT suggest installing or re-enabling Item Macro",
+      "passed": true,
+      "evidence": "Triage report next steps: 'Remove the Item Macro module entirely if still installed.' Actively recommends removing it, not reinstalling."
+    },
+    {
+      "text": "Identifies args[0].targets[0] as a dead/obsolete pattern",
+      "passed": true,
+      "evidence": "'args[0].targets[0] -- that’s the Item Macro module pattern... the args array no longer gets populated the way Item Macro used to populate it.' Explicitly marks the pattern as non-functional."
+    },
+    {
+      "text": "Provides a quick console-testable replacement using canvas.tokens.controlled and game.user.targets",
+      "passed": true,
+      "evidence": "Quick fix section: `const caster = canvas.tokens.controlled[0]; const target = game.user.targets.first();` — a standalone console script with no module dependencies."
+    },
+    {
+      "text": "Offers a band-aid workaround to get back to playing quickly",
+      "passed": true,
+      "evidence": "'Slightly better band-aid -- save as a macro' section with step-by-step hotbar macro creation. Also the console paste fix for immediate use."
+    },
+    {
+      "text": "Suggests or provides a triage report for deeper debugging later",
+      "passed": true,
+      "evidence": "Full 'Sequencer Triage Report -- 2026-05-14' section with: Symptom, Context, Error messages, Quick fixes attempted, Band-aid applied, Suspected cause, Next steps (5 items), Relevant code, Environment checklist."
+    },
+    {
+      "text": "Response is concise and action-oriented (reflects time pressure, not a lengthy tutorial)",
+      "passed": true,
+      "evidence": "Opens with diagnosis in one paragraph, immediately provides console fix. Structure: quick fix → band-aid → why it broke → real fix → triage report. Urgency-first ordering."
+    }
+  ],
+  "summary": {
+    "passed": 7,
+    "failed": 0,
+    "total": 7,
+    "pass_rate": 1.0
+  },
+  "timing": {
+    "executor_duration_seconds": 84.1,
+    "total_duration_seconds": 84.1
+  },
+  "claims": [
+    {
+      "claim": "Identifies that Sequencer silently does nothing when given undefined locations",
+      "type": "factual",
+      "verified": true,
+      "evidence": "'Sequencer receives undefined for both .atLocation() and .stretchTo(), so it silently does nothing -- no error, no effect'"
+    },
+    {
+      "claim": "Provides Midi-QOL hook pattern as the permanent fix",
+      "type": "factual",
+      "verified": true,
+      "evidence": "Post-session section provides `Hooks.on(\"midi-qol.AttackRollComplete\", (workflow) => {...})` with hit/miss handling."
+    },
+    {
+      "claim": "Recommends removing Item Macro module",
+      "type": "factual",
+      "verified": true,
+      "evidence": "Triage report step 1: 'Remove the Item Macro module entirely if still installed'"
+    },
+    {
+      "claim": "Suggests checking all other items using ItemMacro patterns",
+      "type": "quality",
+      "verified": true,
+      "evidence": "Triage report step 4: 'Check all other items using ItemMacro patterns and migrate them to Midi-QOL hooks or DND5e Activity macros'"
+    }
+  ],
+  "eval_feedback": {
+    "suggestions": [
+      {
+        "reason": "Consider adding an assertion: 'Recommends migrating to Midi-QOL hooks or DND5e Activity macros as the permanent solution.' This captures a key skill behavior — actively guiding toward the modern stack rather than just fixing the immediate problem."
+      }
+    ],
+    "overall": "Perfect pass. This eval is the strongest discriminator in the set — the with_skill response dramatically outperforms the baseline by correctly identifying the root cause and migration path."
+  }
+}

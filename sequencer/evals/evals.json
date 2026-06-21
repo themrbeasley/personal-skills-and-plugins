@@ -1,0 +1,117 @@
+{
+  "skill_name": "sequencer",
+  "evals": [
+    {
+      "id": 0,
+      "prompt": "I want a custom visual effect for my homebrew weapon called 'Frostbite Blade'. When it hits a target, it should shoot an icy bolt from the attacker to the target, then create a frost/ice impact burst on the target. I want to test this from the browser console with a selected token and a targeted token. Can you help me build this?",
+      "expected_output": "Working Sequencer code for a projectile + impact effect using JB2A ice/cold assets, with proper token references for console context (canvas.tokens.controlled[0], game.user.targets.first()), validation checks, and instructions for how to run it.",
+      "files": [],
+      "expectations": [
+        {
+          "text": "Uses canvas.tokens.controlled[0] for caster token (correct console context)",
+          "type": "pattern_match"
+        },
+        {
+          "text": "Uses game.user.targets for target token (not args or workflow)",
+          "type": "pattern_match"
+        },
+        {
+          "text": "Includes null-check or validation on token references before running the effect",
+          "type": "semantic"
+        },
+        {
+          "text": "Uses .stretchTo() for the projectile beam (not .moveTowards())",
+          "type": "pattern_match"
+        },
+        {
+          "text": "Uses .waitUntilFinished() to chain projectile into impact",
+          "type": "pattern_match"
+        },
+        {
+          "text": "Uses JB2A database paths (jb2a.*) not file system paths (modules/jb2a_patreon/...)",
+          "type": "pattern_match"
+        },
+        {
+          "text": "JB2A paths reference ice/cold/frost-themed effects (not fire or generic)",
+          "type": "semantic"
+        }
+      ]
+    },
+    {
+      "id": 1,
+      "prompt": "My Paladin just cast Bless on three party members. I need a golden glowing aura on each blessed target that pulses gently and stays until the spell ends. I'm running Midi-QOL, DAE, and TimesUp. How do I set this up so the visual automatically goes away when Bless expires?",
+      "expected_output": "A persistent aura effect using .attachTo() and .persist() with proper .name() for cleanup, applied to multiple targets. Should include DAE macro integration (args[0] on/off pattern) so the effect auto-removes when the Active Effect expires via TimesUp. Should explain the full wiring: Active Effect macro execute field, DAE on/off, TimesUp duration.",
+      "files": [],
+      "expectations": [
+        {
+          "text": "Uses .persist() to make the aura permanent on canvas",
+          "type": "pattern_match"
+        },
+        {
+          "text": "Uses .name() on every persistent effect for later cleanup",
+          "type": "pattern_match"
+        },
+        {
+          "text": "Uses .attachTo() so the aura follows the token",
+          "type": "pattern_match"
+        },
+        {
+          "text": "Iterates over multiple targets (loop or forEach pattern, not hardcoded single target)",
+          "type": "semantic"
+        },
+        {
+          "text": "Includes cleanup code using Sequencer.EffectManager.endEffects",
+          "type": "pattern_match"
+        },
+        {
+          "text": "Describes the DAE on/off macro pattern (args[0] === 'on' / 'off')",
+          "type": "semantic"
+        },
+        {
+          "text": "Explains the TimesUp -> DAE -> Sequencer automatic removal chain",
+          "type": "semantic"
+        },
+        {
+          "text": "Uses .loopProperty() or similar for the pulsing animation",
+          "type": "pattern_match"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "We're mid-session and my custom fire bolt animation just stopped working. It was fine last week but now nothing happens when the macro runs — no effect, no error in the console, nothing. My players are waiting. The macro code is:\n\nnew Sequence()\n  .effect()\n    .file(\"jb2a.fire_bolt.orange\")\n    .atLocation(token)\n    .stretchTo(args[0].targets[0])\n  .play();\n\nThis runs from an ItemMacro on the Fire Bolt cantrip.",
+      "expected_output": "Should immediately flag that ItemMacro is an obsolete module and that 'args[0].targets[0]' is a dead pattern. Should provide a quick fix for console testing, suggest a band-aid workaround to get the session moving, verify the JB2A database path is correct, and offer to write a triage report for proper fixing later. Should NOT suggest installing Item Macro.",
+      "files": [],
+      "expectations": [
+        {
+          "text": "Identifies ItemMacro as an obsolete/dead module",
+          "type": "semantic"
+        },
+        {
+          "text": "Does NOT suggest installing or re-enabling Item Macro",
+          "type": "semantic_negative"
+        },
+        {
+          "text": "Identifies args[0].targets[0] as a dead/obsolete pattern",
+          "type": "semantic"
+        },
+        {
+          "text": "Provides a quick console-testable replacement using canvas.tokens.controlled and game.user.targets",
+          "type": "semantic"
+        },
+        {
+          "text": "Offers a band-aid workaround to get back to playing quickly",
+          "type": "semantic"
+        },
+        {
+          "text": "Suggests or provides a triage report for deeper debugging later",
+          "type": "semantic"
+        },
+        {
+          "text": "Response is concise and action-oriented (reflects time pressure, not a lengthy tutorial)",
+          "type": "semantic"
+        }
+      ]
+    }
+  ]
+}

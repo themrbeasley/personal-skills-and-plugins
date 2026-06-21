@@ -1,0 +1,1325 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Eval Review</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@500;600&family=Lora:wght@400;500&display=swap" rel="stylesheet">
+  <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js" integrity="sha384-EnyY0/GSHQGSxSgMwaIPzSESbqoOLSexfnSMN2AP+39Ckmn92stwABZynq1JyzdT" crossorigin="anonymous"></script>
+  <style>
+    :root {
+      --bg: #faf9f5;
+      --surface: #ffffff;
+      --border: #e8e6dc;
+      --text: #141413;
+      --text-muted: #b0aea5;
+      --accent: #d97757;
+      --accent-hover: #c4613f;
+      --green: #788c5d;
+      --green-bg: #eef2e8;
+      --red: #c44;
+      --red-bg: #fceaea;
+      --header-bg: #141413;
+      --header-text: #faf9f5;
+      --radius: 6px;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Lora', Georgia, serif;
+      background: var(--bg);
+      color: var(--text);
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* ---- Header ---- */
+    .header {
+      background: var(--header-bg);
+      color: var(--header-text);
+      padding: 1rem 2rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-shrink: 0;
+    }
+    .header h1 {
+      font-family: 'Poppins', sans-serif;
+      font-size: 1.25rem;
+      font-weight: 600;
+    }
+    .header .instructions {
+      font-size: 0.8rem;
+      opacity: 0.7;
+      margin-top: 0.25rem;
+    }
+    .header .progress {
+      font-size: 0.875rem;
+      opacity: 0.8;
+      text-align: right;
+    }
+
+    /* ---- Main content ---- */
+    .main {
+      flex: 1;
+      overflow-y: auto;
+      padding: 1.5rem 2rem;
+      display: flex;
+      flex-direction: column;
+      gap: 1.25rem;
+    }
+
+    /* ---- Sections ---- */
+    .section {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      flex-shrink: 0;
+    }
+    .section-header {
+      font-family: 'Poppins', sans-serif;
+      padding: 0.75rem 1rem;
+      font-size: 0.75rem;
+      font-weight: 500;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text-muted);
+      border-bottom: 1px solid var(--border);
+      background: var(--bg);
+    }
+    .section-body {
+      padding: 1rem;
+    }
+
+    /* ---- Config badge ---- */
+    .config-badge {
+      display: inline-block;
+      padding: 0.2rem 0.625rem;
+      border-radius: 9999px;
+      font-family: 'Poppins', sans-serif;
+      font-size: 0.6875rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+      margin-left: 0.75rem;
+      vertical-align: middle;
+    }
+    .config-badge.config-primary {
+      background: rgba(33, 150, 243, 0.12);
+      color: #1976d2;
+    }
+    .config-badge.config-baseline {
+      background: rgba(255, 193, 7, 0.15);
+      color: #f57f17;
+    }
+
+    /* ---- Prompt ---- */
+    .prompt-text {
+      white-space: pre-wrap;
+      font-size: 0.9375rem;
+      line-height: 1.6;
+    }
+
+    /* ---- Outputs ---- */
+    .output-file {
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+    }
+    .output-file + .output-file {
+      margin-top: 1rem;
+    }
+    .output-file-header {
+      padding: 0.5rem 0.75rem;
+      font-size: 0.8rem;
+      font-weight: 600;
+      color: var(--text-muted);
+      background: var(--bg);
+      border-bottom: 1px solid var(--border);
+      font-family: 'SF Mono', SFMono-Regular, Consolas, 'Liberation Mono', Menlo, monospace;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .output-file-header .dl-btn {
+      font-size: 0.7rem;
+      color: var(--accent);
+      text-decoration: none;
+      cursor: pointer;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      font-weight: 500;
+      opacity: 0.8;
+    }
+    .output-file-header .dl-btn:hover {
+      opacity: 1;
+      text-decoration: underline;
+    }
+    .output-file-content {
+      padding: 0.75rem;
+      overflow-x: auto;
+    }
+    .output-file-content pre {
+      font-size: 0.8125rem;
+      line-height: 1.5;
+      white-space: pre-wrap;
+      word-break: break-word;
+      font-family: 'SF Mono', SFMono-Regular, Consolas, 'Liberation Mono', Menlo, monospace;
+    }
+    .output-file-content img {
+      max-width: 100%;
+      height: auto;
+      border-radius: 4px;
+    }
+    .output-file-content iframe {
+      width: 100%;
+      height: 600px;
+      border: none;
+    }
+    .output-file-content table {
+      border-collapse: collapse;
+      font-size: 0.8125rem;
+      width: 100%;
+    }
+    .output-file-content table td,
+    .output-file-content table th {
+      border: 1px solid var(--border);
+      padding: 0.375rem 0.5rem;
+      text-align: left;
+    }
+    .output-file-content table th {
+      background: var(--bg);
+      font-weight: 600;
+    }
+    .output-file-content .download-link {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.5rem 1rem;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      color: var(--accent);
+      text-decoration: none;
+      font-size: 0.875rem;
+      cursor: pointer;
+    }
+    .output-file-content .download-link:hover {
+      background: var(--border);
+    }
+    .empty-state {
+      color: var(--text-muted);
+      font-style: italic;
+      padding: 2rem;
+      text-align: center;
+    }
+
+    /* ---- Feedback ---- */
+    .prev-feedback {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 0.625rem 0.75rem;
+      margin-top: 0.75rem;
+      font-size: 0.8125rem;
+      color: var(--text-muted);
+      line-height: 1.5;
+    }
+    .prev-feedback-label {
+      font-size: 0.7rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      margin-bottom: 0.25rem;
+      color: var(--text-muted);
+    }
+    .feedback-textarea {
+      width: 100%;
+      min-height: 100px;
+      padding: 0.75rem;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      font-family: inherit;
+      font-size: 0.9375rem;
+      line-height: 1.5;
+      resize: vertical;
+      color: var(--text);
+    }
+    .feedback-textarea:focus {
+      outline: none;
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+    }
+    .feedback-status {
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      margin-top: 0.5rem;
+      min-height: 1.1em;
+    }
+
+    /* ---- Grades (collapsible) ---- */
+    .grades-toggle {
+      display: flex;
+      align-items: center;
+      cursor: pointer;
+      user-select: none;
+    }
+    .grades-toggle:hover {
+      color: var(--accent);
+    }
+    .grades-toggle .arrow {
+      margin-right: 0.5rem;
+      transition: transform 0.15s;
+      font-size: 0.75rem;
+    }
+    .grades-toggle .arrow.open {
+      transform: rotate(90deg);
+    }
+    .grades-content {
+      display: none;
+      margin-top: 0.75rem;
+    }
+    .grades-content.open {
+      display: block;
+    }
+    .grades-summary {
+      font-size: 0.875rem;
+      margin-bottom: 0.75rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    .grade-badge {
+      display: inline-block;
+      padding: 0.125rem 0.5rem;
+      border-radius: 9999px;
+      font-size: 0.75rem;
+      font-weight: 600;
+    }
+    .grade-pass { background: var(--green-bg); color: var(--green); }
+    .grade-fail { background: var(--red-bg); color: var(--red); }
+    .assertion-list {
+      list-style: none;
+    }
+    .assertion-item {
+      padding: 0.625rem 0;
+      border-bottom: 1px solid var(--border);
+      font-size: 0.8125rem;
+    }
+    .assertion-item:last-child { border-bottom: none; }
+    .assertion-status {
+      font-weight: 600;
+      margin-right: 0.5rem;
+    }
+    .assertion-status.pass { color: var(--green); }
+    .assertion-status.fail { color: var(--red); }
+    .assertion-evidence {
+      color: var(--text-muted);
+      font-size: 0.75rem;
+      margin-top: 0.25rem;
+      padding-left: 1.5rem;
+    }
+
+    /* ---- View tabs ---- */
+    .view-tabs {
+      display: flex;
+      gap: 0;
+      padding: 0 2rem;
+      background: var(--bg);
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+    .view-tab {
+      font-family: 'Poppins', sans-serif;
+      padding: 0.625rem 1.25rem;
+      font-size: 0.8125rem;
+      font-weight: 500;
+      cursor: pointer;
+      border: none;
+      background: none;
+      color: var(--text-muted);
+      border-bottom: 2px solid transparent;
+      transition: all 0.15s;
+    }
+    .view-tab:hover { color: var(--text); }
+    .view-tab.active {
+      color: var(--accent);
+      border-bottom-color: var(--accent);
+    }
+    .view-panel { display: none; }
+    .view-panel.active { display: flex; flex-direction: column; flex: 1; overflow: hidden; }
+
+    /* ---- Benchmark view ---- */
+    .benchmark-view {
+      padding: 1.5rem 2rem;
+      overflow-y: auto;
+      flex: 1;
+    }
+    .benchmark-table {
+      border-collapse: collapse;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      font-size: 0.8125rem;
+      width: 100%;
+      margin-bottom: 1.5rem;
+    }
+    .benchmark-table th, .benchmark-table td {
+      padding: 0.625rem 0.75rem;
+      text-align: left;
+      border: 1px solid var(--border);
+    }
+    .benchmark-table th {
+      font-family: 'Poppins', sans-serif;
+      background: var(--header-bg);
+      color: var(--header-text);
+      font-weight: 500;
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .benchmark-table tr:hover { background: var(--bg); }
+    .benchmark-table tr.benchmark-row-with { background: rgba(33, 150, 243, 0.06); }
+    .benchmark-table tr.benchmark-row-without { background: rgba(255, 193, 7, 0.06); }
+    .benchmark-table tr.benchmark-row-with:hover { background: rgba(33, 150, 243, 0.12); }
+    .benchmark-table tr.benchmark-row-without:hover { background: rgba(255, 193, 7, 0.12); }
+    .benchmark-table tr.benchmark-row-avg { font-weight: 600; border-top: 2px solid var(--border); }
+    .benchmark-table tr.benchmark-row-avg.benchmark-row-with { background: rgba(33, 150, 243, 0.12); }
+    .benchmark-table tr.benchmark-row-avg.benchmark-row-without { background: rgba(255, 193, 7, 0.12); }
+    .benchmark-delta-positive { color: var(--green); font-weight: 600; }
+    .benchmark-delta-negative { color: var(--red); font-weight: 600; }
+    .benchmark-notes {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1rem;
+    }
+    .benchmark-notes h3 {
+      font-family: 'Poppins', sans-serif;
+      font-size: 0.875rem;
+      margin-bottom: 0.75rem;
+    }
+    .benchmark-notes ul {
+      list-style: disc;
+      padding-left: 1.25rem;
+    }
+    .benchmark-notes li {
+      font-size: 0.8125rem;
+      line-height: 1.6;
+      margin-bottom: 0.375rem;
+    }
+    .benchmark-empty {
+      color: var(--text-muted);
+      font-style: italic;
+      text-align: center;
+      padding: 3rem;
+    }
+
+    /* ---- Navigation ---- */
+    .nav {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 1rem 2rem;
+      border-top: 1px solid var(--border);
+      background: var(--surface);
+      flex-shrink: 0;
+    }
+    .nav-btn {
+      font-family: 'Poppins', sans-serif;
+      padding: 0.5rem 1.25rem;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      background: var(--surface);
+      cursor: pointer;
+      font-size: 0.875rem;
+      font-weight: 500;
+      color: var(--text);
+      transition: all 0.15s;
+    }
+    .nav-btn:hover:not(:disabled) {
+      background: var(--bg);
+      border-color: var(--text-muted);
+    }
+    .nav-btn:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+    }
+    .done-btn {
+      font-family: 'Poppins', sans-serif;
+      padding: 0.5rem 1.5rem;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      background: var(--surface);
+      color: var(--text);
+      cursor: pointer;
+      font-size: 0.875rem;
+      font-weight: 500;
+      transition: all 0.15s;
+    }
+    .done-btn:hover {
+      background: var(--bg);
+      border-color: var(--text-muted);
+    }
+    .done-btn.ready {
+      border: none;
+      background: var(--accent);
+      color: white;
+      font-weight: 600;
+    }
+    .done-btn.ready:hover {
+      background: var(--accent-hover);
+    }
+    /* ---- Done overlay ---- */
+    .done-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.5);
+      z-index: 100;
+      justify-content: center;
+      align-items: center;
+    }
+    .done-overlay.visible {
+      display: flex;
+    }
+    .done-card {
+      background: var(--surface);
+      border-radius: 12px;
+      padding: 2rem 3rem;
+      text-align: center;
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+      max-width: 500px;
+    }
+    .done-card h2 {
+      font-size: 1.5rem;
+      margin-bottom: 0.5rem;
+    }
+    .done-card p {
+      color: var(--text-muted);
+      margin-bottom: 1.5rem;
+      line-height: 1.5;
+    }
+    .done-card .btn-row {
+      display: flex;
+      gap: 0.5rem;
+      justify-content: center;
+    }
+    .done-card button {
+      padding: 0.5rem 1.25rem;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      background: var(--surface);
+      cursor: pointer;
+      font-size: 0.875rem;
+    }
+    .done-card button:hover {
+      background: var(--bg);
+    }
+    /* ---- Toast ---- */
+    .toast {
+      position: fixed;
+      bottom: 5rem;
+      left: 50%;
+      transform: translateX(-50%);
+      background: var(--header-bg);
+      color: var(--header-text);
+      padding: 0.625rem 1.25rem;
+      border-radius: var(--radius);
+      font-size: 0.875rem;
+      opacity: 0;
+      transition: opacity 0.3s;
+      pointer-events: none;
+      z-index: 200;
+    }
+    .toast.visible {
+      opacity: 1;
+    }
+  </style>
+</head>
+<body>
+  <div id="app" style="height:100vh; display:flex; flex-direction:column;">
+    <div class="header">
+      <div>
+        <h1>Eval Review: <span id="skill-name"></span></h1>
+        <div class="instructions">Review each output and leave feedback below. Navigate with arrow keys or buttons. When done, copy feedback and paste into Claude Code.</div>
+      </div>
+      <div class="progress" id="progress"></div>
+    </div>
+
+    <!-- View tabs (only shown when benchmark data exists) -->
+    <div class="view-tabs" id="view-tabs" style="display:none;">
+      <button class="view-tab active" onclick="switchView('outputs')">Outputs</button>
+      <button class="view-tab" onclick="switchView('benchmark')">Benchmark</button>
+    </div>
+
+    <!-- Outputs panel (qualitative review) -->
+    <div class="view-panel active" id="panel-outputs">
+    <div class="main">
+      <!-- Prompt -->
+      <div class="section">
+        <div class="section-header">Prompt <span class="config-badge" id="config-badge" style="display:none;"></span></div>
+        <div class="section-body">
+          <div class="prompt-text" id="prompt-text"></div>
+        </div>
+      </div>
+
+      <!-- Outputs -->
+      <div class="section">
+        <div class="section-header">Output</div>
+        <div class="section-body" id="outputs-body">
+          <div class="empty-state">No output files found</div>
+        </div>
+      </div>
+
+      <!-- Previous Output (collapsible) -->
+      <div class="section" id="prev-outputs-section" style="display:none;">
+        <div class="section-header">
+          <div class="grades-toggle" onclick="togglePrevOutputs()">
+            <span class="arrow" id="prev-outputs-arrow">&#9654;</span>
+            Previous Output
+          </div>
+        </div>
+        <div class="grades-content" id="prev-outputs-content"></div>
+      </div>
+
+      <!-- Grades (collapsible) -->
+      <div class="section" id="grades-section" style="display:none;">
+        <div class="section-header">
+          <div class="grades-toggle" onclick="toggleGrades()">
+            <span class="arrow" id="grades-arrow">&#9654;</span>
+            Formal Grades
+          </div>
+        </div>
+        <div class="grades-content" id="grades-content"></div>
+      </div>
+
+      <!-- Feedback -->
+      <div class="section">
+        <div class="section-header">Your Feedback</div>
+        <div class="section-body">
+          <textarea
+            class="feedback-textarea"
+            id="feedback"
+            placeholder="What do you think of this output? Any issues, suggestions, or things that look great?"
+          ></textarea>
+          <div class="feedback-status" id="feedback-status"></div>
+          <div class="prev-feedback" id="prev-feedback" style="display:none;">
+            <div class="prev-feedback-label">Previous feedback</div>
+            <div id="prev-feedback-text"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="nav" id="outputs-nav">
+      <button class="nav-btn" id="prev-btn" onclick="navigate(-1)">&#8592; Previous</button>
+      <button class="done-btn" id="done-btn" onclick="showDoneDialog()">Submit All Reviews</button>
+      <button class="nav-btn" id="next-btn" onclick="navigate(1)">Next &#8594;</button>
+    </div>
+    </div><!-- end panel-outputs -->
+
+    <!-- Benchmark panel (quantitative stats) -->
+    <div class="view-panel" id="panel-benchmark">
+      <div class="benchmark-view" id="benchmark-content">
+        <div class="benchmark-empty">No benchmark data available. Run a benchmark to see quantitative results here.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Done overlay -->
+  <div class="done-overlay" id="done-overlay">
+    <div class="done-card">
+      <h2>Review Complete</h2>
+      <p>Your feedback has been saved. Go back to your Claude Code session and tell Claude you're done reviewing.</p>
+      <div class="btn-row">
+        <button onclick="closeDoneDialog()">OK</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast -->
+  <div class="toast" id="toast"></div>
+
+  <script>
+    // ---- Embedded data (injected by generate_review.py) ----
+    const EMBEDDED_DATA = {"skill_name": "sequencer", "runs": [{"id": "frostbite-projectile-with_skill", "prompt": "I want a custom visual effect for my homebrew weapon called 'Frostbite Blade'. When it hits a target, it should shoot an icy bolt from the attacker to the target, then create a frost/ice impact burst on the target. I want to test this from the browser console with a selected token and a targeted token. Can you help me build this?", "eval_id": 0, "outputs": [{"name": "response.md", "type": "text", "content": "# Frostbite Blade -- Custom Sequencer Effect\n\nNice -- a projectile-into-impact is one of the cleanest effect patterns to build. Before I write code, let me confirm what I'm working with based on your setup:\n\n- **Foundry v13**, DND5e 5.2.5, Sequencer, Midi-QOL, DAE, TimesUp, Portal, **JB2A Patreon** pack\n- **Execution context:** Browser console for prototyping (select attacker token, target a victim token, paste into console)\n- **What you want:** An icy bolt that shoots from the attacker to the target, followed by a frost/ice burst on impact\n\nThat maps directly to the **Projectile + Impact** pattern -- two chained `.effect()` sections in one Sequence.\n\n---\n\n## Step 1: Find the right assets\n\nBefore writing any effect code, we need to know what ice/frost assets JB2A actually has. Run these in your browser console to explore:\n\n```js\n// What ice-related effects exist?\nSequencer.Database.getPathsUnder(\"jb2a.ice_shard\")\n```\n\n```js\n// What about ray of frost (classic cold projectile)?\nSequencer.Database.getPathsUnder(\"jb2a.ray_of_frost\")\n```\n\n```js\n// Impact effects -- look for cold/blue options\nSequencer.Database.getPathsUnder(\"jb2a.impact\")\n```\n\n```js\n// Also check for breath weapons and ice-themed bursts\nSequencer.Database.getPathsUnder(\"jb2a.breath_weapons.cold\")\n```\n\nWith the JB2A Patreon pack, you should have access to paths like:\n\n- `jb2a.ray_of_frost` -- a cold beam/bolt, perfect for the projectile\n- `jb2a.ice_shard` -- ice shard projectiles (also a good candidate)\n- `jb2a.impact.004.blue` -- a solid blue impact burst\n- `jb2a.impact.frost` -- if available in your version, a frost-specific impact\n\nRun the discovery commands above to confirm exact paths. The database paths vary slightly between JB2A versions, and I want you working with paths you can verify rather than ones that silently fail.\n\n---\n\n## Step 2: Simplest version -- get something on screen\n\nSelect your attacking token on the canvas, then target the victim token (press T and click it, or whatever your targeting keybind is). Then paste this into the browser console:\n\n```js\nconst caster = canvas.tokens.controlled[0];\nconst target = game.user.targets.first();\n\nnew Sequence()\n  .effect()\n    .file(\"jb2a.ray_of_frost\")\n    .atLocation(caster)\n    .stretchTo(target)\n  .play();\n```\n\nYou should see a cold ray stretch from your selected token to the targeted token. If it works, great -- we have the right file path and the token references are valid. If nothing happens, check:\n\n1. Is a token selected? (`canvas.tokens.controlled[0]` should not be undefined)\n2. Is a token targeted? (`game.user.targets.first()` should not be undefined)\n3. Is the file path valid? (Run the discovery commands from Step 1)\n\n---\n\n## Step 3: Add the impact burst\n\nNow we chain an ice impact that fires right as the bolt arrives. The key is `.waitUntilFinished(-500)` on the projectile -- this starts the impact effect 500ms before the bolt finishes, so the burst overlaps with the bolt's arrival for a snappy feel.\n\n```js\nconst caster = canvas.tokens.controlled[0];\nconst target = game.user.targets.first();\n\nnew Sequence()\n  .effect()\n    .file(\"jb2a.ray_of_frost\")\n    .atLocation(caster)\n    .stretchTo(target)\n    .waitUntilFinished(-500)\n  .effect()\n    .file(\"jb2a.impact.004.blue\")\n    .atLocation(target)\n    .scaleToObject(1.5)\n    .fadeIn(100)\n    .fadeOut(300)\n  .play();\n```\n\nThis gives you: icy bolt flies from attacker to target, then a blue impact burst plays on the target. Two effects, one Sequence, clean timing.\n\n---\n\n## Step 4: Polish it up\n\nNow let's add the finishing touches -- better timing, a slight scale punch on the impact, and an icy tint to really sell the frost theme.\n\n```js\nconst caster = canvas.tokens.controlled[0];\nconst target = game.user.targets.first();\n\nnew Sequence()\n  // --- Icy bolt: attacker -> target ---\n  .effect()\n    .file(\"jb2a.ray_of_frost\")\n    .atLocation(caster)\n    .stretchTo(target)\n    .missed(false)\n    .waitUntilFinished(-500)\n  // --- Frost impact burst on the target ---\n  .effect()\n    .file(\"jb2a.impact.004.blue\")\n    .atLocation(target)\n    .scaleToObject(2)\n    .scaleIn(0.4, 200, { ease: \"easeOutBack\" })\n    .fadeIn(100)\n    .fadeOut(400)\n    .filter(\"ColorMatrix\", { saturate: 0.3, brightness: 1.2 })\n    .zIndex(1)\n  .play();\n```\n\nWhat changed from Step 3:\n\n- `.missed(false)` -- explicitly marks this as a hit (set to `true` if you want a miss variant where the bolt drifts off-target)\n- `.scaleToObject(2)` -- bumped up from 1.5 for a more dramatic burst\n- `.scaleIn(0.4, 200, { ease: \"easeOutBack\" })` -- the impact starts small and punches outward with a slight overshoot, giving it a satisfying \"pop\"\n- `.filter(\"ColorMatrix\", { saturate: 0.3, brightness: 1.2 })` -- desaturates the impact slightly and brightens it, making it look more like cold ice rather than a generic blue flash\n- `.zIndex(1)` -- ensures the impact renders above the bolt if they overlap\n\n---\n\n## Alternative: ice shard instead of ray of frost\n\nIf you prefer a chunkier, more physical projectile (a shard of ice flying through the air rather than a beam), try swapping the projectile file:\n\n```js\nconst caster = canvas.tokens.controlled[0];\nconst target = game.user.targets.first();\n\nnew Sequence()\n  .effect()\n    .file(\"jb2a.ice_shard\")\n    .atLocation(caster)\n    .stretchTo(target)\n    .waitUntilFinished(-500)\n  .effect()\n    .file(\"jb2a.impact.004.blue\")\n    .atLocation(target)\n    .scaleToObject(2)\n    .scaleIn(0.4, 200, { ease: \"easeOutBack\" })\n    .fadeIn(100)\n    .fadeOut(400)\n    .filter(\"ColorMatrix\", { saturate: 0.3, brightness: 1.2 })\n  .play();\n```\n\nRun both versions and see which one feels right for the Frostbite Blade's fantasy. The ray of frost is a continuous beam; the ice shard is a discrete projectile. Either works -- it's an aesthetic call.\n\n---\n\n## Cleanup\n\nIf you're testing repeatedly and effects are piling up on the canvas, none of these are persistent (no `.persist()` calls), so they should auto-clean after playing. But if anything looks stuck:\n\n```js\nawait Sequencer.EffectManager.endAllEffects()\n```\n\nThat nukes everything (GM only). Use it freely during prototyping.\n\n---\n\n## Next steps\n\nOnce you're happy with how this looks in the console, the natural next step is wiring it into the Frostbite Blade item itself so it fires automatically on a hit. That means hooking into Midi-QOL's `midi-qol.AttackRollComplete` workflow -- the effect would fire only when the weapon actually hits, using `workflow.hitTargets` instead of manual targeting. Let me know when you're ready to take it there and I'll write the integration code.\n"}], "grading": {"expectations": [{"text": "Uses canvas.tokens.controlled[0] for caster token (correct console context)", "passed": true, "evidence": "All four code examples use `const caster = canvas.tokens.controlled[0];` \u00e2\u20ac\u201d Steps 2, 3, 4, and the alternative."}, {"text": "Uses game.user.targets for target token (not args or workflow)", "passed": true, "evidence": "All four code examples use `const target = game.user.targets.first();`"}, {"text": "Includes null-check or validation on token references before running the effect", "passed": false, "evidence": "No code block includes an if-check or guard clause on caster/target. Step 2 mentions 'If nothing happens, check: Is a token selected?' as prose troubleshooting but does not include a programmatic null-check in any of the scripts."}, {"text": "Uses .stretchTo() for the projectile beam (not .moveTowards())", "passed": true, "evidence": "`.stretchTo(target)` is used in all four code examples."}, {"text": "Uses .waitUntilFinished() to chain projectile into impact", "passed": true, "evidence": "`.waitUntilFinished(-500)` appears in Steps 3, 4, and the alternative."}, {"text": "Uses JB2A database paths (jb2a.*) not file system paths (modules/jb2a_patreon/...)", "passed": true, "evidence": "All effect files use database paths: `jb2a.ray_of_frost`, `jb2a.impact.004.blue`, `jb2a.ice_shard`. No filesystem paths used."}, {"text": "JB2A paths reference ice/cold/frost-themed effects (not fire or generic)", "passed": true, "evidence": "Assets used: `jb2a.ray_of_frost` (ice beam), `jb2a.impact.004.blue` (blue impact), `jb2a.ice_shard` (ice projectile). All ice/cold themed."}], "summary": {"passed": 6, "failed": 1, "total": 7, "pass_rate": 0.86}, "timing": {"executor_duration_seconds": 85.0, "total_duration_seconds": 85.0}, "claims": [{"claim": "Response follows iterative build workflow (simplest version first, then add complexity)", "type": "process", "verified": true, "evidence": "Four distinct steps: Step 1 asset discovery, Step 2 simplest version, Step 3 add impact, Step 4 polish. Each builds on the previous."}, {"claim": "Asset discovery with Sequencer.Database.getPathsUnder() is recommended before writing code", "type": "process", "verified": true, "evidence": "Step 1 provides four getPathsUnder() calls to explore available assets before writing any effect code."}, {"claim": "Mentions .missed(false) for hit/miss variants", "type": "factual", "verified": true, "evidence": "Step 4 includes `.missed(false)` with note: 'set to true if you want a miss variant where the bolt drifts off-target'"}], "eval_feedback": {"suggestions": [{"assertion": "Includes null-check or validation on token references before running the effect", "reason": "This assertion discriminates well \u00e2\u20ac\u201d with_skill failed it while without_skill passed. Worth keeping. Consider whether the skill should explicitly instruct null-checking in console prototypes."}, {"reason": "No assertion checks whether the response follows an iterative build pattern (start simple, add complexity). This is a key skill behavior that distinguishes the with_skill output. Consider adding: 'Presents code in progressive steps (simplest version before polished version).'"}], "overall": "Assertions cover API correctness well. The null-check assertion is the only discriminator between with/without skill for this eval. Adding an iterative-build assertion would better capture the skill's intended workflow."}}}, {"id": "frostbite-projectile-without_skill", "prompt": "I want a custom visual effect for my homebrew weapon called 'Frostbite Blade'. When it hits a target, it should shoot an icy bolt from the attacker to the target, then create a frost/ice impact burst on the target. I want to test this from the browser console with a selected token and a targeted token. Can you help me build this?", "eval_id": 0, "outputs": [{"name": "response.md", "type": "text", "content": "# Frostbite Blade -- Sequencer Visual Effect\n\n## Overview\n\nThis effect fires an icy projectile from the attacker to the target, then plays a frost impact burst on the target when it arrives. It uses the Sequencer module API with JB2A Patreon assets.\n\n## Prerequisites\n\n| Requirement | Notes |\n|---|---|\n| FoundryVTT v13 | Tested against v13.351+ |\n| Sequencer module | Must be installed and active |\n| JB2A Patreon asset pack | Premium pack required for the asset paths below |\n\n## How to use\n\n1. **Select** your attacker token on the canvas (click it so it has the selection border).\n2. **Target** the enemy token (hover over it and press `T`, or whatever your targeting key is).\n3. Open the browser console (`F12` --> Console tab).\n4. Paste the script below and press Enter.\n\n## The Script\n\n```js\n// \u00e2\u201d\u20ac\u00e2\u201d\u20ac Frostbite Blade: Icy Projectile + Frost Impact \u00e2\u201d\u20ac\u00e2\u201d\u20ac\n\n// Grab the selected (attacker) and targeted (victim) tokens\nconst attacker = canvas.tokens.controlled[0];\nconst target = game.user.targets.first();\n\nif (!attacker) {\n  ui.notifications.error(\"Frostbite Blade: Select your attacker token first.\");\n  throw new Error(\"No token selected\");\n}\nif (!target) {\n  ui.notifications.error(\"Frostbite Blade: Target an enemy token first (hover + T).\");\n  throw new Error(\"No token targeted\");\n}\n\nnew Sequence()\n\n  // \u00e2\u201d\u20ac\u00e2\u201d\u20ac 1. Icy bolt: attacker --> target \u00e2\u201d\u20ac\u00e2\u201d\u20ac\n  .effect()\n    .file(\"jb2a.ray_of_frost.blue\")\n    .atLocation(attacker)\n    .stretchTo(target)\n    .waitUntilFinished(-500)   // start the impact slightly before the bolt ends\n\n  // \u00e2\u201d\u20ac\u00e2\u201d\u20ac 2. Frost impact burst on the target \u00e2\u201d\u20ac\u00e2\u201d\u20ac\n  .effect()\n    .file(\"jb2a.impact.frost.blue.01\")\n    .atLocation(target)\n    .scaleToObject(2)          // scale up so it visually covers the token\n\n  .play();\n```\n\n## What each piece does\n\n### Token acquisition\n\n```js\nconst attacker = canvas.tokens.controlled[0];\nconst target = game.user.targets.first();\n```\n\n- `canvas.tokens.controlled` is the array of tokens you currently have selected. We grab the first one.\n- `game.user.targets` is a Set of tokens you have targeted. `.first()` pulls the first entry.\n- The two guard-clauses after these lines pop a Foundry notification and bail out early if either is missing, so you get clear feedback instead of a silent failure.\n\n### The Sequence\n\n**`new Sequence()`** creates a Sequencer animation chain. Each `.effect()` call adds a new visual to the timeline.\n\n**Effect 1 -- The icy bolt:**\n\n```js\n.effect()\n  .file(\"jb2a.ray_of_frost.blue\")\n  .atLocation(attacker)\n  .stretchTo(target)\n  .waitUntilFinished(-500)\n```\n\n- `.file(\"jb2a.ray_of_frost.blue\")` -- Uses the JB2A Ray of Frost animation in blue. This is a ranged projectile-style beam that looks like a streak of ice/frost.\n- `.atLocation(attacker)` -- The animation originates at the attacker token.\n- `.stretchTo(target)` -- The animation stretches across the canvas to reach the target token. Sequencer handles rotation and distance automatically.\n- `.waitUntilFinished(-500)` -- Tells Sequencer to hold the timeline here until this effect is nearly done, but overlap the next effect by 500 ms. This creates a smooth transition where the impact starts just as the bolt arrives, rather than a jarring gap between the two.\n\n**Effect 2 -- The frost impact:**\n\n```js\n.effect()\n  .file(\"jb2a.impact.frost.blue.01\")\n  .atLocation(target)\n  .scaleToObject(2)\n```\n\n- `.file(\"jb2a.impact.frost.blue.01\")` -- A frost/ice burst impact animation from JB2A.\n- `.atLocation(target)` -- Centered on the target token.\n- `.scaleToObject(2)` -- Scales the impact animation to 2x the token's size, which gives a satisfying visual \"explosion\" of frost around the hit. Adjust the multiplier up or down to taste.\n\n**`.play()`** kicks off the full sequence.\n\n## Customization ideas\n\n### Change the projectile color\n\nJB2A ships Ray of Frost in several color variants. Replace the file path:\n\n```js\n.file(\"jb2a.ray_of_frost.blue\")     // default\n.file(\"jb2a.ray_of_frost.purple\")   // purple variant\n```\n\n### Add a sound effect\n\nInsert a `.sound()` section before or after an `.effect()`:\n\n```js\nnew Sequence()\n  .sound()\n    .file(\"path/to/ice-whoosh.ogg\")\n    .volume(0.5)\n  .effect()\n    .file(\"jb2a.ray_of_frost.blue\")\n    .atLocation(attacker)\n    .stretchTo(target)\n    .waitUntilFinished(-500)\n  .effect()\n    .file(\"jb2a.impact.frost.blue.01\")\n    .atLocation(target)\n    .scaleToObject(2)\n  .play();\n```\n\n### Slow the projectile down\n\nAdd `.playbackRate(0.7)` to the bolt effect to make the icy beam travel more slowly for a heavier feel.\n\n### Leave a lingering frost aura on the target\n\nAdd a third effect with `.persist()` to leave a visual on the target until manually removed:\n\n```js\n  // after the impact effect, add:\n  .effect()\n    .file(\"jb2a.markers.snowflake.blue.02\")\n    .atLocation(target)\n    .scaleToObject(1.5)\n    .persist()\n    .name(\"frostbite-blade-marker\")   // name it so you can remove it later\n```\n\nRemove it later from the console with:\n\n```js\nSequencer.EffectManager.endEffects({ name: \"frostbite-blade-marker\" });\n```\n\n## Integrating into a macro or item\n\nOnce you are happy with the effect from the console, you can paste the same script into:\n\n- **A Foundry macro** (Hotbar --> Create Macro --> Script type) so you can trigger it with one click.\n- **A Midi-QOL `onUse` macro** attached to the Frostbite Blade weapon item, so it fires automatically on every hit. In that context you would pull attacker/target from the Midi workflow arguments instead of from selection/targeting.\n"}], "grading": {"expectations": [{"text": "Uses canvas.tokens.controlled[0] for caster token (correct console context)", "passed": true, "evidence": "`const attacker = canvas.tokens.controlled[0];` in the main script."}, {"text": "Uses game.user.targets for target token (not args or workflow)", "passed": true, "evidence": "`const target = game.user.targets.first();` in the main script."}, {"text": "Includes null-check or validation on token references before running the effect", "passed": true, "evidence": "Guard clauses: `if (!attacker) { ui.notifications.error(...); throw new Error('No token selected'); }` and matching check for target."}, {"text": "Uses .stretchTo() for the projectile beam (not .moveTowards())", "passed": true, "evidence": "`.stretchTo(target)` in the main script."}, {"text": "Uses .waitUntilFinished() to chain projectile into impact", "passed": true, "evidence": "`.waitUntilFinished(-500)` with comment: 'start the impact slightly before the bolt ends'."}, {"text": "Uses JB2A database paths (jb2a.*) not file system paths (modules/jb2a_patreon/...)", "passed": true, "evidence": "Uses `jb2a.ray_of_frost.blue` and `jb2a.impact.frost.blue.01`. No filesystem paths."}, {"text": "JB2A paths reference ice/cold/frost-themed effects (not fire or generic)", "passed": true, "evidence": "ray_of_frost.blue (ice beam) and impact.frost.blue.01 (frost impact). Both explicitly ice/frost themed."}], "summary": {"passed": 7, "failed": 0, "total": 7, "pass_rate": 1.0}, "timing": {"executor_duration_seconds": 68.1, "total_duration_seconds": 68.1}, "claims": [{"claim": "Provides detailed explanations of what each Sequencer method does", "type": "quality", "verified": true, "evidence": "Dedicated 'What each piece does' section explaining .file(), .atLocation(), .stretchTo(), .waitUntilFinished(), .scaleToObject()."}, {"claim": "Mentions integration into Midi-QOL onUse macro", "type": "factual", "verified": true, "evidence": "Last section mentions 'A Midi-QOL onUse macro attached to the Frostbite Blade weapon item' but does not provide migration code."}], "eval_feedback": {"suggestions": [], "overall": "Baseline passes all 7 assertions. This eval does not discriminate strongly between with_skill and without_skill \u00e2\u20ac\u201d the API patterns tested are well-known enough that both approaches get them right. The null-check assertion is the only differentiator."}}}, {"id": "bless-persistent-aura-with_skill", "prompt": "My Paladin just cast Bless on three party members. I need a golden glowing aura on each blessed target that pulses gently and stays until the spell ends. I'm running Midi-QOL, DAE, and TimesUp. How do I set this up so the visual automatically goes away when Bless expires?", "eval_id": 1, "outputs": [{"name": "response.md", "type": "text", "content": "# Bless \u00e2\u20ac\u201d Persistent Golden Aura with Automatic Removal\n\n## Environment check\n\nYou're running Foundry v13, DND5e 5.2.5, with Midi-QOL, DAE, TimesUp, and JB2A Patreon. That's the full automation stack \u00e2\u20ac\u201d everything we need for a self-managing visual effect.\n\n## What we're building\n\n- A golden pulsing aura attached to each blessed token\n- Persists as long as the Bless Active Effect is present\n- Automatically removed when Bless expires (TimesUp handles duration, DAE triggers the cleanup macro, Sequencer ends the visual)\n\nThe chain is: **TimesUp expires the duration** \u00e2\u2020\u2019 **DAE removes the Active Effect** \u00e2\u2020\u2019 **DAE fires the macro with \"off\"** \u00e2\u2020\u2019 **Sequencer ends the persistent effect**. Once wired up, it's fully automatic.\n\n## Step 1: Prototype the visual in the console\n\nSelect one token on the canvas, then paste this into F12 console. This lets you see the aura before wiring anything up.\n\n```js\nconst token = canvas.tokens.controlled[0];\n\nnew Sequence()\n  .effect()\n    .file(\"jb2a.extras.tmfx.border.circle.inpulse.01.normal\")\n    .attachTo(token, { followRotation: false })\n    .scaleToObject(2)\n    .persist()\n    .name(\"bless_aura\")\n    .fadeIn(800)\n    .fadeOut(800)\n    .tint(\"#FFD700\")\n    .opacity(0.7)\n    .belowTokens()\n    .loopProperty(\"spriteContainer\", \"scale.x\", {\n      from: 0.95, to: 1.05,\n      duration: 1500,\n      pingPong: true,\n      ease: \"easeInOutSine\"\n    })\n    .loopProperty(\"spriteContainer\", \"scale.y\", {\n      from: 0.95, to: 1.05,\n      duration: 1500,\n      pingPong: true,\n      ease: \"easeInOutSine\"\n    })\n  .play();\n```\n\nWhat this does:\n- `jb2a.extras.tmfx.border.circle.inpulse.01.normal` \u00e2\u20ac\u201d a clean circular border pulse. Good for buff indicators.\n- `.attachTo(token, { followRotation: false })` \u00e2\u20ac\u201d follows the token's movement but doesn't spin when the token rotates.\n- `.scaleToObject(2)` \u00e2\u20ac\u201d sizes the aura to twice the token's dimensions. Adjust to taste (1.5 for tighter, 2.5 for wider).\n- `.tint(\"#FFD700\")` \u00e2\u20ac\u201d gold. This is what makes it feel like Bless specifically.\n- `.opacity(0.7)` \u00e2\u20ac\u201d slightly translucent so it doesn't overpower the token art.\n- `.belowTokens()` \u00e2\u20ac\u201d renders under the token so it frames rather than covers it.\n- The two `.loopProperty()` calls create the gentle pulse \u00e2\u20ac\u201d scaling between 0.95x and 1.05x over 1.5 seconds with a smooth sine easing, ping-ponging back and forth.\n\n**Clean up after testing:**\n```js\nawait Sequencer.EffectManager.endEffects({ name: \"bless_aura\" });\n```\n\nIf the gold tint doesn't pop enough against your map, try `\"#FFDF00\"` (slightly brighter) or `\"#FFC800\"` (warmer amber). If the pulse feels too subtle, widen the range to `from: 0.9, to: 1.1`. If it feels busy, narrow to `from: 0.97, to: 1.03` or remove the loopProperty calls entirely for a static glow.\n\n## Step 2: Create the DAE macro\n\nThis is the macro that DAE will call when the Active Effect is applied (\"on\") or removed (\"off\"). Go to the **Macro Directory** (book icon in the sidebar) \u00e2\u2020\u2019 **Create Macro** \u00e2\u2020\u2019 name it `Bless_Aura` \u00e2\u2020\u2019 set type to **Script**.\n\nPaste this:\n\n```js\n// Bless_Aura \u00e2\u20ac\u201d DAE macro\n// args[0] = \"on\" or \"off\"\n// args[1] = token ID\n// args[args.length - 1] = Active Effect origin (last arg)\n\nif (args[0] === \"on\") {\n  const token = canvas.tokens.get(args[1]);\n  if (!token) return;\n\n  new Sequence()\n    .effect()\n      .file(\"jb2a.extras.tmfx.border.circle.inpulse.01.normal\")\n      .attachTo(token, { followRotation: false })\n      .scaleToObject(2)\n      .persist()\n      .name(`bless_aura_${token.id}`)\n      .origin(args[args.length - 1])\n      .fadeIn(800)\n      .fadeOut(800)\n      .tint(\"#FFD700\")\n      .opacity(0.7)\n      .belowTokens()\n      .loopProperty(\"spriteContainer\", \"scale.x\", {\n        from: 0.95, to: 1.05,\n        duration: 1500,\n        pingPong: true,\n        ease: \"easeInOutSine\"\n      })\n      .loopProperty(\"spriteContainer\", \"scale.y\", {\n        from: 0.95, to: 1.05,\n        duration: 1500,\n        pingPong: true,\n        ease: \"easeInOutSine\"\n      })\n    .play();\n}\n\nif (args[0] === \"off\") {\n  await Sequencer.EffectManager.endEffects({ origin: args[args.length - 1] });\n}\n```\n\nKey differences from the prototype:\n- **`.name(`bless_aura_${token.id}`)`** \u00e2\u20ac\u201d unique name per token, so ending one doesn't kill all three.\n- **`.origin(args[args.length - 1])`** \u00e2\u20ac\u201d ties the effect to the Active Effect's UUID. The \"off\" block uses this origin to end exactly the right effect.\n- The \"off\" block uses `origin` instead of `name` to clean up \u00e2\u20ac\u201d this is more reliable because it's the same identifier DAE passes both times.\n\n## Step 3: Wire up the Bless spell's Active Effect\n\nOpen the Bless spell on the Paladin's character sheet. Go to the **Activities** tab (or **Effects** tab depending on your DND5e version). You need an Active Effect that:\n\n1. **Duration**: Set to match the spell \u00e2\u20ac\u201d 1 minute (10 rounds), concentration. TimesUp will track this.\n2. **Changes**: Add whatever mechanical bonuses Bless gives (if not already handled by Midi-QOL automation).\n3. **Macro Execute**: Set the value to `Bless_Aura` \u00e2\u20ac\u201d this is the name of the macro you just created in Step 2.\n\nThe \"Macro Execute\" field is what connects DAE to your Sequencer macro. When the Active Effect is applied to a target, DAE calls `Bless_Aura` with `args[0] = \"on\"`. When the Active Effect is removed (by TimesUp expiring it, by the caster dropping concentration, or by manual removal), DAE calls it again with `args[0] = \"off\"`.\n\n### If Midi-QOL is handling the targeting\n\nMidi-QOL should handle applying the Active Effect to all three targets when the spell is cast. The flow is:\n\n1. Paladin casts Bless, targets three allies\n2. Midi-QOL resolves the spell and applies the Bless Active Effect to each target\n3. DAE detects the Active Effect and calls `Bless_Aura` with `\"on\"` for each target\n4. Each target gets their own golden aura\n5. When concentration drops or 1 minute passes, TimesUp removes the Active Effects\n6. DAE calls `Bless_Aura` with `\"off\"` for each, ending each aura\n\nAll three auras appear independently and disappear independently. If one target gets Dispel Magic cast on them, only their aura goes away.\n\n## Summary\n\n| Piece | Role |\n|---|---|\n| Sequencer | Plays and manages the visual effect |\n| JB2A | Provides the circle border asset |\n| DAE | Connects the Active Effect lifecycle to the macro |\n| TimesUp | Tracks spell duration and removes the Active Effect on expiry |\n| Midi-QOL | Handles spell targeting and applies the Active Effect to each target |\n\nOnce this is set up, every future cast of Bless will automatically show golden auras on all targets, and they'll automatically clean up when the spell ends \u00e2\u20ac\u201d no manual intervention needed.\n"}], "grading": {"expectations": [{"text": "Uses .persist() to make the aura permanent on canvas", "passed": true, "evidence": "`.persist()` appears in both the console prototype (Step 1) and the DAE macro (Step 2)."}, {"text": "Uses .name() on every persistent effect for later cleanup", "passed": true, "evidence": "Console prototype uses `.name(\"bless_aura\")`, DAE macro uses `.name(`bless_aura_${token.id}`)` for per-token unique naming."}, {"text": "Uses .attachTo() so the aura follows the token", "passed": true, "evidence": "`.attachTo(token, { followRotation: false })` in both the prototype and the DAE macro."}, {"text": "Iterates over multiple targets (loop or forEach pattern, not hardcoded single target)", "passed": true, "evidence": "Multi-target handling is correctly delegated to DAE: 'Midi-QOL resolves the spell and applies the Bless Active Effect to each target. DAE detects the Active Effect and calls Bless_Aura with \"on\" for each target.' The macro handles one token per invocation because DAE calls it once per affected token \u00e2\u20ac\u201d this is the correct DAE pattern. Step 3 explicitly describes the per-target flow."}, {"text": "Includes cleanup code using Sequencer.EffectManager.endEffects", "passed": true, "evidence": "Console cleanup: `await Sequencer.EffectManager.endEffects({ name: \"bless_aura\" });`. DAE off-block: `await Sequencer.EffectManager.endEffects({ origin: args[args.length - 1] });`"}, {"text": "Describes the DAE on/off macro pattern (args[0] === 'on' / 'off')", "passed": true, "evidence": "DAE macro has `if (args[0] === \"on\")` and `if (args[0] === \"off\")` blocks. Explained: 'When the Active Effect is applied to a target, DAE calls Bless_Aura with args[0] = \"on\". When removed... DAE calls it again with args[0] = \"off\".'"}, {"text": "Explains the TimesUp -> DAE -> Sequencer automatic removal chain", "passed": true, "evidence": "Explicitly stated: 'TimesUp expires the duration \u00e2\u2020\u2019 DAE removes the Active Effect \u00e2\u2020\u2019 DAE fires the macro with \"off\" \u00e2\u2020\u2019 Sequencer ends the persistent effect.' Also has a summary table."}, {"text": "Uses .loopProperty() or similar for the pulsing animation", "passed": true, "evidence": "Two `.loopProperty(\"spriteContainer\", \"scale.x/y\", { from: 0.95, to: 1.05, duration: 1500, pingPong: true, ease: \"easeInOutSine\" })` calls create a gentle pulse."}], "summary": {"passed": 8, "failed": 0, "total": 8, "pass_rate": 1.0}, "timing": {"executor_duration_seconds": 82.6, "total_duration_seconds": 82.6}, "claims": [{"claim": "Starts with a console prototype before wiring into the module stack", "type": "process", "verified": true, "evidence": "Step 1 is 'Prototype the visual in the console' with a standalone paste-and-run script before any DAE setup."}, {"claim": "Uses origin-based cleanup in the off block rather than name-based", "type": "factual", "verified": true, "evidence": "Off block uses `{ origin: args[args.length - 1] }` and explanation: 'The \"off\" block uses origin instead of name to clean up \u00e2\u20ac\u201d this is more reliable because it's the same identifier DAE passes both times.'"}, {"claim": "Explains difference between .attachTo() and .atLocation()", "type": "quality", "verified": false, "evidence": "Uses .attachTo() correctly but doesn't explicitly contrast it with .atLocation() or explain why .attachTo() is needed instead."}], "eval_feedback": {"suggestions": [{"assertion": "Iterates over multiple targets (loop or forEach pattern, not hardcoded single target)", "reason": "This assertion is ambiguous for DAE macros. Both with and without skill correctly delegate multi-target iteration to DAE. A more discriminating version: 'Uses per-token unique naming (token.id in the name) to avoid cleanup collisions across multiple targets.'"}], "overall": "Strong pass across all assertions. The with_skill response adds iterative build workflow, loopProperty animation, and console prototyping that the without_skill version lacks."}}}, {"id": "bless-persistent-aura-without_skill", "prompt": "My Paladin just cast Bless on three party members. I need a golden glowing aura on each blessed target that pulses gently and stays until the spell ends. I'm running Midi-QOL, DAE, and TimesUp. How do I set this up so the visual automatically goes away when Bless expires?", "eval_id": 1, "outputs": [{"name": "response.md", "type": "text", "content": "# Persistent Golden Bless Aura with Auto-Removal (Sequencer + DAE + TimesUp)\n\n## Overview\n\nThis setup places a golden pulsing aura on each Bless target and automatically removes it when the spell's concentration ends. The integration chain is:\n\n- **Midi-QOL** handles the spell cast and applies the Bless active effect to each target.\n- **DAE** runs a macro when the effect is applied (`On`) and when it is removed (`Off`).\n- **TimesUp** tracks the spell duration and removes the active effect when the timer expires or concentration drops.\n- **Sequencer** draws and manages the persistent visual effect tied to each token.\n\nWhen TimesUp or Midi-QOL removes the Bless active effect (timer expiry, concentration loss, or manual deletion), DAE fires the macro in \"off\" mode, which tells Sequencer to end the visual.\n\n---\n\n## Step 1: Create the DAE ItemMacro\n\nCreate a macro in Foundry (type: `script`, any name you like -- e.g., `Bless VFX`). Paste the following:\n\n```js\n// Bless VFX \u00e2\u20ac\u201d DAE ItemMacro\n// Called by DAE with args[0] === \"on\" when applied, \"off\" when removed.\n// 'token' is provided by DAE as the affected token.\n\nconst mode = args[0];\n\nif (mode === \"on\") {\n  new Sequence()\n    .effect()\n      .file(\"jb2a.divine_smite.caster.yellowwhite\")\n      .attachTo(token)\n      .scaleToObject(1.8)\n      .fadeIn(500)\n      .fadeOut(500)\n      .opacity(0.6)\n      .persist()\n      .name(`bless-${token.id}`)\n      .origin(args[args.length - 1])\n    .play();\n}\n\nif (mode === \"off\") {\n  Sequencer.EffectManager.endEffects({ name: `bless-${token.id}`, origin: args[args.length - 1] });\n}\n```\n\n### What each Sequencer call does\n\n| Method | Purpose |\n|---|---|\n| `.file(\"jb2a.divine_smite.caster.yellowwhite\")` | JB2A asset -- a golden/white radiant glow that loops cleanly. This is from the JB2A Patreon pack. If you have the free pack, substitute `jb2a.divine_smite.caster.yellow` or another available golden effect. |\n| `.attachTo(token)` | Anchors the effect to the token so it moves with it. |\n| `.scaleToObject(1.8)` | Scales the effect to 1.8x the token size -- creates a visible aura ring around the token. Adjust to taste. |\n| `.fadeIn(500)` / `.fadeOut(500)` | Half-second fade on application and removal for a smooth look. |\n| `.opacity(0.6)` | Keeps the glow semi-transparent so it does not obscure the token art. |\n| `.persist()` | Keeps the effect running indefinitely (no duration limit) -- it stays until explicitly ended. |\n| `.name(\\`bless-${token.id}\\`)` | Tags the effect with a unique name per token so we can target it for removal later. |\n| `.origin(args[args.length - 1])` | DAE passes the origin item UUID as the last argument. This ties the effect to the specific spell cast, so only this cast's effects get cleaned up. |\n\n### Alternative JB2A assets\n\nIf you want a different look, these JB2A paths also work well for a golden aura:\n\n- `jb2a.markers.light_orb.loop.yellowwhite` -- soft orbiting light particles\n- `jb2a.template_circle.aura.01.yellowwhite` -- a circular aura ring on the ground\n- `jb2a.extras.tmfx.outflow.circle.01` -- radial energy outflow (use with `.tint(\"#FFD700\")`)\n\nPreview them in the Sequencer Effect Player (the film-reel button in the token controls) before committing.\n\n---\n\n## Step 2: Configure DAE on the Bless Spell Item\n\n1. Open the **Bless** spell in the actor's spellbook (or your shared Items folder).\n2. Go to the **Effects** tab.\n3. If there is no Active Effect for Bless yet, create one. Midi-QOL / DAE should already have one that grants the `1d4` bonus.\n4. On the Active Effect, set **Duration** so that TimesUp can track it:\n   - **Duration (seconds):** `60` (Bless lasts 1 minute / 10 rounds).\n   - Alternatively, **Duration (rounds):** `10` and **turns:** `start` or `end` based on your table's preference.\n5. In the Active Effect's **Effects** tab (the DAE fields), add a line:\n   - **Key:** `macro.itemMacro`\n   - **Mode:** `Custom`\n   - **Value:** *(leave blank -- DAE auto-calls the item's embedded macro)*\n6. On the Bless item's **Details** or **Macro** tab, click **ItemMacro** and paste the same script from Step 1 into the item macro field.\n\n> **Why `macro.itemMacro`?** This tells DAE to execute the macro embedded in the item itself (the ItemMacro) whenever the active effect is applied or removed. DAE passes `\"on\"` or `\"off\"` as `args[0]` and the origin UUID as the final argument.\n\n---\n\n## Step 3: Verify TimesUp + Midi-QOL Settings\n\nMake sure your modules are configured to work together:\n\n### TimesUp\n- **Game Settings > TimesUp > Enable:** checked.\n- **Expire effects on turn end/start:** set to match your table's convention.\n- TimesUp will count down the 60-second (or 10-round) duration you set in Step 2 and automatically delete the Active Effect when it reaches zero.\n\n### Midi-QOL\n- **Game Settings > Midi-QOL > Workflow > Concentration:** make sure concentration automation is enabled. When the Paladin loses concentration (damage, casting another concentration spell, or voluntary drop), Midi-QOL removes the Bless active effect from all targets.\n- **Remove active effects on spell expiry:** should be enabled (this is the default).\n\n### DAE\n- **Game Settings > DAE > Use DAE active effect evaluation:** enabled.\n- Confirm DAE is set to call ItemMacros (this is the default behavior when a `macro.itemMacro` effect key is present).\n\n---\n\n## Step 4: Test the Full Loop\n\n1. **Cast Bless** with the Paladin targeting three allies. Midi-QOL processes the spell and applies the Active Effect to each target.\n2. **Verify the aura appears** on all three tokens -- you should see the golden glow fade in on each one.\n3. **Move a blessed token** -- the aura should follow it.\n4. **End the spell** by any of these methods to confirm auto-removal:\n   - Advance rounds until the duration expires (TimesUp removes the effect).\n   - Have the Paladin take concentration damage and fail the save (Midi-QOL removes the effect).\n   - Right-click the Bless effect on a token and delete it manually.\n5. **Verify the aura disappears** with a smooth fade-out on each affected token.\n\n---\n\n## How the Auto-Removal Chain Works\n\n```\nSpell expires (TimesUp) \u00e2\u201d\u20ac\u00e2\u201d\u20ac\u00e2\u201d\ufffd\nConcentration lost (Midi) \u00e2\u201d\u20ac\u00e2\u201d\u00a4\u00e2\u201d\u20ac\u00e2\u201d\u20ac> Active Effect removed from token\nManual deletion \u00e2\u201d\u20ac\u00e2\u201d\u20ac\u00e2\u201d\u20ac\u00e2\u201d\u20ac\u00e2\u201d\u20ac\u00e2\u201d\u20ac\u00e2\u201d\u20ac\u00e2\u201d\u20ac\u00e2\u201d\u20ac\u00e2\u201d\u20ac\u00e2\u201d\u20ac\u00e2\u201d\u02dc\n                                     \u00e2\u201d\u201a\n                                     \u00e2\u2013\u00bc\n                          DAE fires ItemMacro with args[0] = \"off\"\n                                     \u00e2\u201d\u201a\n                                     \u00e2\u2013\u00bc\n                          Sequencer.EffectManager.endEffects()\n                          removes the named persistent effect\n                                     \u00e2\u201d\u201a\n                                     \u00e2\u2013\u00bc\n                          Golden aura fades out on the token\n```\n\n---\n\n## Troubleshooting\n\n| Symptom | Fix |\n|---|---|\n| Effect does not appear | Open the Sequencer Effect Player and search for the asset path to confirm your JB2A pack includes it. Free vs. Patreon packs have different assets. |\n| Effect appears but does not move with token | Make sure you are using `.attachTo(token)` and not `.atLocation(token)`. |\n| Effect does not disappear when spell ends | Confirm `macro.itemMacro` is in the Active Effect keys. Check that the effect has a duration set for TimesUp to track. Open the console (F12) and look for errors in the macro. |\n| Effect disappears but no fade-out | The `.fadeOut(500)` in the Sequence handles this, but if the effect is force-removed (e.g., via `Sequencer.EffectManager.endEffects`), the fade should still trigger. If not, increase to `.fadeOut(1000)`. |\n| Multiple overlapping auras on one token | The `.name()` and `.origin()` combo prevents duplicates from the same cast. If you are getting duplicates, make sure you are not also calling the macro from a separate hook or trigger. |\n| Console error about `args` being undefined | If running the macro standalone (not via DAE), `args` will not exist. This macro is designed to be called only through DAE's ItemMacro system. |\n"}], "grading": {"expectations": [{"text": "Uses .persist() to make the aura permanent on canvas", "passed": true, "evidence": "`.persist()` is used in the macro code."}, {"text": "Uses .name() on every persistent effect for later cleanup", "passed": true, "evidence": "`.name(`bless-${token.id}`)` provides per-token naming."}, {"text": "Uses .attachTo() so the aura follows the token", "passed": true, "evidence": "`.attachTo(token)` is used. Troubleshooting table even warns: 'Make sure you are using .attachTo(token) and not .atLocation(token).'"}, {"text": "Iterates over multiple targets (loop or forEach pattern, not hardcoded single target)", "passed": true, "evidence": "Multi-target handling is delegated to DAE: the macro is called per-target via the macro.itemMacro Active Effect key. Step 4 testing section confirms: 'Cast Bless with the Paladin targeting three allies. Midi-QOL processes the spell and applies the Active Effect to each target.'"}, {"text": "Includes cleanup code using Sequencer.EffectManager.endEffects", "passed": true, "evidence": "Off block: `Sequencer.EffectManager.endEffects({ name: `bless-${token.id}`, origin: args[args.length - 1] });`"}, {"text": "Describes the DAE on/off macro pattern (args[0] === 'on' / 'off')", "passed": true, "evidence": "Code uses `const mode = args[0];` with `if (mode === \"on\")` and `if (mode === \"off\")`. Explanation: 'Called by DAE with args[0] === \"on\" when applied, \"off\" when removed.'"}, {"text": "Explains the TimesUp -> DAE -> Sequencer automatic removal chain", "passed": true, "evidence": "Has an ASCII diagram: 'Spell expires (TimesUp) / Concentration lost (Midi) / Manual deletion \u00e2\u2020\u2019 Active Effect removed \u00e2\u2020\u2019 DAE fires ItemMacro with args[0] = \"off\" \u00e2\u2020\u2019 Sequencer.EffectManager.endEffects() \u00e2\u2020\u2019 Golden aura fades out'"}, {"text": "Uses .loopProperty() or similar for the pulsing animation", "passed": false, "evidence": "No .loopProperty() or equivalent animation call. Uses `jb2a.divine_smite.caster.yellowwhite` which is a self-animating asset, but the pulsing effect comes from the asset itself, not from a Sequencer animation technique. The assertion asks for a programmatic pulsing approach."}], "summary": {"passed": 7, "failed": 1, "total": 8, "pass_rate": 0.88}, "timing": {"executor_duration_seconds": 95.5, "total_duration_seconds": 95.5}, "claims": [{"claim": "Uses macro.itemMacro DAE key for Active Effect integration", "type": "factual", "verified": true, "evidence": "Step 2 instructs setting Key: `macro.itemMacro` on the Active Effect."}, {"claim": "References 'ItemMacro' terminology which could confuse with the obsolete Item Macro module", "type": "quality", "verified": true, "evidence": "Uses 'ItemMacro' throughout (the DAE key is named macro.itemMacro). While this is DAE's actual terminology, it could be confused with the obsolete Item Macro module. No disambiguation is provided."}, {"claim": "Provides alternative JB2A asset paths", "type": "factual", "verified": true, "evidence": "Lists 3 alternatives: jb2a.markers.light_orb.loop.yellowwhite, jb2a.template_circle.aura.01.yellowwhite, jb2a.extras.tmfx.outflow.circle.01"}], "eval_feedback": {"suggestions": [{"reason": "No assertion checks whether the response disambiguates DAE's 'macro.itemMacro' terminology from the obsolete Item Macro module. The without_skill response uses 'ItemMacro' throughout without clarification, which could confuse users who've heard Item Macro is dead."}], "overall": "Strong performance on structural assertions. The loopProperty assertion is the key discriminator. Consider adding an assertion about console prototyping before module wiring."}}}, {"id": "fire-bolt-triage-with_skill", "prompt": "We're mid-session and my custom fire bolt animation just stopped working. It was fine last week but now nothing happens when the macro runs \u00e2\u20ac\u201d no effect, no error in the console, nothing. My players are waiting. The macro code is:\n\nnew Sequence()\n  .effect()\n    .file(\"jb2a.fire_bolt.orange\")\n    .atLocation(token)\n    .stretchTo(args[0].targets[0])\n  .play();\n\nThis runs from an ItemMacro on the Fire Bolt cantrip.", "eval_id": 2, "outputs": [{"name": "response.md", "type": "text", "content": "I see the problem. Your macro uses `args[0].targets[0]` -- that's the **Item Macro module pattern**, and Item Macro is dead. It was superseded by built-in DND5e Activity macros in DND5e 3.x+. If you updated DND5e recently (and on 5.2.5 you're well past that), the `args` array no longer gets populated the way Item Macro used to populate it. That's why you get no effect and no error -- `args[0].targets[0]` silently resolves to `undefined`, and Sequencer just doesn't play anything when `.stretchTo()` receives `undefined`.\n\nLet's get you back to playing right now, then do it properly after the session.\n\n## Quick fix -- paste this into the browser console (F12)\n\nSelect the caster token, target the enemy, then run:\n\n```js\nconst caster = canvas.tokens.controlled[0];\nconst target = game.user.targets.first();\n\nif (!caster) { ui.notifications.warn(\"Select your caster token!\"); }\nelse if (!target) { ui.notifications.warn(\"Target an enemy first!\"); }\nelse {\n  new Sequence()\n    .effect()\n      .file(\"jb2a.fire_bolt.orange\")\n      .atLocation(caster)\n      .stretchTo(target)\n    .play();\n}\n```\n\nThat will fire right now with no module dependencies. Have the caster player select their token, target the enemy, and run it from the console each time they cast Fire Bolt. Ugly, but it works while players are waiting.\n\n## Slightly better band-aid -- save as a macro\n\nIf you want it on the hotbar instead of the console:\n\n1. Open the **Macro Directory** (book icon in the left sidebar)\n2. Click **Create Macro**\n3. Set type to **Script**\n4. Paste this:\n\n```js\nconst caster = canvas.tokens.controlled[0];\nconst target = game.user.targets.first();\n\nif (!caster) {\n  ui.notifications.warn(\"Select your caster token first!\");\n} else if (!target) {\n  ui.notifications.warn(\"Target an enemy first!\");\n} else {\n  new Sequence()\n    .effect()\n      .file(\"jb2a.fire_bolt.orange\")\n      .atLocation(caster)\n      .stretchTo(target)\n    .play();\n}\n```\n\n5. Save it, drag it to the hotbar. Select token, target enemy, click the macro.\n\nThat gets you through tonight.\n\n## Why it broke\n\nYour original code:\n\n```js\nnew Sequence()\n  .effect()\n    .file(\"jb2a.fire_bolt.orange\")\n    .atLocation(token)\n    .stretchTo(args[0].targets[0])\n  .play();\n```\n\nThis was written for the **Item Macro** module, which injected `token` and `args` into the macro context when an item was used. Item Macro is no longer maintained and has been superseded by DND5e's built-in Activity macros (since DND5e 3.x). On your current DND5e 5.2.5:\n\n- `token` in an ItemMacro context is likely `undefined` or stale\n- `args[0].targets[0]` is definitely `undefined` -- the old args structure doesn't get populated anymore\n- Sequencer receives `undefined` for both `.atLocation()` and `.stretchTo()`, so it silently does nothing -- no error, no effect\n\nThis would have broken whenever DND5e was updated past the point where Item Macro stopped being compatible, which lines up with \"it was fine last week\" if a module update landed.\n\n## The real fix (post-session)\n\nAfter the session, the correct approach is to wire this into **Midi-QOL hooks** so the effect fires automatically when Fire Bolt is cast and hits. No manual token selection needed. Here's the pattern:\n\n```js\nHooks.on(\"midi-qol.AttackRollComplete\", (workflow) => {\n  if (workflow.item.name !== \"Fire Bolt\") return;\n\n  let seq = new Sequence();\n\n  for (let target of workflow.hitTargets) {\n    seq.effect()\n      .file(\"jb2a.fire_bolt.orange\")\n      .atLocation(workflow.token)\n      .stretchTo(target);\n  }\n\n  // If missed targets should get a \"near miss\" visual:\n  for (let target of workflow.targets) {\n    if (workflow.hitTargets.has(target)) continue;\n    seq.effect()\n      .file(\"jb2a.fire_bolt.orange\")\n      .atLocation(workflow.token)\n      .stretchTo(target)\n      .missed(true);\n  }\n\n  seq.play();\n});\n```\n\nThis hooks into Midi-QOL's attack resolution. `workflow.token` is the caster, `workflow.hitTargets` is everyone who was actually hit, `workflow.targets` is everyone targeted. The effect fires automatically -- no token selection, no targeting, no manual macro click. Hits land on target; misses veer off.\n\nYou'd register this hook in a world script or a macro that runs on world load. We can set that up properly when there's no table waiting.\n\n---\n\n## Sequencer Triage Report -- 2026-05-14\n\n**Symptom:** Fire Bolt animation produces no effect and no console error. Macro runs silently with no visible result.\n\n**Context:** ItemMacro on Fire Bolt cantrip. Was working last week, stopped working with no code changes. Likely triggered by a DND5e or module update.\n\n**Error messages:** None -- silent failure due to `undefined` token/target references.\n\n**Quick fixes attempted:** Replaced with console/hotbar macro using `canvas.tokens.controlled[0]` and `game.user.targets.first()` -- works.\n\n**Band-aid applied:** Manual hotbar macro (select token + target enemy + click). Functional but requires manual steps per cast.\n\n**Suspected cause:** Item Macro module is obsolete. `args[0].targets[0]` no longer gets populated in DND5e 5.2.5. The old ItemMacro context injection stopped working after a system update.\n\n**Next steps:**\n1. Remove the Item Macro module entirely if still installed\n2. Wire Fire Bolt effect into a Midi-QOL `AttackRollComplete` hook (code provided above)\n3. Register the hook in a world script so it loads automatically\n4. Check all other items using ItemMacro patterns and migrate them to Midi-QOL hooks or DND5e Activity macros\n5. Verify the JB2A database path is still valid: run `Sequencer.Database.getEntry(\"jb2a.fire_bolt.orange\")` in console -- should return a SequencerFile, not false\n\n### Relevant code (original, broken)\n```js\nnew Sequence()\n  .effect()\n    .file(\"jb2a.fire_bolt.orange\")\n    .atLocation(token)\n    .stretchTo(args[0].targets[0])\n  .play();\n```\n\n### Environment\n- Foundry version: v13\n- DND5e version: 5.2.5\n- Sequencer version: (check in Module Management)\n- Midi-QOL version: (check in Module Management)\n- JB2A: Patreon pack\n- Other relevant modules: DAE, TimesUp, Portal\n"}], "grading": {"expectations": [{"text": "Identifies ItemMacro as an obsolete/dead module", "passed": true, "evidence": "Opens with: 'Item Macro is dead. It was superseded by built-in DND5e Activity macros in DND5e 3.x+.' Triage report: 'Item Macro module is obsolete.'"}, {"text": "Does NOT suggest installing or re-enabling Item Macro", "passed": true, "evidence": "Triage report next steps: 'Remove the Item Macro module entirely if still installed.' Actively recommends removing it, not reinstalling."}, {"text": "Identifies args[0].targets[0] as a dead/obsolete pattern", "passed": true, "evidence": "'args[0].targets[0] -- that\u00e2\u20ac\u2122s the Item Macro module pattern... the args array no longer gets populated the way Item Macro used to populate it.' Explicitly marks the pattern as non-functional."}, {"text": "Provides a quick console-testable replacement using canvas.tokens.controlled and game.user.targets", "passed": true, "evidence": "Quick fix section: `const caster = canvas.tokens.controlled[0]; const target = game.user.targets.first();` \u00e2\u20ac\u201d a standalone console script with no module dependencies."}, {"text": "Offers a band-aid workaround to get back to playing quickly", "passed": true, "evidence": "'Slightly better band-aid -- save as a macro' section with step-by-step hotbar macro creation. Also the console paste fix for immediate use."}, {"text": "Suggests or provides a triage report for deeper debugging later", "passed": true, "evidence": "Full 'Sequencer Triage Report -- 2026-05-14' section with: Symptom, Context, Error messages, Quick fixes attempted, Band-aid applied, Suspected cause, Next steps (5 items), Relevant code, Environment checklist."}, {"text": "Response is concise and action-oriented (reflects time pressure, not a lengthy tutorial)", "passed": true, "evidence": "Opens with diagnosis in one paragraph, immediately provides console fix. Structure: quick fix \u00e2\u2020\u2019 band-aid \u00e2\u2020\u2019 why it broke \u00e2\u2020\u2019 real fix \u00e2\u2020\u2019 triage report. Urgency-first ordering."}], "summary": {"passed": 7, "failed": 0, "total": 7, "pass_rate": 1.0}, "timing": {"executor_duration_seconds": 84.1, "total_duration_seconds": 84.1}, "claims": [{"claim": "Identifies that Sequencer silently does nothing when given undefined locations", "type": "factual", "verified": true, "evidence": "'Sequencer receives undefined for both .atLocation() and .stretchTo(), so it silently does nothing -- no error, no effect'"}, {"claim": "Provides Midi-QOL hook pattern as the permanent fix", "type": "factual", "verified": true, "evidence": "Post-session section provides `Hooks.on(\"midi-qol.AttackRollComplete\", (workflow) => {...})` with hit/miss handling."}, {"claim": "Recommends removing Item Macro module", "type": "factual", "verified": true, "evidence": "Triage report step 1: 'Remove the Item Macro module entirely if still installed'"}, {"claim": "Suggests checking all other items using ItemMacro patterns", "type": "quality", "verified": true, "evidence": "Triage report step 4: 'Check all other items using ItemMacro patterns and migrate them to Midi-QOL hooks or DND5e Activity macros'"}], "eval_feedback": {"suggestions": [{"reason": "Consider adding an assertion: 'Recommends migrating to Midi-QOL hooks or DND5e Activity macros as the permanent solution.' This captures a key skill behavior \u00e2\u20ac\u201d actively guiding toward the modern stack rather than just fixing the immediate problem."}], "overall": "Perfect pass. This eval is the strongest discriminator in the set \u00e2\u20ac\u201d the with_skill response dramatically outperforms the baseline by correctly identifying the root cause and migration path."}}}, {"id": "fire-bolt-triage-without_skill", "prompt": "We're mid-session and my custom fire bolt animation just stopped working. It was fine last week but now nothing happens when the macro runs \u00e2\u20ac\u201d no effect, no error in the console, nothing. My players are waiting. The macro code is:\n\nnew Sequence()\n  .effect()\n    .file(\"jb2a.fire_bolt.orange\")\n    .atLocation(token)\n    .stretchTo(args[0].targets[0])\n  .play();\n\nThis runs from an ItemMacro on the Fire Bolt cantrip.", "eval_id": 2, "outputs": [{"name": "response.md", "type": "text", "content": "# Fire Bolt Animation Triage\n\n## Quick Diagnosis\n\nYour macro code is syntactically fine. The \"silent failure\" pattern -- no animation AND no console error -- points to one of a few specific causes. Here they are ranked by likelihood given your stack (Foundry v13, DND5e 5.2.5, Midi-QOL, Sequencer, JB2A Patreon).\n\n---\n\n## Most Likely Cause: Midi-QOL / ItemMacro Hook Change\n\nFoundry v13 and recent Midi-QOL updates changed how ItemMacro scripts receive their arguments. The variable `args[0].targets[0]` may now be undefined or structured differently, which would cause Sequencer to silently skip the effect (Sequencer does not throw when a location resolves to nothing -- it just plays nothing).\n\n### Immediate Fix (get your game moving now)\n\nReplace your ItemMacro with this version that adds defensive checks and uses the current Midi-QOL argument structure:\n\n```javascript\n// Fire Bolt -- ItemMacro (postAttackRoll or postDamageRoll)\nconst lastArg = args[args.length - 1];\n\n// Try multiple ways to get the target token\nlet targetToken;\n\n// Method 1: Midi-QOL workflow targets (current v13 pattern)\nif (lastArg?.targets?.length > 0) {\n  targetToken = lastArg.targets[0].object ?? lastArg.targets[0];\n}\n\n// Method 2: game.user.targets fallback\nif (!targetToken) {\n  const userTargets = Array.from(game.user.targets);\n  if (userTargets.length > 0) {\n    targetToken = userTargets[0];\n  }\n}\n\n// Method 3: args[0] direct (legacy pattern)\nif (!targetToken && args[0]?.targets?.[0]) {\n  targetToken = args[0].targets[0].object ?? args[0].targets[0];\n}\n\nif (!targetToken) {\n  ui.notifications.warn(\"Fire Bolt: No target found for animation.\");\n} else {\n  new Sequence()\n    .effect()\n      .file(\"jb2a.fire_bolt.orange\")\n      .atLocation(token)\n      .stretchTo(targetToken)\n    .play();\n}\n```\n\n### Why this works\n\n- `args[args.length - 1]` is the standard way to get the Midi-QOL workflow data regardless of which hook phase you are in.\n- The `.object` accessor handles cases where Midi-QOL passes a token document rather than a token placeable (Sequencer needs the placeable for positioning).\n- The `game.user.targets` fallback catches cases where the workflow arguments are empty but the user still has a target selected.\n- The `ui.notifications.warn` replaces the silent failure with a visible message if something is still wrong.\n\n---\n\n## Other Possible Causes (check if the above does not fix it)\n\n### 1. Sequencer Module Updated and Broke Compatibility\n\nCheck: Open the console (F12) and type:\n```javascript\nSequencer.Database.getEntry(\"jb2a.fire_bolt.orange\")\n```\n- If it returns `undefined`, JB2A's database entries did not register. Try: **Settings > Manage Modules** and toggle Sequencer and JB2A off, save, then toggle them back on and reload.\n\n### 2. The `token` Variable Is Not Defined\n\nIn Foundry v13, the implicit `token` variable in ItemMacro depends on the macro execution context. If Midi-QOL changed which hook fires your macro, `token` might be undefined.\n\nCheck by adding this at the top of your macro:\n```javascript\nconsole.log(\"token:\", token);\nconsole.log(\"args:\", JSON.stringify(args, null, 2));\n```\n\nIf `token` is undefined, replace `token` with:\n```javascript\nconst sourceToken = canvas.tokens.get(lastArg.tokenId);\n```\nThen use `sourceToken` in `.atLocation(sourceToken)`.\n\n### 3. JB2A Asset Path Changed\n\nThe JB2A Patreon module occasionally renames database keys between versions. If `Sequencer.Database.getEntry(\"jb2a.fire_bolt.orange\")` returns nothing, try:\n```javascript\n// Check what fire_bolt entries exist\nSequencer.Database.getPathsUnder(\"jb2a.fire_bolt\")\n```\nThe path may have changed to something like `jb2a.ranged.fire_bolt.orange` or `jb2a.fire_bolt.orange.01`.\n\n### 4. ItemMacro Execution Phase\n\nIf your ItemMacro is set to run at a phase where the attack has not resolved targets yet, `targets` will be empty. In Midi-QOL settings, ensure the macro runs at **postAttackRoll** or later (not preAttackRoll).\n\n---\n\n## Full Robust Version (for after the session)\n\nOnce the game is over, consider this more complete version:\n\n```javascript\n// Fire Bolt -- robust ItemMacro for Foundry v13 + Midi-QOL + Sequencer + JB2A\nconst lastArg = args[args.length - 1];\n\n// Resolve source token\nconst sourceToken = token ?? canvas.tokens.get(lastArg.tokenId);\nif (!sourceToken) {\n  console.warn(\"Fire Bolt macro: could not resolve source token\");\n  return;\n}\n\n// Resolve target token\nlet targetToken;\nif (lastArg?.targets?.length > 0) {\n  const t = lastArg.targets[0];\n  targetToken = t.object ?? canvas.tokens.get(t.id ?? t._id ?? t.document?.id);\n} else {\n  const userTargets = Array.from(game.user.targets);\n  if (userTargets.length > 0) targetToken = userTargets[0];\n}\n\nif (!targetToken) {\n  ui.notifications.warn(\"Fire Bolt: No target token found.\");\n  return;\n}\n\n// Verify JB2A asset exists\nconst assetPath = \"jb2a.fire_bolt.orange\";\nconst entry = Sequencer.Database.getEntry(assetPath);\nif (!entry) {\n  ui.notifications.warn(`Fire Bolt: Asset \"${assetPath}\" not found in Sequencer DB.`);\n  console.warn(\"Available fire_bolt paths:\", Sequencer.Database.getPathsUnder(\"jb2a.fire_bolt\"));\n  return;\n}\n\n// Play the animation\nnew Sequence()\n  .effect()\n    .file(assetPath)\n    .atLocation(sourceToken)\n    .stretchTo(targetToken)\n    .missed(lastArg.hitTargets?.size === 0)\n  .play();\n```\n\nThis version also adds a `.missed()` call so the bolt veers off on a miss -- a nice visual touch.\n\n---\n\n## 30-Second Action Plan\n\n1. Open the Fire Bolt item, go to the ItemMacro tab.\n2. Paste the \"Immediate Fix\" code above.\n3. Save. Target a token. Cast Fire Bolt.\n4. If it still does not fire, open the console (F12) and check for any output -- the warn/log messages will tell you exactly which link in the chain is broken.\n"}], "grading": {"expectations": [{"text": "Identifies ItemMacro as an obsolete/dead module", "passed": false, "evidence": "Does NOT identify ItemMacro as obsolete. Frames the issue as 'Midi-QOL / ItemMacro Hook Change' \u00e2\u20ac\u201d treats ItemMacro as still active but with changed argument structure. Continues to patch the ItemMacro pattern rather than migrating away from it."}, {"text": "Does NOT suggest installing or re-enabling Item Macro", "passed": true, "evidence": "Does not explicitly suggest installing Item Macro. However, the entire response assumes ItemMacro is still in use and continues building on it, which implicitly validates the obsolete module."}, {"text": "Identifies args[0].targets[0] as a dead/obsolete pattern", "passed": false, "evidence": "Describes the pattern as 'may now be undefined or structured differently' \u00e2\u20ac\u201d treats it as changed, not dead. Provides fallback code that still tries `args[0]?.targets?.[0]` as 'Method 3: args[0] direct (legacy pattern)' and retains it as a viable path."}, {"text": "Provides a quick console-testable replacement using canvas.tokens.controlled and game.user.targets", "passed": false, "evidence": "The 'Immediate Fix' code uses `args[args.length - 1]` and `token` from the ItemMacro execution context. `game.user.targets` is only a fallback (Method 2), not the primary approach. The code requires pasting into the ItemMacro tab, not the browser console \u00e2\u20ac\u201d it cannot run standalone in the console because it depends on the `args` and `token` variables that ItemMacro provides."}, {"text": "Offers a band-aid workaround to get back to playing quickly", "passed": true, "evidence": "'Immediate Fix' section with code to paste into ItemMacro tab, plus '30-Second Action Plan' at the bottom. Does provide a path to resume playing, though it requires editing the spell item rather than a quick console paste."}, {"text": "Suggests or provides a triage report for deeper debugging later", "passed": false, "evidence": "No triage report template or structured debugging document. Has 'Other Possible Causes' (4 subsections) and 'Full Robust Version (for after the session)' but no formatted triage report with symptom, cause, next steps, and environment data."}, {"text": "Response is concise and action-oriented (reflects time pressure, not a lengthy tutorial)", "passed": false, "evidence": "Response is lengthy: Quick Diagnosis, Most Likely Cause (long code block with 3 fallback methods), 4 other possible causes with subsections, Full Robust Version, 30-Second Action Plan. The action plan is buried at the very bottom. A DM with players waiting would need to read through significant diagnostic content before finding actionable steps."}], "summary": {"passed": 2, "failed": 5, "total": 7, "pass_rate": 0.29}, "timing": {"executor_duration_seconds": 60.0, "total_duration_seconds": 60.0}, "claims": [{"claim": "The args structure changed in Foundry v13 / Midi-QOL updates", "type": "factual", "verified": false, "evidence": "The actual cause is that Item Macro is obsolete and no longer injects args/token at all. The response incorrectly frames this as a structural change rather than a module death."}, {"claim": "args[args.length - 1] is the standard way to get Midi-QOL workflow data", "type": "factual", "verified": false, "evidence": "This is only true within a DAE macro context, not an ItemMacro context. The response conflates DAE arg passing with ItemMacro arg passing."}, {"claim": "token variable might be undefined due to hook context changes", "type": "factual", "verified": true, "evidence": "Correct observation: 'the implicit token variable in ItemMacro depends on the macro execution context.' However, the root cause is that ItemMacro is dead, not that the context shifted."}], "eval_feedback": {"suggestions": [], "overall": "This baseline dramatically underperforms the with_skill version. The core failure is misdiagnosing the root cause \u00e2\u20ac\u201d patching an obsolete module instead of identifying it as dead. This eval is the strongest signal that the skill adds real value."}}}], "previous_feedback": {}, "previous_outputs": {}, "benchmark": {"metadata": {"skill_name": "sequencer", "skill_path": "sequencer/SKILL.md", "executor_model": "claude-sonnet-4-20250514", "analyzer_model": "claude-opus-4-6", "timestamp": "2026-05-14T17:40:00Z", "evals_run": ["frostbite-projectile", "bless-persistent-aura", "fire-bolt-triage"], "runs_per_configuration": 1}, "runs": [{"eval_id": 0, "eval_name": "frostbite-projectile", "configuration": "with_skill", "run_number": 1, "result": {"pass_rate": 0.86, "passed": 6, "failed": 1, "total": 7, "time_seconds": 85.0, "tokens": 56169, "tool_calls": 0, "errors": 0}, "expectations": [{"text": "Uses canvas.tokens.controlled[0] for caster token (correct console context)", "passed": true, "evidence": "All four code examples use `const caster = canvas.tokens.controlled[0];`"}, {"text": "Uses game.user.targets for target token (not args or workflow)", "passed": true, "evidence": "All four code examples use `const target = game.user.targets.first();`"}, {"text": "Includes null-check or validation on token references before running the effect", "passed": false, "evidence": "No code block includes a guard clause. Step 2 mentions checking as prose troubleshooting but no programmatic null-check in any script."}, {"text": "Uses .stretchTo() for the projectile beam (not .moveTowards())", "passed": true, "evidence": "`.stretchTo(target)` used in all four code examples."}, {"text": "Uses .waitUntilFinished() to chain projectile into impact", "passed": true, "evidence": "`.waitUntilFinished(-500)` appears in Steps 3, 4, and the alternative."}, {"text": "Uses JB2A database paths (jb2a.*) not file system paths", "passed": true, "evidence": "All effect files use database paths: jb2a.ray_of_frost, jb2a.impact.004.blue, jb2a.ice_shard."}, {"text": "JB2A paths reference ice/cold/frost-themed effects", "passed": true, "evidence": "ray_of_frost, impact.004.blue, ice_shard \u00e2\u20ac\u201d all ice/cold themed."}], "notes": ["Follows iterative build workflow (4 steps from discovery to polish)", "Recommends asset discovery with getPathsUnder() before writing code"]}, {"eval_id": 0, "eval_name": "frostbite-projectile", "configuration": "without_skill", "run_number": 1, "result": {"pass_rate": 1.0, "passed": 7, "failed": 0, "total": 7, "time_seconds": 68.1, "tokens": 39523, "tool_calls": 0, "errors": 0}, "expectations": [{"text": "Uses canvas.tokens.controlled[0] for caster token (correct console context)", "passed": true, "evidence": "`const attacker = canvas.tokens.controlled[0];`"}, {"text": "Uses game.user.targets for target token (not args or workflow)", "passed": true, "evidence": "`const target = game.user.targets.first();`"}, {"text": "Includes null-check or validation on token references before running the effect", "passed": true, "evidence": "Guard clauses with ui.notifications.error and throw."}, {"text": "Uses .stretchTo() for the projectile beam (not .moveTowards())", "passed": true, "evidence": "`.stretchTo(target)` in main script."}, {"text": "Uses .waitUntilFinished() to chain projectile into impact", "passed": true, "evidence": "`.waitUntilFinished(-500)` present."}, {"text": "Uses JB2A database paths (jb2a.*) not file system paths", "passed": true, "evidence": "jb2a.ray_of_frost.blue and jb2a.impact.frost.blue.01."}, {"text": "JB2A paths reference ice/cold/frost-themed effects", "passed": true, "evidence": "ray_of_frost.blue and impact.frost.blue.01."}], "notes": ["Provides finished product rather than iterative steps", "Includes null checks that with_skill version omitted"]}, {"eval_id": 1, "eval_name": "bless-persistent-aura", "configuration": "with_skill", "run_number": 1, "result": {"pass_rate": 1.0, "passed": 8, "failed": 0, "total": 8, "time_seconds": 82.6, "tokens": 56030, "tool_calls": 0, "errors": 0}, "expectations": [{"text": "Uses .persist()", "passed": true, "evidence": ".persist() in both console prototype and DAE macro."}, {"text": "Uses .name() on every persistent effect", "passed": true, "evidence": ".name(\"bless_aura\") and .name(`bless_aura_${token.id}`)."}, {"text": "Uses .attachTo()", "passed": true, "evidence": ".attachTo(token, { followRotation: false })."}, {"text": "Iterates over multiple targets", "passed": true, "evidence": "Multi-target delegated to DAE per-target invocation; explained in Step 3 flow description."}, {"text": "Includes cleanup code using Sequencer.EffectManager.endEffects", "passed": true, "evidence": "Console cleanup and DAE off-block both use endEffects()."}, {"text": "Describes the DAE on/off macro pattern", "passed": true, "evidence": "if (args[0] === \"on\") and if (args[0] === \"off\") blocks."}, {"text": "Explains the TimesUp -> DAE -> Sequencer removal chain", "passed": true, "evidence": "Explicit chain: 'TimesUp expires \u00e2\u2020\u2019 DAE removes \u00e2\u2020\u2019 DAE fires macro \u00e2\u2020\u2019 Sequencer ends effect.'"}, {"text": "Uses .loopProperty() or similar for pulsing", "passed": true, "evidence": "Two .loopProperty() calls with pingPong for scale pulse."}], "notes": ["Console prototype before module wiring", "Origin-based cleanup in off block"]}, {"eval_id": 1, "eval_name": "bless-persistent-aura", "configuration": "without_skill", "run_number": 1, "result": {"pass_rate": 0.88, "passed": 7, "failed": 1, "total": 8, "time_seconds": 95.5, "tokens": 41376, "tool_calls": 0, "errors": 0}, "expectations": [{"text": "Uses .persist()", "passed": true, "evidence": ".persist() is used."}, {"text": "Uses .name() on every persistent effect", "passed": true, "evidence": ".name(`bless-${token.id}`)."}, {"text": "Uses .attachTo()", "passed": true, "evidence": ".attachTo(token) is used."}, {"text": "Iterates over multiple targets", "passed": true, "evidence": "DAE per-target invocation via macro.itemMacro key."}, {"text": "Includes cleanup code using Sequencer.EffectManager.endEffects", "passed": true, "evidence": "endEffects() in off block with name and origin filters."}, {"text": "Describes the DAE on/off macro pattern", "passed": true, "evidence": "const mode = args[0]; if (mode === 'on') / if (mode === 'off')."}, {"text": "Explains the TimesUp -> DAE -> Sequencer removal chain", "passed": true, "evidence": "ASCII diagram showing the full chain."}, {"text": "Uses .loopProperty() or similar for pulsing", "passed": false, "evidence": "No .loopProperty(). Uses self-animating divine_smite asset instead of a programmatic pulse."}], "notes": ["Relies on self-animating asset for pulse rather than Sequencer animation", "Uses macro.itemMacro terminology without disambiguating from obsolete Item Macro module"]}, {"eval_id": 2, "eval_name": "fire-bolt-triage", "configuration": "with_skill", "run_number": 1, "result": {"pass_rate": 1.0, "passed": 7, "failed": 0, "total": 7, "time_seconds": 84.1, "tokens": 56856, "tool_calls": 0, "errors": 0}, "expectations": [{"text": "Identifies ItemMacro as obsolete/dead", "passed": true, "evidence": "'Item Macro is dead. It was superseded by built-in DND5e Activity macros.'"}, {"text": "Does NOT suggest installing Item Macro", "passed": true, "evidence": "Recommends removing it: 'Remove the Item Macro module entirely if still installed.'"}, {"text": "Identifies args[0].targets[0] as dead pattern", "passed": true, "evidence": "'the args array no longer gets populated the way Item Macro used to populate it.'"}, {"text": "Provides console-testable replacement", "passed": true, "evidence": "Standalone script with canvas.tokens.controlled[0] and game.user.targets.first()."}, {"text": "Offers band-aid workaround", "passed": true, "evidence": "Hotbar macro section with step-by-step creation instructions."}, {"text": "Provides triage report", "passed": true, "evidence": "Full structured report: Symptom, Context, Suspected cause, Next steps, Environment."}, {"text": "Response is concise and action-oriented", "passed": true, "evidence": "Opens with diagnosis, immediately provides fix. Urgency-first structure."}], "notes": ["Identifies Sequencer's silent failure on undefined locations", "Provides Midi-QOL hook migration path as permanent fix", "Recommends auditing all ItemMacro patterns"]}, {"eval_id": 2, "eval_name": "fire-bolt-triage", "configuration": "without_skill", "run_number": 1, "result": {"pass_rate": 0.29, "passed": 2, "failed": 5, "total": 7, "time_seconds": 60.0, "tokens": 38770, "tool_calls": 0, "errors": 0}, "expectations": [{"text": "Identifies ItemMacro as obsolete/dead", "passed": false, "evidence": "Treats ItemMacro as active but changed. 'Midi-QOL / ItemMacro Hook Change' framing."}, {"text": "Does NOT suggest installing Item Macro", "passed": true, "evidence": "Doesn't explicitly suggest installing it, but continues patching it."}, {"text": "Identifies args[0].targets[0] as dead pattern", "passed": false, "evidence": "Treats as 'may be undefined or structured differently' and retains as fallback Method 3."}, {"text": "Provides console-testable replacement", "passed": false, "evidence": "Immediate Fix requires ItemMacro execution context (args, token). Not console-testable."}, {"text": "Offers band-aid workaround", "passed": true, "evidence": "Provides Immediate Fix code for ItemMacro tab and 30-Second Action Plan."}, {"text": "Provides triage report", "passed": false, "evidence": "No structured triage report. Has diagnostic sections but no formatted report template."}, {"text": "Response is concise and action-oriented", "passed": false, "evidence": "Long response with action plan buried at bottom. Diagnostic-heavy, not urgency-first."}], "notes": ["Misdiagnoses root cause \u00e2\u20ac\u201d patches obsolete module instead of identifying it as dead", "Incorrectly claims args[args.length - 1] works in ItemMacro context"]}], "run_summary": {"with_skill": {"pass_rate": {"mean": 0.953, "stddev": 0.082, "min": 0.86, "max": 1.0}, "time_seconds": {"mean": 83.9, "stddev": 1.2, "min": 82.6, "max": 85.0}, "tokens": {"mean": 56352, "stddev": 442, "min": 56030, "max": 56856}}, "without_skill": {"pass_rate": {"mean": 0.723, "stddev": 0.381, "min": 0.29, "max": 1.0}, "time_seconds": {"mean": 74.5, "stddev": 18.6, "min": 60.0, "max": 95.5}, "tokens": {"mean": 39890, "stddev": 1341, "min": 38770, "max": 41376}}, "delta": {"pass_rate": "+0.23", "time_seconds": "+9.4", "tokens": "+16462"}}, "notes": ["STRONGEST SIGNAL: Fire-bolt triage eval shows 1.0 vs 0.29 pass rate \u00e2\u20ac\u201d the skill's obsolete-module guard and emergency mode are the primary differentiators.", "WEAKEST SIGNAL: Frostbite projectile baseline outperforms with_skill (1.0 vs 0.86) due to null-check assertion. The skill's iterative build workflow is valuable but untested by current assertions.", "NON-DISCRIMINATING: 5 of 7 frostbite assertions pass for both configurations. These test Sequencer API knowledge that the base model already has.", "TOKEN COST: With-skill runs use ~41% more tokens (56K vs 40K mean) due to loading skill + reference files. Time cost is modest (+9.4s mean).", "HIGH VARIANCE (without_skill): Pass rate stddev of 0.381 driven by fire-bolt triage collapse (0.29). Without the skill, performance on triage tasks is unpredictable.", "LOW VARIANCE (with_skill): Pass rate stddev of 0.082 \u00e2\u20ac\u201d the skill produces consistently high quality across all three eval types.", "BLESS EVAL: With_skill wins on loopProperty (programmatic pulse vs self-animating asset) and was faster (82.6s vs 95.5s). Both handle the DAE/TimesUp chain well.", "SUGGESTED NEW ASSERTIONS: (1) 'Follows iterative build pattern' for frostbite, (2) 'Recommends Midi-QOL hook migration' for fire-bolt, (3) 'Starts with console prototype' for bless."]}};
+
+    // ---- State ----
+    let feedbackMap = {};  // run_id -> feedback text
+    let currentIndex = 0;
+    let visitedRuns = new Set();
+
+    // ---- Init ----
+    async function init() {
+      // Load saved feedback from server — but only if this isn't a fresh
+      // iteration (indicated by previous_feedback being present). When
+      // previous feedback exists, the feedback.json on disk is stale from
+      // the prior iteration and should not pre-fill the textareas.
+      const hasPrevious = Object.keys(EMBEDDED_DATA.previous_feedback || {}).length > 0
+        || Object.keys(EMBEDDED_DATA.previous_outputs || {}).length > 0;
+      if (!hasPrevious) {
+        try {
+          const resp = await fetch("/api/feedback");
+          const data = await resp.json();
+          if (data.reviews) {
+            for (const r of data.reviews) feedbackMap[r.run_id] = r.feedback;
+          }
+        } catch { /* first run, no feedback yet */ }
+      }
+
+      document.getElementById("skill-name").textContent = EMBEDDED_DATA.skill_name;
+      showRun(0);
+
+      // Wire up feedback auto-save
+      const textarea = document.getElementById("feedback");
+      let saveTimeout = null;
+      textarea.addEventListener("input", () => {
+        clearTimeout(saveTimeout);
+        document.getElementById("feedback-status").textContent = "";
+        saveTimeout = setTimeout(() => saveCurrentFeedback(), 800);
+      });
+    }
+
+    // ---- Navigation ----
+    function navigate(delta) {
+      const newIndex = currentIndex + delta;
+      if (newIndex >= 0 && newIndex < EMBEDDED_DATA.runs.length) {
+        saveCurrentFeedback();
+        showRun(newIndex);
+      }
+    }
+
+    function updateNavButtons() {
+      document.getElementById("prev-btn").disabled = currentIndex === 0;
+      document.getElementById("next-btn").disabled =
+        currentIndex === EMBEDDED_DATA.runs.length - 1;
+    }
+
+    // ---- Show a run ----
+    function showRun(index) {
+      currentIndex = index;
+      const run = EMBEDDED_DATA.runs[index];
+
+      // Progress
+      document.getElementById("progress").textContent =
+        `${index + 1} of ${EMBEDDED_DATA.runs.length}`;
+
+      // Prompt
+      document.getElementById("prompt-text").textContent = run.prompt;
+
+      // Config badge
+      const badge = document.getElementById("config-badge");
+      const configMatch = run.id.match(/(with_skill|without_skill|new_skill|old_skill)/);
+      if (configMatch) {
+        const config = configMatch[1];
+        const isBaseline = config === "without_skill" || config === "old_skill";
+        badge.textContent = config.replace(/_/g, " ");
+        badge.className = "config-badge " + (isBaseline ? "config-baseline" : "config-primary");
+        badge.style.display = "inline-block";
+      } else {
+        badge.style.display = "none";
+      }
+
+      // Outputs
+      renderOutputs(run);
+
+      // Previous outputs
+      renderPrevOutputs(run);
+
+      // Grades
+      renderGrades(run);
+
+      // Previous feedback
+      const prevFb = (EMBEDDED_DATA.previous_feedback || {})[run.id];
+      const prevEl = document.getElementById("prev-feedback");
+      if (prevFb) {
+        document.getElementById("prev-feedback-text").textContent = prevFb;
+        prevEl.style.display = "block";
+      } else {
+        prevEl.style.display = "none";
+      }
+
+      // Feedback
+      document.getElementById("feedback").value = feedbackMap[run.id] || "";
+      document.getElementById("feedback-status").textContent = "";
+
+      updateNavButtons();
+
+      // Track visited runs and promote done button when all visited
+      visitedRuns.add(index);
+      const doneBtn = document.getElementById("done-btn");
+      if (visitedRuns.size >= EMBEDDED_DATA.runs.length) {
+        doneBtn.classList.add("ready");
+      }
+
+      // Scroll main content to top
+      document.querySelector(".main").scrollTop = 0;
+    }
+
+    // ---- Render outputs ----
+    function renderOutputs(run) {
+      const container = document.getElementById("outputs-body");
+      container.innerHTML = "";
+
+      const outputs = run.outputs || [];
+      if (outputs.length === 0) {
+        container.innerHTML = '<div class="empty-state">No output files</div>';
+        return;
+      }
+
+      for (const file of outputs) {
+        const fileDiv = document.createElement("div");
+        fileDiv.className = "output-file";
+
+        // Always show file header with download link
+        const header = document.createElement("div");
+        header.className = "output-file-header";
+        const nameSpan = document.createElement("span");
+        nameSpan.textContent = file.name;
+        header.appendChild(nameSpan);
+        const dlBtn = document.createElement("a");
+        dlBtn.className = "dl-btn";
+        dlBtn.textContent = "Download";
+        dlBtn.download = file.name;
+        dlBtn.href = getDownloadUri(file);
+        header.appendChild(dlBtn);
+        fileDiv.appendChild(header);
+
+        const content = document.createElement("div");
+        content.className = "output-file-content";
+
+        if (file.type === "text") {
+          const pre = document.createElement("pre");
+          pre.textContent = file.content;
+          content.appendChild(pre);
+        } else if (file.type === "image") {
+          const img = document.createElement("img");
+          img.src = file.data_uri;
+          img.alt = file.name;
+          content.appendChild(img);
+        } else if (file.type === "pdf") {
+          const iframe = document.createElement("iframe");
+          iframe.src = file.data_uri;
+          content.appendChild(iframe);
+        } else if (file.type === "xlsx") {
+          renderXlsx(content, file.data_b64);
+        } else if (file.type === "binary") {
+          const a = document.createElement("a");
+          a.className = "download-link";
+          a.href = file.data_uri;
+          a.download = file.name;
+          a.textContent = "Download " + file.name;
+          content.appendChild(a);
+        } else if (file.type === "error") {
+          const pre = document.createElement("pre");
+          pre.textContent = file.content;
+          pre.style.color = "var(--red)";
+          content.appendChild(pre);
+        }
+
+        fileDiv.appendChild(content);
+        container.appendChild(fileDiv);
+      }
+    }
+
+    // ---- XLSX rendering via SheetJS ----
+    function renderXlsx(container, b64Data) {
+      try {
+        const raw = Uint8Array.from(atob(b64Data), c => c.charCodeAt(0));
+        const wb = XLSX.read(raw, { type: "array" });
+
+        for (let i = 0; i < wb.SheetNames.length; i++) {
+          const sheetName = wb.SheetNames[i];
+          const ws = wb.Sheets[sheetName];
+
+          if (wb.SheetNames.length > 1) {
+            const sheetLabel = document.createElement("div");
+            sheetLabel.style.cssText =
+              "font-weight:600; font-size:0.8rem; color:#b0aea5; margin-top:0.5rem; margin-bottom:0.25rem;";
+            sheetLabel.textContent = "Sheet: " + sheetName;
+            container.appendChild(sheetLabel);
+          }
+
+          const htmlStr = XLSX.utils.sheet_to_html(ws, { editable: false });
+          const wrapper = document.createElement("div");
+          wrapper.innerHTML = htmlStr;
+          container.appendChild(wrapper);
+        }
+      } catch (err) {
+        container.textContent = "Error rendering spreadsheet: " + err.message;
+      }
+    }
+
+    // ---- Grades ----
+    function renderGrades(run) {
+      const section = document.getElementById("grades-section");
+      const content = document.getElementById("grades-content");
+
+      if (!run.grading) {
+        section.style.display = "none";
+        return;
+      }
+
+      const grading = run.grading;
+      section.style.display = "block";
+      // Reset to collapsed
+      content.classList.remove("open");
+      document.getElementById("grades-arrow").classList.remove("open");
+
+      const summary = grading.summary || {};
+      const expectations = grading.expectations || [];
+
+      let html = '<div style="padding: 1rem;">';
+
+      // Summary line
+      const passRate = summary.pass_rate != null
+        ? Math.round(summary.pass_rate * 100) + "%"
+        : "?";
+      const badgeClass = summary.pass_rate >= 0.8 ? "grade-pass" : summary.pass_rate >= 0.5 ? "" : "grade-fail";
+      html += '<div class="grades-summary">';
+      html += '<span class="grade-badge ' + badgeClass + '">' + passRate + '</span>';
+      html += '<span>' + (summary.passed || 0) + ' passed, ' + (summary.failed || 0) + ' failed of ' + (summary.total || 0) + '</span>';
+      html += '</div>';
+
+      // Assertions list
+      html += '<ul class="assertion-list">';
+      for (const exp of expectations) {
+        const statusClass = exp.passed ? "pass" : "fail";
+        const statusIcon = exp.passed ? "\u2713" : "\u2717";
+        html += '<li class="assertion-item">';
+        html += '<span class="assertion-status ' + statusClass + '">' + statusIcon + '</span>';
+        html += '<span>' + escapeHtml(exp.text) + '</span>';
+        if (exp.evidence) {
+          html += '<div class="assertion-evidence">' + escapeHtml(exp.evidence) + '</div>';
+        }
+        html += '</li>';
+      }
+      html += '</ul>';
+
+      html += '</div>';
+      content.innerHTML = html;
+    }
+
+    function toggleGrades() {
+      const content = document.getElementById("grades-content");
+      const arrow = document.getElementById("grades-arrow");
+      content.classList.toggle("open");
+      arrow.classList.toggle("open");
+    }
+
+    // ---- Previous outputs (collapsible) ----
+    function renderPrevOutputs(run) {
+      const section = document.getElementById("prev-outputs-section");
+      const content = document.getElementById("prev-outputs-content");
+      const prevOutputs = (EMBEDDED_DATA.previous_outputs || {})[run.id];
+
+      if (!prevOutputs || prevOutputs.length === 0) {
+        section.style.display = "none";
+        return;
+      }
+
+      section.style.display = "block";
+      // Reset to collapsed
+      content.classList.remove("open");
+      document.getElementById("prev-outputs-arrow").classList.remove("open");
+
+      // Render the files into the content area
+      content.innerHTML = "";
+      const wrapper = document.createElement("div");
+      wrapper.style.padding = "1rem";
+
+      for (const file of prevOutputs) {
+        const fileDiv = document.createElement("div");
+        fileDiv.className = "output-file";
+
+        const header = document.createElement("div");
+        header.className = "output-file-header";
+        const nameSpan = document.createElement("span");
+        nameSpan.textContent = file.name;
+        header.appendChild(nameSpan);
+        const dlBtn = document.createElement("a");
+        dlBtn.className = "dl-btn";
+        dlBtn.textContent = "Download";
+        dlBtn.download = file.name;
+        dlBtn.href = getDownloadUri(file);
+        header.appendChild(dlBtn);
+        fileDiv.appendChild(header);
+
+        const fc = document.createElement("div");
+        fc.className = "output-file-content";
+
+        if (file.type === "text") {
+          const pre = document.createElement("pre");
+          pre.textContent = file.content;
+          fc.appendChild(pre);
+        } else if (file.type === "image") {
+          const img = document.createElement("img");
+          img.src = file.data_uri;
+          img.alt = file.name;
+          fc.appendChild(img);
+        } else if (file.type === "pdf") {
+          const iframe = document.createElement("iframe");
+          iframe.src = file.data_uri;
+          fc.appendChild(iframe);
+        } else if (file.type === "xlsx") {
+          renderXlsx(fc, file.data_b64);
+        } else if (file.type === "binary") {
+          const a = document.createElement("a");
+          a.className = "download-link";
+          a.href = file.data_uri;
+          a.download = file.name;
+          a.textContent = "Download " + file.name;
+          fc.appendChild(a);
+        }
+
+        fileDiv.appendChild(fc);
+        wrapper.appendChild(fileDiv);
+      }
+
+      content.appendChild(wrapper);
+    }
+
+    function togglePrevOutputs() {
+      const content = document.getElementById("prev-outputs-content");
+      const arrow = document.getElementById("prev-outputs-arrow");
+      content.classList.toggle("open");
+      arrow.classList.toggle("open");
+    }
+
+    // ---- Feedback (saved to server -> feedback.json) ----
+    function saveCurrentFeedback() {
+      const run = EMBEDDED_DATA.runs[currentIndex];
+      const text = document.getElementById("feedback").value;
+
+      if (text.trim() === "") {
+        delete feedbackMap[run.id];
+      } else {
+        feedbackMap[run.id] = text;
+      }
+
+      // Build reviews array from map
+      const reviews = [];
+      for (const [run_id, feedback] of Object.entries(feedbackMap)) {
+        if (feedback.trim()) {
+          reviews.push({ run_id, feedback, timestamp: new Date().toISOString() });
+        }
+      }
+
+      fetch("/api/feedback", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reviews, status: "in_progress" }),
+      }).then(() => {
+        document.getElementById("feedback-status").textContent = "Saved";
+      }).catch(() => {
+        // Static mode or server unavailable — no-op on auto-save,
+        // feedback will be downloaded on final submit
+        document.getElementById("feedback-status").textContent = "Will download on submit";
+      });
+    }
+
+    // ---- Done ----
+    function showDoneDialog() {
+      // Save current textarea to feedbackMap (but don't POST yet)
+      const run = EMBEDDED_DATA.runs[currentIndex];
+      const text = document.getElementById("feedback").value;
+      if (text.trim() === "") {
+        delete feedbackMap[run.id];
+      } else {
+        feedbackMap[run.id] = text;
+      }
+
+      // POST once with status: complete — include ALL runs so the model
+      // can distinguish "no feedback" (looks good) from "not reviewed"
+      const reviews = [];
+      const ts = new Date().toISOString();
+      for (const r of EMBEDDED_DATA.runs) {
+        reviews.push({ run_id: r.id, feedback: feedbackMap[r.id] || "", timestamp: ts });
+      }
+      const payload = JSON.stringify({ reviews, status: "complete" }, null, 2);
+      fetch("/api/feedback", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: payload,
+      }).then(() => {
+        document.getElementById("done-overlay").classList.add("visible");
+      }).catch(() => {
+        // Server not available (static mode) — download as file
+        const blob = new Blob([payload], { type: "application/json" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = "feedback.json";
+        a.click();
+        URL.revokeObjectURL(url);
+        document.getElementById("done-overlay").classList.add("visible");
+      });
+    }
+
+    function closeDoneDialog() {
+      // Reset status back to in_progress
+      saveCurrentFeedback();
+      document.getElementById("done-overlay").classList.remove("visible");
+    }
+
+    // ---- Toast ----
+    function showToast(message) {
+      const toast = document.getElementById("toast");
+      toast.textContent = message;
+      toast.classList.add("visible");
+      setTimeout(() => toast.classList.remove("visible"), 2000);
+    }
+
+    // ---- Keyboard nav ----
+    document.addEventListener("keydown", (e) => {
+      // Don't capture when typing in textarea
+      if (e.target.tagName === "TEXTAREA") return;
+
+      if (e.key === "ArrowLeft" || e.key === "ArrowUp") {
+        e.preventDefault();
+        navigate(-1);
+      } else if (e.key === "ArrowRight" || e.key === "ArrowDown") {
+        e.preventDefault();
+        navigate(1);
+      }
+    });
+
+    // ---- Util ----
+    function getDownloadUri(file) {
+      if (file.data_uri) return file.data_uri;
+      if (file.data_b64) return "data:application/octet-stream;base64," + file.data_b64;
+      if (file.type === "text") return "data:text/plain;charset=utf-8," + encodeURIComponent(file.content);
+      return "#";
+    }
+
+    function escapeHtml(text) {
+      const div = document.createElement("div");
+      div.textContent = text;
+      return div.innerHTML;
+    }
+
+    // ---- View switching ----
+    function switchView(view) {
+      document.querySelectorAll(".view-tab").forEach(t => t.classList.remove("active"));
+      document.querySelectorAll(".view-panel").forEach(p => p.classList.remove("active"));
+      document.querySelector(`[onclick="switchView('${view}')"]`).classList.add("active");
+      document.getElementById("panel-" + view).classList.add("active");
+    }
+
+    // ---- Benchmark rendering ----
+    function renderBenchmark() {
+      const data = EMBEDDED_DATA.benchmark;
+      if (!data) return;
+
+      // Show the tabs
+      document.getElementById("view-tabs").style.display = "flex";
+
+      const container = document.getElementById("benchmark-content");
+      const summary = data.run_summary || {};
+      const metadata = data.metadata || {};
+      const notes = data.notes || [];
+
+      let html = "";
+
+      // Header
+      html += "<h2 style='font-family: Poppins, sans-serif; margin-bottom: 0.5rem;'>Benchmark Results</h2>";
+      html += "<p style='color: var(--text-muted); font-size: 0.875rem; margin-bottom: 1.25rem;'>";
+      if (metadata.skill_name) html += "<strong>" + escapeHtml(metadata.skill_name) + "</strong> &mdash; ";
+      if (metadata.timestamp) html += metadata.timestamp + " &mdash; ";
+      if (metadata.evals_run) html += "Evals: " + metadata.evals_run.join(", ") + " &mdash; ";
+      html += (metadata.runs_per_configuration || "?") + " runs per configuration";
+      html += "</p>";
+
+      // Summary table
+      html += '<table class="benchmark-table">';
+
+      function fmtStat(stat, pct) {
+        if (!stat) return "—";
+        const suffix = pct ? "%" : "";
+        const m = pct ? (stat.mean * 100).toFixed(0) : stat.mean.toFixed(1);
+        const s = pct ? (stat.stddev * 100).toFixed(0) : stat.stddev.toFixed(1);
+        return m + suffix + " ± " + s + suffix;
+      }
+
+      function deltaClass(val) {
+        if (!val) return "";
+        const n = parseFloat(val);
+        if (n > 0) return "benchmark-delta-positive";
+        if (n < 0) return "benchmark-delta-negative";
+        return "";
+      }
+
+      // Discover config names dynamically (everything except "delta")
+      const configs = Object.keys(summary).filter(k => k !== "delta");
+      const configA = configs[0] || "config_a";
+      const configB = configs[1] || "config_b";
+      const labelA = configA.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+      const labelB = configB.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+      const a = summary[configA] || {};
+      const b = summary[configB] || {};
+      const delta = summary.delta || {};
+
+      html += "<thead><tr><th>Metric</th><th>" + escapeHtml(labelA) + "</th><th>" + escapeHtml(labelB) + "</th><th>Delta</th></tr></thead>";
+      html += "<tbody>";
+
+      html += "<tr><td><strong>Pass Rate</strong></td>";
+      html += "<td>" + fmtStat(a.pass_rate, true) + "</td>";
+      html += "<td>" + fmtStat(b.pass_rate, true) + "</td>";
+      html += '<td class="' + deltaClass(delta.pass_rate) + '">' + (delta.pass_rate || "—") + "</td></tr>";
+
+      // Time (only show row if data exists)
+      if (a.time_seconds || b.time_seconds) {
+        html += "<tr><td><strong>Time (s)</strong></td>";
+        html += "<td>" + fmtStat(a.time_seconds, false) + "</td>";
+        html += "<td>" + fmtStat(b.time_seconds, false) + "</td>";
+        html += '<td class="' + deltaClass(delta.time_seconds) + '">' + (delta.time_seconds ? delta.time_seconds + "s" : "—") + "</td></tr>";
+      }
+
+      // Tokens (only show row if data exists)
+      if (a.tokens || b.tokens) {
+        html += "<tr><td><strong>Tokens</strong></td>";
+        html += "<td>" + fmtStat(a.tokens, false) + "</td>";
+        html += "<td>" + fmtStat(b.tokens, false) + "</td>";
+        html += '<td class="' + deltaClass(delta.tokens) + '">' + (delta.tokens || "—") + "</td></tr>";
+      }
+
+      html += "</tbody></table>";
+
+      // Per-eval breakdown (if runs data available)
+      const runs = data.runs || [];
+      if (runs.length > 0) {
+        const evalIds = [...new Set(runs.map(r => r.eval_id))].sort((a, b) => a - b);
+
+        html += "<h3 style='font-family: Poppins, sans-serif; margin-bottom: 0.75rem;'>Per-Eval Breakdown</h3>";
+
+        const hasTime = runs.some(r => r.result && r.result.time_seconds != null);
+        const hasErrors = runs.some(r => r.result && r.result.errors > 0);
+
+        for (const evalId of evalIds) {
+          const evalRuns = runs.filter(r => r.eval_id === evalId);
+          const evalName = evalRuns[0] && evalRuns[0].eval_name ? evalRuns[0].eval_name : "Eval " + evalId;
+
+          html += "<h4 style='font-family: Poppins, sans-serif; margin: 1rem 0 0.5rem; color: var(--text);'>" + escapeHtml(evalName) + "</h4>";
+          html += '<table class="benchmark-table">';
+          html += "<thead><tr><th>Config</th><th>Run</th><th>Pass Rate</th>";
+          if (hasTime) html += "<th>Time (s)</th>";
+          if (hasErrors) html += "<th>Crashes During Execution</th>";
+          html += "</tr></thead>";
+          html += "<tbody>";
+
+          // Group by config and render with average rows
+          const configGroups = [...new Set(evalRuns.map(r => r.configuration))];
+          for (let ci = 0; ci < configGroups.length; ci++) {
+            const config = configGroups[ci];
+            const configRuns = evalRuns.filter(r => r.configuration === config);
+            if (configRuns.length === 0) continue;
+
+            const rowClass = ci === 0 ? "benchmark-row-with" : "benchmark-row-without";
+            const configLabel = config.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+
+            for (const run of configRuns) {
+              const r = run.result || {};
+              const prClass = r.pass_rate >= 0.8 ? "benchmark-delta-positive" : r.pass_rate < 0.5 ? "benchmark-delta-negative" : "";
+              html += '<tr class="' + rowClass + '">';
+              html += "<td>" + configLabel + "</td>";
+              html += "<td>" + run.run_number + "</td>";
+              html += '<td class="' + prClass + '">' + ((r.pass_rate || 0) * 100).toFixed(0) + "% (" + (r.passed || 0) + "/" + (r.total || 0) + ")</td>";
+              if (hasTime) html += "<td>" + (r.time_seconds != null ? r.time_seconds.toFixed(1) : "—") + "</td>";
+              if (hasErrors) html += "<td>" + (r.errors || 0) + "</td>";
+              html += "</tr>";
+            }
+
+            // Average row
+            const rates = configRuns.map(r => (r.result || {}).pass_rate || 0);
+            const avgRate = rates.reduce((a, b) => a + b, 0) / rates.length;
+            const avgPrClass = avgRate >= 0.8 ? "benchmark-delta-positive" : avgRate < 0.5 ? "benchmark-delta-negative" : "";
+            html += '<tr class="benchmark-row-avg ' + rowClass + '">';
+            html += "<td>" + configLabel + "</td>";
+            html += "<td>Avg</td>";
+            html += '<td class="' + avgPrClass + '">' + (avgRate * 100).toFixed(0) + "%</td>";
+            if (hasTime) {
+              const times = configRuns.map(r => (r.result || {}).time_seconds).filter(t => t != null);
+              html += "<td>" + (times.length ? (times.reduce((a, b) => a + b, 0) / times.length).toFixed(1) : "—") + "</td>";
+            }
+            if (hasErrors) html += "<td></td>";
+            html += "</tr>";
+          }
+          html += "</tbody></table>";
+
+          // Per-assertion detail for this eval
+          const runsWithExpectations = {};
+          for (const config of configGroups) {
+            runsWithExpectations[config] = evalRuns.filter(r => r.configuration === config && r.expectations && r.expectations.length > 0);
+          }
+          const hasAnyExpectations = Object.values(runsWithExpectations).some(runs => runs.length > 0);
+          if (hasAnyExpectations) {
+            // Collect all unique assertion texts across all configs
+            const allAssertions = [];
+            const seen = new Set();
+            for (const config of configGroups) {
+              for (const run of runsWithExpectations[config]) {
+                for (const exp of (run.expectations || [])) {
+                  if (!seen.has(exp.text)) {
+                    seen.add(exp.text);
+                    allAssertions.push(exp.text);
+                  }
+                }
+              }
+            }
+
+            html += '<table class="benchmark-table" style="margin-top: 0.5rem;">';
+            html += "<thead><tr><th>Assertion</th>";
+            for (const config of configGroups) {
+              const label = config.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+              html += "<th>" + escapeHtml(label) + "</th>";
+            }
+            html += "</tr></thead><tbody>";
+
+            for (const assertionText of allAssertions) {
+              html += "<tr><td>" + escapeHtml(assertionText) + "</td>";
+
+              for (const config of configGroups) {
+                html += "<td>";
+                for (const run of runsWithExpectations[config]) {
+                  const exp = (run.expectations || []).find(e => e.text === assertionText);
+                  if (exp) {
+                    const cls = exp.passed ? "benchmark-delta-positive" : "benchmark-delta-negative";
+                    const icon = exp.passed ? "\u2713" : "\u2717";
+                    html += '<span class="' + cls + '" title="Run ' + run.run_number + ': ' + escapeHtml(exp.evidence || "") + '">' + icon + "</span> ";
+                  } else {
+                    html += "— ";
+                  }
+                }
+                html += "</td>";
+              }
+              html += "</tr>";
+            }
+            html += "</tbody></table>";
+          }
+        }
+      }
+
+      // Notes
+      if (notes.length > 0) {
+        html += '<div class="benchmark-notes">';
+        html += "<h3>Analysis Notes</h3>";
+        html += "<ul>";
+        for (const note of notes) {
+          html += "<li>" + escapeHtml(note) + "</li>";
+        }
+        html += "</ul></div>";
+      }
+
+      container.innerHTML = html;
+    }
+
+    // ---- Start ----
+    init();
+    renderBenchmark();
+  </script>
+</body>
+</html>

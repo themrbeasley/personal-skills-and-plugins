@@ -1,0 +1,201 @@
+{
+  "metadata": {
+    "skill_name": "sequencer",
+    "skill_path": "sequencer/SKILL.md",
+    "executor_model": "claude-sonnet-4-20250514",
+    "analyzer_model": "claude-opus-4-6",
+    "timestamp": "2026-05-14T17:40:00Z",
+    "evals_run": ["frostbite-projectile", "bless-persistent-aura", "fire-bolt-triage"],
+    "runs_per_configuration": 1
+  },
+
+  "runs": [
+    {
+      "eval_id": 0,
+      "eval_name": "frostbite-projectile",
+      "configuration": "with_skill",
+      "run_number": 1,
+      "result": {
+        "pass_rate": 0.86,
+        "passed": 6,
+        "failed": 1,
+        "total": 7,
+        "time_seconds": 85.0,
+        "tokens": 56169,
+        "tool_calls": 0,
+        "errors": 0
+      },
+      "expectations": [
+        {"text": "Uses canvas.tokens.controlled[0] for caster token (correct console context)", "passed": true, "evidence": "All four code examples use `const caster = canvas.tokens.controlled[0];`"},
+        {"text": "Uses game.user.targets for target token (not args or workflow)", "passed": true, "evidence": "All four code examples use `const target = game.user.targets.first();`"},
+        {"text": "Includes null-check or validation on token references before running the effect", "passed": false, "evidence": "No code block includes a guard clause. Step 2 mentions checking as prose troubleshooting but no programmatic null-check in any script."},
+        {"text": "Uses .stretchTo() for the projectile beam (not .moveTowards())", "passed": true, "evidence": "`.stretchTo(target)` used in all four code examples."},
+        {"text": "Uses .waitUntilFinished() to chain projectile into impact", "passed": true, "evidence": "`.waitUntilFinished(-500)` appears in Steps 3, 4, and the alternative."},
+        {"text": "Uses JB2A database paths (jb2a.*) not file system paths", "passed": true, "evidence": "All effect files use database paths: jb2a.ray_of_frost, jb2a.impact.004.blue, jb2a.ice_shard."},
+        {"text": "JB2A paths reference ice/cold/frost-themed effects", "passed": true, "evidence": "ray_of_frost, impact.004.blue, ice_shard — all ice/cold themed."}
+      ],
+      "notes": ["Follows iterative build workflow (4 steps from discovery to polish)", "Recommends asset discovery with getPathsUnder() before writing code"]
+    },
+    {
+      "eval_id": 0,
+      "eval_name": "frostbite-projectile",
+      "configuration": "without_skill",
+      "run_number": 1,
+      "result": {
+        "pass_rate": 1.0,
+        "passed": 7,
+        "failed": 0,
+        "total": 7,
+        "time_seconds": 68.1,
+        "tokens": 39523,
+        "tool_calls": 0,
+        "errors": 0
+      },
+      "expectations": [
+        {"text": "Uses canvas.tokens.controlled[0] for caster token (correct console context)", "passed": true, "evidence": "`const attacker = canvas.tokens.controlled[0];`"},
+        {"text": "Uses game.user.targets for target token (not args or workflow)", "passed": true, "evidence": "`const target = game.user.targets.first();`"},
+        {"text": "Includes null-check or validation on token references before running the effect", "passed": true, "evidence": "Guard clauses with ui.notifications.error and throw."},
+        {"text": "Uses .stretchTo() for the projectile beam (not .moveTowards())", "passed": true, "evidence": "`.stretchTo(target)` in main script."},
+        {"text": "Uses .waitUntilFinished() to chain projectile into impact", "passed": true, "evidence": "`.waitUntilFinished(-500)` present."},
+        {"text": "Uses JB2A database paths (jb2a.*) not file system paths", "passed": true, "evidence": "jb2a.ray_of_frost.blue and jb2a.impact.frost.blue.01."},
+        {"text": "JB2A paths reference ice/cold/frost-themed effects", "passed": true, "evidence": "ray_of_frost.blue and impact.frost.blue.01."}
+      ],
+      "notes": ["Provides finished product rather than iterative steps", "Includes null checks that with_skill version omitted"]
+    },
+    {
+      "eval_id": 1,
+      "eval_name": "bless-persistent-aura",
+      "configuration": "with_skill",
+      "run_number": 1,
+      "result": {
+        "pass_rate": 1.0,
+        "passed": 8,
+        "failed": 0,
+        "total": 8,
+        "time_seconds": 82.6,
+        "tokens": 56030,
+        "tool_calls": 0,
+        "errors": 0
+      },
+      "expectations": [
+        {"text": "Uses .persist()", "passed": true, "evidence": ".persist() in both console prototype and DAE macro."},
+        {"text": "Uses .name() on every persistent effect", "passed": true, "evidence": ".name(\"bless_aura\") and .name(`bless_aura_${token.id}`)."},
+        {"text": "Uses .attachTo()", "passed": true, "evidence": ".attachTo(token, { followRotation: false })."},
+        {"text": "Iterates over multiple targets", "passed": true, "evidence": "Multi-target delegated to DAE per-target invocation; explained in Step 3 flow description."},
+        {"text": "Includes cleanup code using Sequencer.EffectManager.endEffects", "passed": true, "evidence": "Console cleanup and DAE off-block both use endEffects()."},
+        {"text": "Describes the DAE on/off macro pattern", "passed": true, "evidence": "if (args[0] === \"on\") and if (args[0] === \"off\") blocks."},
+        {"text": "Explains the TimesUp -> DAE -> Sequencer removal chain", "passed": true, "evidence": "Explicit chain: 'TimesUp expires → DAE removes → DAE fires macro → Sequencer ends effect.'"},
+        {"text": "Uses .loopProperty() or similar for pulsing", "passed": true, "evidence": "Two .loopProperty() calls with pingPong for scale pulse."}
+      ],
+      "notes": ["Console prototype before module wiring", "Origin-based cleanup in off block"]
+    },
+    {
+      "eval_id": 1,
+      "eval_name": "bless-persistent-aura",
+      "configuration": "without_skill",
+      "run_number": 1,
+      "result": {
+        "pass_rate": 0.88,
+        "passed": 7,
+        "failed": 1,
+        "total": 8,
+        "time_seconds": 95.5,
+        "tokens": 41376,
+        "tool_calls": 0,
+        "errors": 0
+      },
+      "expectations": [
+        {"text": "Uses .persist()", "passed": true, "evidence": ".persist() is used."},
+        {"text": "Uses .name() on every persistent effect", "passed": true, "evidence": ".name(`bless-${token.id}`)."},
+        {"text": "Uses .attachTo()", "passed": true, "evidence": ".attachTo(token) is used."},
+        {"text": "Iterates over multiple targets", "passed": true, "evidence": "DAE per-target invocation via macro.itemMacro key."},
+        {"text": "Includes cleanup code using Sequencer.EffectManager.endEffects", "passed": true, "evidence": "endEffects() in off block with name and origin filters."},
+        {"text": "Describes the DAE on/off macro pattern", "passed": true, "evidence": "const mode = args[0]; if (mode === 'on') / if (mode === 'off')."},
+        {"text": "Explains the TimesUp -> DAE -> Sequencer removal chain", "passed": true, "evidence": "ASCII diagram showing the full chain."},
+        {"text": "Uses .loopProperty() or similar for pulsing", "passed": false, "evidence": "No .loopProperty(). Uses self-animating divine_smite asset instead of a programmatic pulse."}
+      ],
+      "notes": ["Relies on self-animating asset for pulse rather than Sequencer animation", "Uses macro.itemMacro terminology without disambiguating from obsolete Item Macro module"]
+    },
+    {
+      "eval_id": 2,
+      "eval_name": "fire-bolt-triage",
+      "configuration": "with_skill",
+      "run_number": 1,
+      "result": {
+        "pass_rate": 1.0,
+        "passed": 7,
+        "failed": 0,
+        "total": 7,
+        "time_seconds": 84.1,
+        "tokens": 56856,
+        "tool_calls": 0,
+        "errors": 0
+      },
+      "expectations": [
+        {"text": "Identifies ItemMacro as obsolete/dead", "passed": true, "evidence": "'Item Macro is dead. It was superseded by built-in DND5e Activity macros.'"},
+        {"text": "Does NOT suggest installing Item Macro", "passed": true, "evidence": "Recommends removing it: 'Remove the Item Macro module entirely if still installed.'"},
+        {"text": "Identifies args[0].targets[0] as dead pattern", "passed": true, "evidence": "'the args array no longer gets populated the way Item Macro used to populate it.'"},
+        {"text": "Provides console-testable replacement", "passed": true, "evidence": "Standalone script with canvas.tokens.controlled[0] and game.user.targets.first()."},
+        {"text": "Offers band-aid workaround", "passed": true, "evidence": "Hotbar macro section with step-by-step creation instructions."},
+        {"text": "Provides triage report", "passed": true, "evidence": "Full structured report: Symptom, Context, Suspected cause, Next steps, Environment."},
+        {"text": "Response is concise and action-oriented", "passed": true, "evidence": "Opens with diagnosis, immediately provides fix. Urgency-first structure."}
+      ],
+      "notes": ["Identifies Sequencer's silent failure on undefined locations", "Provides Midi-QOL hook migration path as permanent fix", "Recommends auditing all ItemMacro patterns"]
+    },
+    {
+      "eval_id": 2,
+      "eval_name": "fire-bolt-triage",
+      "configuration": "without_skill",
+      "run_number": 1,
+      "result": {
+        "pass_rate": 0.29,
+        "passed": 2,
+        "failed": 5,
+        "total": 7,
+        "time_seconds": 60.0,
+        "tokens": 38770,
+        "tool_calls": 0,
+        "errors": 0
+      },
+      "expectations": [
+        {"text": "Identifies ItemMacro as obsolete/dead", "passed": false, "evidence": "Treats ItemMacro as active but changed. 'Midi-QOL / ItemMacro Hook Change' framing."},
+        {"text": "Does NOT suggest installing Item Macro", "passed": true, "evidence": "Doesn't explicitly suggest installing it, but continues patching it."},
+        {"text": "Identifies args[0].targets[0] as dead pattern", "passed": false, "evidence": "Treats as 'may be undefined or structured differently' and retains as fallback Method 3."},
+        {"text": "Provides console-testable replacement", "passed": false, "evidence": "Immediate Fix requires ItemMacro execution context (args, token). Not console-testable."},
+        {"text": "Offers band-aid workaround", "passed": true, "evidence": "Provides Immediate Fix code for ItemMacro tab and 30-Second Action Plan."},
+        {"text": "Provides triage report", "passed": false, "evidence": "No structured triage report. Has diagnostic sections but no formatted report template."},
+        {"text": "Response is concise and action-oriented", "passed": false, "evidence": "Long response with action plan buried at bottom. Diagnostic-heavy, not urgency-first."}
+      ],
+      "notes": ["Misdiagnoses root cause — patches obsolete module instead of identifying it as dead", "Incorrectly claims args[args.length - 1] works in ItemMacro context"]
+    }
+  ],
+
+  "run_summary": {
+    "with_skill": {
+      "pass_rate": {"mean": 0.953, "stddev": 0.082, "min": 0.86, "max": 1.0},
+      "time_seconds": {"mean": 83.9, "stddev": 1.2, "min": 82.6, "max": 85.0},
+      "tokens": {"mean": 56352, "stddev": 442, "min": 56030, "max": 56856}
+    },
+    "without_skill": {
+      "pass_rate": {"mean": 0.723, "stddev": 0.381, "min": 0.29, "max": 1.0},
+      "time_seconds": {"mean": 74.5, "stddev": 18.6, "min": 60.0, "max": 95.5},
+      "tokens": {"mean": 39890, "stddev": 1341, "min": 38770, "max": 41376}
+    },
+    "delta": {
+      "pass_rate": "+0.23",
+      "time_seconds": "+9.4",
+      "tokens": "+16462"
+    }
+  },
+
+  "notes": [
+    "STRONGEST SIGNAL: Fire-bolt triage eval shows 1.0 vs 0.29 pass rate — the skill's obsolete-module guard and emergency mode are the primary differentiators.",
+    "WEAKEST SIGNAL: Frostbite projectile baseline outperforms with_skill (1.0 vs 0.86) due to null-check assertion. The skill's iterative build workflow is valuable but untested by current assertions.",
+    "NON-DISCRIMINATING: 5 of 7 frostbite assertions pass for both configurations. These test Sequencer API knowledge that the base model already has.",
+    "TOKEN COST: With-skill runs use ~41% more tokens (56K vs 40K mean) due to loading skill + reference files. Time cost is modest (+9.4s mean).",
+    "HIGH VARIANCE (without_skill): Pass rate stddev of 0.381 driven by fire-bolt triage collapse (0.29). Without the skill, performance on triage tasks is unpredictable.",
+    "LOW VARIANCE (with_skill): Pass rate stddev of 0.082 — the skill produces consistently high quality across all three eval types.",
+    "BLESS EVAL: With_skill wins on loopProperty (programmatic pulse vs self-animating asset) and was faster (82.6s vs 95.5s). Both handle the DAE/TimesUp chain well.",
+    "SUGGESTED NEW ASSERTIONS: (1) 'Follows iterative build pattern' for frostbite, (2) 'Recommends Midi-QOL hook migration' for fire-bolt, (3) 'Starts with console prototype' for bless."
+  ]
+}

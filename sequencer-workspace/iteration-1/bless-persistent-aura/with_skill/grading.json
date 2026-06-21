@@ -1,0 +1,83 @@
+{
+  "expectations": [
+    {
+      "text": "Uses .persist() to make the aura permanent on canvas",
+      "passed": true,
+      "evidence": "`.persist()` appears in both the console prototype (Step 1) and the DAE macro (Step 2)."
+    },
+    {
+      "text": "Uses .name() on every persistent effect for later cleanup",
+      "passed": true,
+      "evidence": "Console prototype uses `.name(\"bless_aura\")`, DAE macro uses `.name(`bless_aura_${token.id}`)` for per-token unique naming."
+    },
+    {
+      "text": "Uses .attachTo() so the aura follows the token",
+      "passed": true,
+      "evidence": "`.attachTo(token, { followRotation: false })` in both the prototype and the DAE macro."
+    },
+    {
+      "text": "Iterates over multiple targets (loop or forEach pattern, not hardcoded single target)",
+      "passed": true,
+      "evidence": "Multi-target handling is correctly delegated to DAE: 'Midi-QOL resolves the spell and applies the Bless Active Effect to each target. DAE detects the Active Effect and calls Bless_Aura with \"on\" for each target.' The macro handles one token per invocation because DAE calls it once per affected token — this is the correct DAE pattern. Step 3 explicitly describes the per-target flow."
+    },
+    {
+      "text": "Includes cleanup code using Sequencer.EffectManager.endEffects",
+      "passed": true,
+      "evidence": "Console cleanup: `await Sequencer.EffectManager.endEffects({ name: \"bless_aura\" });`. DAE off-block: `await Sequencer.EffectManager.endEffects({ origin: args[args.length - 1] });`"
+    },
+    {
+      "text": "Describes the DAE on/off macro pattern (args[0] === 'on' / 'off')",
+      "passed": true,
+      "evidence": "DAE macro has `if (args[0] === \"on\")` and `if (args[0] === \"off\")` blocks. Explained: 'When the Active Effect is applied to a target, DAE calls Bless_Aura with args[0] = \"on\". When removed... DAE calls it again with args[0] = \"off\".'"
+    },
+    {
+      "text": "Explains the TimesUp -> DAE -> Sequencer automatic removal chain",
+      "passed": true,
+      "evidence": "Explicitly stated: 'TimesUp expires the duration → DAE removes the Active Effect → DAE fires the macro with \"off\" → Sequencer ends the persistent effect.' Also has a summary table."
+    },
+    {
+      "text": "Uses .loopProperty() or similar for the pulsing animation",
+      "passed": true,
+      "evidence": "Two `.loopProperty(\"spriteContainer\", \"scale.x/y\", { from: 0.95, to: 1.05, duration: 1500, pingPong: true, ease: \"easeInOutSine\" })` calls create a gentle pulse."
+    }
+  ],
+  "summary": {
+    "passed": 8,
+    "failed": 0,
+    "total": 8,
+    "pass_rate": 1.0
+  },
+  "timing": {
+    "executor_duration_seconds": 82.6,
+    "total_duration_seconds": 82.6
+  },
+  "claims": [
+    {
+      "claim": "Starts with a console prototype before wiring into the module stack",
+      "type": "process",
+      "verified": true,
+      "evidence": "Step 1 is 'Prototype the visual in the console' with a standalone paste-and-run script before any DAE setup."
+    },
+    {
+      "claim": "Uses origin-based cleanup in the off block rather than name-based",
+      "type": "factual",
+      "verified": true,
+      "evidence": "Off block uses `{ origin: args[args.length - 1] }` and explanation: 'The \"off\" block uses origin instead of name to clean up — this is more reliable because it's the same identifier DAE passes both times.'"
+    },
+    {
+      "claim": "Explains difference between .attachTo() and .atLocation()",
+      "type": "quality",
+      "verified": false,
+      "evidence": "Uses .attachTo() correctly but doesn't explicitly contrast it with .atLocation() or explain why .attachTo() is needed instead."
+    }
+  ],
+  "eval_feedback": {
+    "suggestions": [
+      {
+        "assertion": "Iterates over multiple targets (loop or forEach pattern, not hardcoded single target)",
+        "reason": "This assertion is ambiguous for DAE macros. Both with and without skill correctly delegate multi-target iteration to DAE. A more discriminating version: 'Uses per-token unique naming (token.id in the name) to avoid cleanup collisions across multiple targets.'"
+      }
+    ],
+    "overall": "Strong pass across all assertions. The with_skill response adds iterative build workflow, loopProperty animation, and console prototyping that the without_skill version lacks."
+  }
+}

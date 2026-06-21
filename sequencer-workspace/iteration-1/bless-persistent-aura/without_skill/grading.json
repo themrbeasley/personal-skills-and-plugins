@@ -1,0 +1,82 @@
+{
+  "expectations": [
+    {
+      "text": "Uses .persist() to make the aura permanent on canvas",
+      "passed": true,
+      "evidence": "`.persist()` is used in the macro code."
+    },
+    {
+      "text": "Uses .name() on every persistent effect for later cleanup",
+      "passed": true,
+      "evidence": "`.name(`bless-${token.id}`)` provides per-token naming."
+    },
+    {
+      "text": "Uses .attachTo() so the aura follows the token",
+      "passed": true,
+      "evidence": "`.attachTo(token)` is used. Troubleshooting table even warns: 'Make sure you are using .attachTo(token) and not .atLocation(token).'"
+    },
+    {
+      "text": "Iterates over multiple targets (loop or forEach pattern, not hardcoded single target)",
+      "passed": true,
+      "evidence": "Multi-target handling is delegated to DAE: the macro is called per-target via the macro.itemMacro Active Effect key. Step 4 testing section confirms: 'Cast Bless with the Paladin targeting three allies. Midi-QOL processes the spell and applies the Active Effect to each target.'"
+    },
+    {
+      "text": "Includes cleanup code using Sequencer.EffectManager.endEffects",
+      "passed": true,
+      "evidence": "Off block: `Sequencer.EffectManager.endEffects({ name: `bless-${token.id}`, origin: args[args.length - 1] });`"
+    },
+    {
+      "text": "Describes the DAE on/off macro pattern (args[0] === 'on' / 'off')",
+      "passed": true,
+      "evidence": "Code uses `const mode = args[0];` with `if (mode === \"on\")` and `if (mode === \"off\")`. Explanation: 'Called by DAE with args[0] === \"on\" when applied, \"off\" when removed.'"
+    },
+    {
+      "text": "Explains the TimesUp -> DAE -> Sequencer automatic removal chain",
+      "passed": true,
+      "evidence": "Has an ASCII diagram: 'Spell expires (TimesUp) / Concentration lost (Midi) / Manual deletion → Active Effect removed → DAE fires ItemMacro with args[0] = \"off\" → Sequencer.EffectManager.endEffects() → Golden aura fades out'"
+    },
+    {
+      "text": "Uses .loopProperty() or similar for the pulsing animation",
+      "passed": false,
+      "evidence": "No .loopProperty() or equivalent animation call. Uses `jb2a.divine_smite.caster.yellowwhite` which is a self-animating asset, but the pulsing effect comes from the asset itself, not from a Sequencer animation technique. The assertion asks for a programmatic pulsing approach."
+    }
+  ],
+  "summary": {
+    "passed": 7,
+    "failed": 1,
+    "total": 8,
+    "pass_rate": 0.88
+  },
+  "timing": {
+    "executor_duration_seconds": 95.5,
+    "total_duration_seconds": 95.5
+  },
+  "claims": [
+    {
+      "claim": "Uses macro.itemMacro DAE key for Active Effect integration",
+      "type": "factual",
+      "verified": true,
+      "evidence": "Step 2 instructs setting Key: `macro.itemMacro` on the Active Effect."
+    },
+    {
+      "claim": "References 'ItemMacro' terminology which could confuse with the obsolete Item Macro module",
+      "type": "quality",
+      "verified": true,
+      "evidence": "Uses 'ItemMacro' throughout (the DAE key is named macro.itemMacro). While this is DAE's actual terminology, it could be confused with the obsolete Item Macro module. No disambiguation is provided."
+    },
+    {
+      "claim": "Provides alternative JB2A asset paths",
+      "type": "factual",
+      "verified": true,
+      "evidence": "Lists 3 alternatives: jb2a.markers.light_orb.loop.yellowwhite, jb2a.template_circle.aura.01.yellowwhite, jb2a.extras.tmfx.outflow.circle.01"
+    }
+  ],
+  "eval_feedback": {
+    "suggestions": [
+      {
+        "reason": "No assertion checks whether the response disambiguates DAE's 'macro.itemMacro' terminology from the obsolete Item Macro module. The without_skill response uses 'ItemMacro' throughout without clarification, which could confuse users who've heard Item Macro is dead."
+      }
+    ],
+    "overall": "Strong performance on structural assertions. The loopProperty assertion is the key discriminator. Consider adding an assertion about console prototyping before module wiring."
+  }
+}

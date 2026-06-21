@@ -1,0 +1,81 @@
+{
+  "expectations": [
+    {
+      "text": "Uses canvas.tokens.controlled[0] for caster token (correct console context)",
+      "passed": true,
+      "evidence": "All four code examples use `const caster = canvas.tokens.controlled[0];` — Steps 2, 3, 4, and the alternative."
+    },
+    {
+      "text": "Uses game.user.targets for target token (not args or workflow)",
+      "passed": true,
+      "evidence": "All four code examples use `const target = game.user.targets.first();`"
+    },
+    {
+      "text": "Includes null-check or validation on token references before running the effect",
+      "passed": false,
+      "evidence": "No code block includes an if-check or guard clause on caster/target. Step 2 mentions 'If nothing happens, check: Is a token selected?' as prose troubleshooting but does not include a programmatic null-check in any of the scripts."
+    },
+    {
+      "text": "Uses .stretchTo() for the projectile beam (not .moveTowards())",
+      "passed": true,
+      "evidence": "`.stretchTo(target)` is used in all four code examples."
+    },
+    {
+      "text": "Uses .waitUntilFinished() to chain projectile into impact",
+      "passed": true,
+      "evidence": "`.waitUntilFinished(-500)` appears in Steps 3, 4, and the alternative."
+    },
+    {
+      "text": "Uses JB2A database paths (jb2a.*) not file system paths (modules/jb2a_patreon/...)",
+      "passed": true,
+      "evidence": "All effect files use database paths: `jb2a.ray_of_frost`, `jb2a.impact.004.blue`, `jb2a.ice_shard`. No filesystem paths used."
+    },
+    {
+      "text": "JB2A paths reference ice/cold/frost-themed effects (not fire or generic)",
+      "passed": true,
+      "evidence": "Assets used: `jb2a.ray_of_frost` (ice beam), `jb2a.impact.004.blue` (blue impact), `jb2a.ice_shard` (ice projectile). All ice/cold themed."
+    }
+  ],
+  "summary": {
+    "passed": 6,
+    "failed": 1,
+    "total": 7,
+    "pass_rate": 0.86
+  },
+  "timing": {
+    "executor_duration_seconds": 85.0,
+    "total_duration_seconds": 85.0
+  },
+  "claims": [
+    {
+      "claim": "Response follows iterative build workflow (simplest version first, then add complexity)",
+      "type": "process",
+      "verified": true,
+      "evidence": "Four distinct steps: Step 1 asset discovery, Step 2 simplest version, Step 3 add impact, Step 4 polish. Each builds on the previous."
+    },
+    {
+      "claim": "Asset discovery with Sequencer.Database.getPathsUnder() is recommended before writing code",
+      "type": "process",
+      "verified": true,
+      "evidence": "Step 1 provides four getPathsUnder() calls to explore available assets before writing any effect code."
+    },
+    {
+      "claim": "Mentions .missed(false) for hit/miss variants",
+      "type": "factual",
+      "verified": true,
+      "evidence": "Step 4 includes `.missed(false)` with note: 'set to true if you want a miss variant where the bolt drifts off-target'"
+    }
+  ],
+  "eval_feedback": {
+    "suggestions": [
+      {
+        "assertion": "Includes null-check or validation on token references before running the effect",
+        "reason": "This assertion discriminates well — with_skill failed it while without_skill passed. Worth keeping. Consider whether the skill should explicitly instruct null-checking in console prototypes."
+      },
+      {
+        "reason": "No assertion checks whether the response follows an iterative build pattern (start simple, add complexity). This is a key skill behavior that distinguishes the with_skill output. Consider adding: 'Presents code in progressive steps (simplest version before polished version).'"
+      }
+    ],
+    "overall": "Assertions cover API correctness well. The null-check assertion is the only discriminator between with/without skill for this eval. Adding an iterative-build assertion would better capture the skill's intended workflow."
+  }
+}

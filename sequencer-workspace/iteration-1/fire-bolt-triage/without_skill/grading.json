@@ -1,0 +1,73 @@
+{
+  "expectations": [
+    {
+      "text": "Identifies ItemMacro as an obsolete/dead module",
+      "passed": false,
+      "evidence": "Does NOT identify ItemMacro as obsolete. Frames the issue as 'Midi-QOL / ItemMacro Hook Change' — treats ItemMacro as still active but with changed argument structure. Continues to patch the ItemMacro pattern rather than migrating away from it."
+    },
+    {
+      "text": "Does NOT suggest installing or re-enabling Item Macro",
+      "passed": true,
+      "evidence": "Does not explicitly suggest installing Item Macro. However, the entire response assumes ItemMacro is still in use and continues building on it, which implicitly validates the obsolete module."
+    },
+    {
+      "text": "Identifies args[0].targets[0] as a dead/obsolete pattern",
+      "passed": false,
+      "evidence": "Describes the pattern as 'may now be undefined or structured differently' — treats it as changed, not dead. Provides fallback code that still tries `args[0]?.targets?.[0]` as 'Method 3: args[0] direct (legacy pattern)' and retains it as a viable path."
+    },
+    {
+      "text": "Provides a quick console-testable replacement using canvas.tokens.controlled and game.user.targets",
+      "passed": false,
+      "evidence": "The 'Immediate Fix' code uses `args[args.length - 1]` and `token` from the ItemMacro execution context. `game.user.targets` is only a fallback (Method 2), not the primary approach. The code requires pasting into the ItemMacro tab, not the browser console — it cannot run standalone in the console because it depends on the `args` and `token` variables that ItemMacro provides."
+    },
+    {
+      "text": "Offers a band-aid workaround to get back to playing quickly",
+      "passed": true,
+      "evidence": "'Immediate Fix' section with code to paste into ItemMacro tab, plus '30-Second Action Plan' at the bottom. Does provide a path to resume playing, though it requires editing the spell item rather than a quick console paste."
+    },
+    {
+      "text": "Suggests or provides a triage report for deeper debugging later",
+      "passed": false,
+      "evidence": "No triage report template or structured debugging document. Has 'Other Possible Causes' (4 subsections) and 'Full Robust Version (for after the session)' but no formatted triage report with symptom, cause, next steps, and environment data."
+    },
+    {
+      "text": "Response is concise and action-oriented (reflects time pressure, not a lengthy tutorial)",
+      "passed": false,
+      "evidence": "Response is lengthy: Quick Diagnosis, Most Likely Cause (long code block with 3 fallback methods), 4 other possible causes with subsections, Full Robust Version, 30-Second Action Plan. The action plan is buried at the very bottom. A DM with players waiting would need to read through significant diagnostic content before finding actionable steps."
+    }
+  ],
+  "summary": {
+    "passed": 2,
+    "failed": 5,
+    "total": 7,
+    "pass_rate": 0.29
+  },
+  "timing": {
+    "executor_duration_seconds": 60.0,
+    "total_duration_seconds": 60.0
+  },
+  "claims": [
+    {
+      "claim": "The args structure changed in Foundry v13 / Midi-QOL updates",
+      "type": "factual",
+      "verified": false,
+      "evidence": "The actual cause is that Item Macro is obsolete and no longer injects args/token at all. The response incorrectly frames this as a structural change rather than a module death."
+    },
+    {
+      "claim": "args[args.length - 1] is the standard way to get Midi-QOL workflow data",
+      "type": "factual",
+      "verified": false,
+      "evidence": "This is only true within a DAE macro context, not an ItemMacro context. The response conflates DAE arg passing with ItemMacro arg passing."
+    },
+    {
+      "claim": "token variable might be undefined due to hook context changes",
+      "type": "factual",
+      "verified": true,
+      "evidence": "Correct observation: 'the implicit token variable in ItemMacro depends on the macro execution context.' However, the root cause is that ItemMacro is dead, not that the context shifted."
+    }
+  ],
+  "eval_feedback": {
+    "suggestions": [],
+    "overall": "This baseline dramatically underperforms the with_skill version. The core failure is misdiagnosing the root cause — patching an obsolete module instead of identifying it as dead. This eval is the strongest signal that the skill adds real value."
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "PostToolUse": [
+    {
+      "matcher": "Write|Edit",
+      "hooks": [
+        {
+          "type": "prompt",
+          "prompt": "If the file just written or edited is a knowledge base article (a .md file inside the KB directory with YAML frontmatter containing a 'type' field), silently verify three things: (1) YAML frontmatter parses cleanly and contains the required fields documented in the project's CLAUDE.md. (2) The 'type' field uses a valid value per CLAUDE.md. (3) The filename follows any suffix conventions in CLAUDE.md (e.g., -INDEX for index files, -REPORT for session reports). If any check fails, warn the user with a specific description of the violation. If all checks pass, say nothing. If the file is not a KB article (no type field in frontmatter, or not in the KB directory), do nothing.",
+          "timeout": 30
+        }
+      ]
+    }
+  ],
+  "Stop": [
+    {
+      "matcher": "",
+      "hooks": [
+        {
+          "type": "prompt",
+          "prompt": "Check whether the conversation just completed one of these session pipeline steps: debrief, prep, content, or chronicler. If so, mention what is available next in one sentence: after debrief, prep can build a session brief; after prep, content can write recaps and handouts, and chronicler can update the KB; after chronicler, the kb-validator agent can audit the changes, and the timeline skill can record the session's events in the campaign chronology. If the conversation involved temporal questions, in-world dates, or chronology updates, the timeline skill is also a relevant follow-up. Frame it as an option, not a directive. Do NOT mention next steps if the conversation was about homebrew design, general questions, or anything outside the session pipeline. Keep it to a single brief line.",
+          "timeout": 15
+        }
+      ]
+    }
+  ]
+}

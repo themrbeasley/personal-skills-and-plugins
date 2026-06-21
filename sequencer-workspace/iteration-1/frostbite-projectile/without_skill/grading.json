@@ -1,0 +1,67 @@
+{
+  "expectations": [
+    {
+      "text": "Uses canvas.tokens.controlled[0] for caster token (correct console context)",
+      "passed": true,
+      "evidence": "`const attacker = canvas.tokens.controlled[0];` in the main script."
+    },
+    {
+      "text": "Uses game.user.targets for target token (not args or workflow)",
+      "passed": true,
+      "evidence": "`const target = game.user.targets.first();` in the main script."
+    },
+    {
+      "text": "Includes null-check or validation on token references before running the effect",
+      "passed": true,
+      "evidence": "Guard clauses: `if (!attacker) { ui.notifications.error(...); throw new Error('No token selected'); }` and matching check for target."
+    },
+    {
+      "text": "Uses .stretchTo() for the projectile beam (not .moveTowards())",
+      "passed": true,
+      "evidence": "`.stretchTo(target)` in the main script."
+    },
+    {
+      "text": "Uses .waitUntilFinished() to chain projectile into impact",
+      "passed": true,
+      "evidence": "`.waitUntilFinished(-500)` with comment: 'start the impact slightly before the bolt ends'."
+    },
+    {
+      "text": "Uses JB2A database paths (jb2a.*) not file system paths (modules/jb2a_patreon/...)",
+      "passed": true,
+      "evidence": "Uses `jb2a.ray_of_frost.blue` and `jb2a.impact.frost.blue.01`. No filesystem paths."
+    },
+    {
+      "text": "JB2A paths reference ice/cold/frost-themed effects (not fire or generic)",
+      "passed": true,
+      "evidence": "ray_of_frost.blue (ice beam) and impact.frost.blue.01 (frost impact). Both explicitly ice/frost themed."
+    }
+  ],
+  "summary": {
+    "passed": 7,
+    "failed": 0,
+    "total": 7,
+    "pass_rate": 1.0
+  },
+  "timing": {
+    "executor_duration_seconds": 68.1,
+    "total_duration_seconds": 68.1
+  },
+  "claims": [
+    {
+      "claim": "Provides detailed explanations of what each Sequencer method does",
+      "type": "quality",
+      "verified": true,
+      "evidence": "Dedicated 'What each piece does' section explaining .file(), .atLocation(), .stretchTo(), .waitUntilFinished(), .scaleToObject()."
+    },
+    {
+      "claim": "Mentions integration into Midi-QOL onUse macro",
+      "type": "factual",
+      "verified": true,
+      "evidence": "Last section mentions 'A Midi-QOL onUse macro attached to the Frostbite Blade weapon item' but does not provide migration code."
+    }
+  ],
+  "eval_feedback": {
+    "suggestions": [],
+    "overall": "Baseline passes all 7 assertions. This eval does not discriminate strongly between with_skill and without_skill — the API patterns tested are well-known enough that both approaches get them right. The null-check assertion is the only differentiator."
+  }
+}

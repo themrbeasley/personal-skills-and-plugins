@@ -1,0 +1,15 @@
+{
+  "eval_id": 1,
+  "eval_name": "bless-persistent-aura",
+  "prompt": "My Paladin just cast Bless on three party members. I need a golden glowing aura on each blessed target that pulses gently and stays until the spell ends. I'm running Midi-QOL, DAE, and TimesUp. How do I set this up so the visual automatically goes away when Bless expires?",
+  "assertions": [
+    "Uses .persist() to make the aura permanent on canvas",
+    "Uses .name() on every persistent effect for later cleanup",
+    "Uses .attachTo() so the aura follows the token",
+    "Iterates over multiple targets (loop or forEach pattern, not hardcoded single target)",
+    "Includes cleanup code using Sequencer.EffectManager.endEffects",
+    "Describes the DAE on/off macro pattern (args[0] === 'on' / 'off')",
+    "Explains the TimesUp -> DAE -> Sequencer automatic removal chain",
+    "Uses .loopProperty() or similar for the pulsing animation"
+  ]
+}

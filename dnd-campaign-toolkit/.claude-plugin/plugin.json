@@ -1,0 +1,7 @@
+{
+  "name": "dnd-campaign-toolkit",
+  "description": "Post-session workflow suite for D&D DMs: debrief, prep, player-facing content, lore updates, campaign chronology, and homebrew design. Reads your project's CLAUDE.md for campaign-specific conventions.",
+  "author": {
+    "name": "Mr. Beasley"
+  }
+}

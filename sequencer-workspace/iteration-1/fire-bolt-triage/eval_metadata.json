@@ -1,0 +1,14 @@
+{
+  "eval_id": 2,
+  "eval_name": "fire-bolt-triage",
+  "prompt": "We're mid-session and my custom fire bolt animation just stopped working. It was fine last week but now nothing happens when the macro runs — no effect, no error in the console, nothing. My players are waiting. The macro code is:\n\nnew Sequence()\n  .effect()\n    .file(\"jb2a.fire_bolt.orange\")\n    .atLocation(token)\n    .stretchTo(args[0].targets[0])\n  .play();\n\nThis runs from an ItemMacro on the Fire Bolt cantrip.",
+  "assertions": [
+    "Identifies ItemMacro as an obsolete/dead module",
+    "Does NOT suggest installing or re-enabling Item Macro",
+    "Identifies args[0].targets[0] as a dead/obsolete pattern",
+    "Provides a quick console-testable replacement using canvas.tokens.controlled and game.user.targets",
+    "Offers a band-aid workaround to get back to playing quickly",
+    "Suggests or provides a triage report for deeper debugging later",
+    "Response is concise and action-oriented (reflects time pressure, not a lengthy tutorial)"
+  ]
+}

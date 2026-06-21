@@ -1,0 +1,23 @@
+# OAuth client secrets — never commit
+client_secret_*.json
+*.client_secret.json
+
+# Local Claude settings
+.claude/settings.local.json
+
+# Node / Workers
+node_modules/
+.wrangler/
+.dev.vars
+.env
+.env.*
+!.env.example
+
+# OS / editor
+.DS_Store
+Thumbs.db
+*.swp
+
+# Packaged plugin artifacts
+*.plugin
+*.zip

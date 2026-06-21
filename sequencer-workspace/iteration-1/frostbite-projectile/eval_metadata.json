@@ -1,0 +1,14 @@
+{
+  "eval_id": 0,
+  "eval_name": "frostbite-projectile",
+  "prompt": "I want a custom visual effect for my homebrew weapon called 'Frostbite Blade'. When it hits a target, it should shoot an icy bolt from the attacker to the target, then create a frost/ice impact burst on the target. I want to test this from the browser console with a selected token and a targeted token. Can you help me build this?",
+  "assertions": [
+    "Uses canvas.tokens.controlled[0] for caster token (correct console context)",
+    "Uses game.user.targets for target token (not args or workflow)",
+    "Includes null-check or validation on token references before running the effect",
+    "Uses .stretchTo() for the projectile beam (not .moveTowards())",
+    "Uses .waitUntilFinished() to chain projectile into impact",
+    "Uses JB2A database paths (jb2a.*) not file system paths (modules/jb2a_patreon/...)",
+    "JB2A paths reference ice/cold/frost-themed effects (not fire or generic)"
+  ]
+}
