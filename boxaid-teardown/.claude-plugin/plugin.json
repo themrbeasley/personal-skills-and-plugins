@@ -1,0 +1,7 @@
+{
+  "name": "boxaid-teardown",
+  "description": "One deterministic close-out for a finished Boxaid support call. /teardown fans out the KB page, call-log row, service report, and cover email over a workflow for-loop, verifies each adversarially, then writes the safe artifacts and hands back the manual ones. Pairs with loose sidecars (the workflow .js and report-template.html) in the consumer repo.",
+  "author": {
+    "name": "Mr. Beasley"
+  }
+}
