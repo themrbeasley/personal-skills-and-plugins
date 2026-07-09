@@ -18,9 +18,11 @@ Every mutation in this workflow (conventions.json contents, enforcement levels, 
 Before anything else, check whether `.professor-orb/` already exists at the consumer project root.
 
 - **If it does not exist,** this is a first-time setup. Continue to Step 1.
-- **If it does exist,** do not clobber it. Tell the DM what you found (existing conventions, when it was last generated, whether the KB looks like it has drifted since) and offer a menu: review the current conventions, resync (re-run the intake and confirmation walkthrough against whatever has changed), or leave it alone. Only proceed past this point with the DM's direction. A resync reuses the rest of this workflow but treats the DM's prior confirmed choices as the starting draft rather than re-deriving everything from scratch, and sets `generatedBy` to `"resync"` instead of `"setup"`.
+- **If it does exist,** do not clobber it. Tell the DM what you found (existing conventions, when it was last generated, whether the KB looks like it has drifted since) and offer a menu: review the current conventions, resync (re-run the intake and confirmation walkthrough against whatever has changed), or leave it alone. Only proceed past this point with the DM's direction. A resync reuses the rest of this workflow but treats the DM's prior confirmed choices as the starting draft rather than re-deriving everything from scratch, and sets `generatedBy` to `"resync"` instead of `"setup"`. Note: on resync, Step 1 (predecessor detection) is skipped; Step 4 regenerates only `conventions.json` and `tag-registry.json`, leaving `pipeline-state.json` and `proposals/` untouched.
 
 ## Step 1: detect predecessor installs
+
+This step runs only on first-time setup. On a resync, skip to Step 2.
 
 Look at the consumer project root for signs of the old Cowork edition (`dnd-campaign-toolkit`), such as a `dnd-campaign-toolkit.plugin` file or directory. Also check for any installed-plugin manifest that references it.
 
@@ -48,14 +50,18 @@ Batch these questions sensibly: group rules that share stakes or a category (all
 
 AskUserQuestion is mandatory for this confirmation. Do not write `conventions.json` from assumed defaults; every rule's enforcement level must be something the DM actually chose or explicitly approved.
 
-## Step 4: create the .professor-orb/ directory
+## Step 4: create or update the .professor-orb/ directory
 
-Once the DM has approved the rule set and every enforcement level, create `.professor-orb/` at the consumer project root with:
+Once the DM has approved the rule set and every enforcement level, act based on whether this is a first-time setup or a resync.
+
+**First-time setup.** Create `.professor-orb/` at the consumer project root with:
 
 - **`conventions.json`**: the approved rules, in the exact shape documented in `references/conventions-schema.md` (`version`, `kbRoot`, `generatedBy`, `generatedAt`, `sourceConventionsDoc`, `tagRegistryPath`, `rules`).
 - **`pipeline-state.json`**: an empty initial state, `{}`. Setup does not write a `lastStep` here; setup is not a pipeline step, it is the prerequisite the pipeline runs on top of.
 - **`tag-registry.json`**: an initial tag inventory. Scan existing KB article frontmatter for `tags` fields and build a flat object mapping each tag name to a rough count of how many articles use it, for example `{"npc": 12, "faction": 6}`. This is a quick scan for a starting inventory, not an exhaustive audit; the validation sweep regenerates this file properly later.
 - **`proposals/`**: an empty directory where the chronicler skill will later write lore-update proposals for DM review.
+
+**Resync.** Update only `conventions.json` and `tag-registry.json` with their new values. Leave `pipeline-state.json` and `proposals/` untouched; this preserves any in-flight pipeline breadcrumbs and pending chronicler proposals.
 
 ## Step 5: copy the validation sweep workflow
 
@@ -76,4 +82,4 @@ While you were reading the consumer's CLAUDE.md during Step 2, note anything tha
 
 ## Closing this run
 
-Once all applicable steps are complete, summarize for the DM what was created or changed: the conventions source and tier used, the number of rules and their enforcement levels, whether a migration ran, whether CLAUDE.md was corrected, and whether the validation sweep workflow copied successfully. Point them at the session pipeline (debrief is the natural first step) as a next action, but do not write anything into `pipeline-state.json` yourself beyond the empty state from Step 4. Setup's job ends here; the pipeline skills take it from there.
+Once all applicable steps are complete, summarize for the DM what was created or changed: the conventions source and tier used, the number of rules and their enforcement levels, whether a migration ran, whether CLAUDE.md was corrected, and whether the validation sweep workflow copied successfully. On first-time setup, note that `pipeline-state.json` was initialized with an empty state; on resync, note what was updated (conventions and tag registry only). Point them at the session pipeline (debrief is the natural first step) as a next action. Setup's job ends here; the pipeline skills take it from there.
