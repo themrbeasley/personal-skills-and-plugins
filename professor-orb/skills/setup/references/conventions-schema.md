@@ -44,7 +44,9 @@ registry exists and where to find it; it does not embed the tag list.
 3. **Flat and cheap to parse.** The hook is a small Node ESM script. Rules live in
    one top-level `rules` object keyed by rule ID. Each rule entry is shallow: a
    handful of scalar fields plus one `params` object holding check-specific
-   values. Nothing nests more than two levels deep.
+   values. Rule params are mostly flat or one level deep. The one exception is
+   the `default` check, whose `overrides` array nests a `when` condition object
+   (three levels total); hook authors should expect this structure.
 4. **Forward-compatible.** A rule's `check` field names a check kind the hook
    knows how to run. If the hook encounters a `check` value it does not recognize
    (e.g. written against a newer schema version), it should skip that rule and
