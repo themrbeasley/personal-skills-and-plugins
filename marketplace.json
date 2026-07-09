@@ -1,4 +1,8 @@
 {
+  "name": "professor-orb-marketplace",
+  "owner": {
+    "name": "Mr. Beasley"
+  },
   "plugins": [
     {
       "name": "professor-orb",

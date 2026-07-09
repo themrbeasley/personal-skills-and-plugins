@@ -1,6 +1,6 @@
 # Shared Principles for Session Pipeline Skills
 
-> Every pipeline skill (debrief, prep, content, chronicler) must follow these principles. Read this file at the start of every run, alongside the project's CLAUDE.md and its conventions file.
+> Every pipeline skill (debrief, prep, content, chronicler) must follow these principles. Read this file at the start of every run, alongside the project's CLAUDE.md.
 
 ## 1. The DM is the source of truth
 
@@ -12,7 +12,7 @@ Do not silently prefer a document over a direct statement from the DM.
 
 No pipeline skill writes, edits, or creates files without the DM's explicit approval. The workflow for every skill is:
 
-1. Gather inputs (read reports, articles, CLAUDE.md, the conventions file).
+1. Gather inputs (read reports, articles, CLAUDE.md).
 2. Draft the output (report, prep brief, content piece, lore proposal).
 3. Present the draft to the DM.
 4. Wait for approval, requested changes, or rejection.
@@ -40,7 +40,7 @@ Do not use em dashes in any output. Use commas, colons, parentheses, or restruct
 
 ## 7. Never invent canon
 
-Everything written must be traceable to a session report, the DM's direct statements, an existing KB article, or a convention in CLAUDE.md or the conventions file. If a detail is missing, ask or write around the absence. Fabrication is the worst failure mode.
+Everything written must be traceable to a session report, the DM's direct statements, an existing KB article, or a convention in CLAUDE.md. If a detail is missing, ask or write around the absence. Fabrication is the worst failure mode.
 
 ## 8. Scope discipline
 
