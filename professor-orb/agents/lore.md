@@ -50,6 +50,7 @@ Either way, extract:
 - Cross-reference or wikilink format
 - YAML frontmatter schema
 - Writing style and tone rules
+- Special framing rules for specific topics
 - Content exclusion tags
 
 ### Step 2: Read the session report
@@ -78,11 +79,13 @@ Each subagent returns, for its one entity only:
 
 Do not let a subagent read another entity's article or the wider KB. Cross-entity synthesis is the parent's job, in Step 5.
 
+If you cannot spawn subagents (the tool is unavailable at runtime), proceed to Step 5 and analyze directly instead: read each entity's KB article yourself sequentially, applying the same entity-scoped discipline described above. Note in your output's Scope section that fan-out was unavailable and direct analysis was used.
+
 ### Step 5: Merge, or analyze directly
 
 **If you fanned out:** collect every subagent's findings. Deduplicate: two subagents proposing the same index update, or flagging the same contradiction from different entities' angles, become one entry. Resolve cross-entity interactions yourself (a relationship update touching two entities, a location that gates a faction's status) since no single subagent saw both sides.
 
-**If you skipped fan-out:** read each entity's KB article yourself and compare claims directly, using the same rules in Steps 6 through 9.
+**If you skipped fan-out or fell back to direct analysis:** read each entity's KB article yourself and compare claims directly, using the same rules in Steps 6 through 9.
 
 Either path produces one structured proposal, never a per-entity dump.
 
@@ -128,6 +131,7 @@ Organize proposed changes into buckets, adapted to the project's conventions lea
 - Existing articles to edit: filename, sections changed, description, change type
 - Index updates: which indexes, what changes, ownership justification
 - New indexes to create: apply the project's exact split threshold, quoted exactly
+- Artifact cleanup: if the project's conventions (from `.professor-orb/conventions.json` or CLAUDE.md) document cleanup patterns, note them for articles being edited
 
 Skip any bucket the project doesn't use.
 
@@ -143,7 +147,7 @@ Return this as your final message, nothing else:
 ## Lore Analysis: [Session Title]
 
 ### Scope
-**Mode:** Fan-out (N subagents) or Direct analysis (N entities, two or fewer)
+**Mode:** Fan-out (N subagents) or Direct analysis (fewer entities or fan-out unavailable)
 **Entities checked:** N
 **Conventions source:** .professor-orb/conventions.json, or CLAUDE.md fallback
 
