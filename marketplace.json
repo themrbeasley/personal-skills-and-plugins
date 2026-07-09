@@ -1,0 +1,9 @@
+{
+  "plugins": [
+    {
+      "name": "professor-orb",
+      "description": "Post-session workflow suite for D&D DMs: debrief, prep, content, lore updates, campaign chronology, and homebrew design.",
+      "source": "./professor-orb/.claude-plugin"
+    }
+  ]
+}
