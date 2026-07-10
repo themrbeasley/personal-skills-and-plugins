@@ -87,10 +87,10 @@ Do not proceed to Phase 4 until the report file exists on disk.
 Once the report is written, spawn the `lore` agent with fan-out instructions:
 
 - Pass the report's file path and the full entity list you tracked in Phases 1 and 2.
-- Instruct the agent to fan out: one subagent per entity touched in the session, each subagent reading only the session report and that entity's KB article(s).
+- Instruct the agent to fan out: one subagent per entity touched in the session, each subagent reading only the session report and that entity's KB article(s). The lore agent fans out per entity when the session touched three or more entities; smaller sessions are analyzed directly.
 - The parent `lore` agent merges the subagents' findings into a single structured proposal: non-obvious connections, contradictions, lore candidates, and entities without articles.
 
-Wait for the `lore` agent to return its findings. Present a summary to the DM (not a raw dump) and point them at where the full proposal lives, and tell them the `chronicler` skill is what actually canonizes any of it into the KB.
+Wait for the `lore` agent to return its findings. Present a summary to the DM (not a raw dump) and point them at the full proposal above in this conversation (the chronicler skill re-derives and persists it when it runs), and tell them the `chronicler` skill is what actually canonizes any of it into the KB.
 
 If the `lore` agent is unavailable or the DM declines the handoff, note that the report was written without a lore cross-reference and move on. Do not attempt the deep KB cross-referencing yourself; that is the `lore` agent's job.
 

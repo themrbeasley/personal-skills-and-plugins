@@ -60,7 +60,7 @@ function parseYamlLines(lines) {
     if (!rawLine.trim()) continue;
 
     const kvMatch = rawLine.match(/^([A-Za-z0-9_.-]+):\s*(.*)$/);
-    const arrayItemMatch = rawLine.match(/^\s+-\s*(.*)$/);
+    const arrayItemMatch = rawLine.match(/^\s*-\s+(.*)$/);
 
     if (kvMatch) {
       const key = kvMatch[1];

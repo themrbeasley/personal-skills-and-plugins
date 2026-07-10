@@ -1,6 +1,6 @@
 ---
 name: setup
-description: One-time (plus on-demand resync) onboarding workflow that produces the .professor-orb/ artifacts every other professor-orb skill and hook depends on (conventions.json, pipeline-state.json, tag-registry.json, proposals/), plus a copy of the validation sweep workflow in .claude/workflows/. Use it when installing professor-orb into a new campaign project, when the DM asks to set up or configure the plugin, or when .professor-orb/ is missing, stale, or has drifted from the KB's actual conventions.
+description: "One-time (plus on-demand resync) onboarding workflow that produces the .professor-orb/ artifacts every other professor-orb skill and hook depends on (conventions.json, pipeline-state.json, tag-registry.json, proposals/), plus a copy of the validation sweep workflow in .claude/workflows/. Use it when installing professor-orb into a new campaign project, when the DM asks to set up or configure the plugin, or when .professor-orb/ is missing, stale, or has drifted from the KB's actual conventions."
 ---
 
 > **Before you begin:** read `../SHARED-PRINCIPLES.md` and apply its rules throughout this workflow. Then read `references/conventions-schema.md` in full: it defines the exact shape of `conventions.json`, the enforcement levels, the check kinds, and the three intake tiers this skill implements. Do not attempt to write `conventions.json` from memory or by guessing the schema.

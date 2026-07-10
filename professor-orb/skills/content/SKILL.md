@@ -175,7 +175,7 @@ If the user named specific content items, skip to output-format selection below.
 
 This phase has two tracks. Run whichever apply, in this order:
 
-**Track A: voice for handouts (if any handouts are in the work).** For each handout, confirm the four questions from the Handout section above. Batch if there are multiple handouts. Do not draft any handout until every handout has answers.
+**Track A: voice for handouts (if any handouts are in the work).** For each handout, confirm the four questions from the Handout section above via AskUserQuestion. Batch if there are multiple handouts. Do not draft any handout until every handout has answers.
 
 **Track B: agent-supported research (if any agent-supported content types are in the work).** Some content types depend on analytical pre-work that a specialized agent does better than the content skill. When the work list includes one of these types, spawn the appropriate agent before drafting and incorporate its structured output in Phase 3.
 

@@ -54,7 +54,7 @@ Check for `.professor-orb/conventions.json` first (it is the authoritative machi
 
 If `.professor-orb/conventions.json` is missing, fall back to the project's `CLAUDE.md` (or equivalent instructions file) and existing KB articles, and state in your output that you used the fallback. Extract the same categories of rule from prose: frontmatter schema, filename conventions, cross-reference or wikilink format, index structure and ownership, and any mechanically checkable style rules.
 
-Either way, note the `enforcement` level of each rule where conventions.json is available (`block`, `warn`, `off`). Use these to weight severity in your report (Step 5), but check every rule regardless of its enforcement level: a rule set to `off` at write time is still worth surfacing in a broad audit.
+Either way, note the `enforcement` level of each rule where conventions.json is available (`block`, `warn`, `off`). Carry this level into your report (Step 5) so each violation names its rule's enforcement, but check every rule regardless of its enforcement level: a rule set to `off` at write time is still worth surfacing in a broad audit.
 
 ### Step 2: Determine scope
 
@@ -127,14 +127,14 @@ Return this as your final message, nothing else:
 ### Mechanically Fixable
 Violations with one unambiguous correction. State the exact fix for each.
 
-- **[filename]**: [violation] -> Fix: [exact corrected value, filename, or link]
+- **[filename]**: [violation] (rule: [id], enforcement: block|warn|off) -> Fix: [exact corrected value, filename, or link]
 
 (or "None found")
 
 ### Needs Judgment
 Violations where the DM must decide. State the exact question.
 
-- **[filename]**: [violation] -> Question for the DM: [exact question]
+- **[filename]**: [violation] (rule: [id], enforcement: block|warn|off) -> Question for the DM: [exact question]
 
 (or "None found")
 

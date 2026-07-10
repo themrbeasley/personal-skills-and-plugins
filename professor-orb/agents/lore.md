@@ -64,6 +64,8 @@ Read the report at the given path. Extract every factual claim: entity locations
 
 ### Step 4: Fan out (three or more entities)
 
+Before reading any article, check it against the project's content-exclusion tags (per the conventions learned in Step 1) and skip excluded articles, surfacing them only in the Deferred/Flagged bucket rather than reading their content.
+
 Spawn one subagent per entity. Give each subagent exactly this scope, nothing wider:
 
 - The session report's file path, read-only.
