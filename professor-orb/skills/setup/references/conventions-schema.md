@@ -22,10 +22,11 @@ Three components consume this schema:
 
 All three must agree on the shape of the file. This document is that agreement.
 
-The conventions file is **derived, not authoritative**. If a human-readable
-conventions document exists at the KB root, that document is the source of truth
-for intent; `conventions.json` is its machine-checkable projection. The setup
-skill regenerates it; nothing else hand-edits it as primary.
+The conventions file is **derived, not authoritative**. It captures the rules the
+DM confirmed during setup. If a human-readable conventions document existed at
+the KB root, it was raw material for that derivation; `conventions.json` is the
+machine-checkable result. The setup skill regenerates it; nothing else hand-edits
+it as primary.
 
 A companion file, `.professor-orb/tag-registry.json`, holds the actual inventory
 of tags in use across the KB. `conventions.json` only references that the tag
