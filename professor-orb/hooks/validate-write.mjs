@@ -329,14 +329,16 @@ function checkIndexParity(params, ctx) {
   const entries = safeReaddir(dir);
   if (!entries) return null;
 
-  const indexFiles = entries.filter((f) => baseNameNoExt(f).endsWith(indexSuffix));
-  const folderLabel = path.dirname(ctx.relPath) || ".";
+  // Only block writes that worsen parity; ordinary article writes never fail this check.
+  const isIndexWrite = baseNameNoExt(ctx.fileName).endsWith(indexSuffix);
+  if (!isIndexWrite) return true;
 
-  if (indexFiles.length === 0) {
-    return `Folder "${folderLabel}" has no ${indexSuffix} file.`;
-  }
-  if (indexFiles.length > 1) {
-    return `Folder "${folderLabel}" has ${indexFiles.length} ${indexSuffix} files; expected exactly one.`;
+  // File being written is an index file. Block only if a different index already exists.
+  const existingIndexFiles = entries.filter((f) => baseNameNoExt(f).endsWith(indexSuffix));
+  const conflicts = existingIndexFiles.filter((f) => f !== ctx.fileName);
+  if (conflicts.length > 0) {
+    const folderLabel = path.dirname(ctx.relPath) || ".";
+    return `Folder "${folderLabel}" already has an index file; writing a second would break parity.`;
   }
   return true;
 }
