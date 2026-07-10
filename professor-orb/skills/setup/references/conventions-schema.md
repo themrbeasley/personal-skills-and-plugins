@@ -72,7 +72,8 @@ registry exists and where to find it; it does not embed the tag list.
   "generatedAt": "2026-07-09T00:00:00Z",
 
   // Path to the human-readable conventions document this file was derived
-  // from, or null if none exists yet (tier 2/3 intake; see below).
+  // from, or null if no single source document existed (tiers 2 and 3 set
+  // this to null; see below).
   "sourceConventionsDoc": "rolara-kb/KB-CONVENTIONS.md",
 
   // Where the companion tag registry lives. The hook reads this path when
@@ -127,7 +128,7 @@ semantically meaningful to the hook; it only reads `category`, `check`,
 
 ## Rule catalog
 
-Four categories, matching the four kinds of conventions a KB-CONVENTIONS.md
+Four categories, matching the four kinds of conventions a knowledge base
 typically encodes. Each `check` kind below is a fixed vocabulary the hook
 implements; setup only ever emits rules using one of these check kinds.
 
@@ -210,7 +211,9 @@ defaults baked into the schema itself.
 
 A realistic (abbreviated) file, using Rolara-shaped values as examples. A
 different consumer project would have different types, suffixes, and
-thresholds, but the same shape.
+thresholds, but the same shape. Rolara is a tier 1 project with an existing
+conventions document; a tier 2 or 3 project would have
+`"sourceConventionsDoc": null`.
 
 ```json
 {
@@ -375,16 +378,14 @@ file's path.
 **Tier 2: discover and consolidate.** If conventions exist but are scattered
 across `CLAUDE.md`, other project files, or inferred from patterns already
 present across multiple articles, setup gathers them into a single proposed
-rule set. Because no single document was the source, setup also drafts a new
-human-readable `KB-CONVENTIONS.md` from the consolidated rules, so the consumer
-ends up with the same two-layer architecture (prose plus JSON) as a tier 1
-consumer. `sourceConventionsDoc` points at the newly drafted file.
+rule set. Because no single document was the source, `sourceConventionsDoc` is
+set to null.
 
 **Tier 3: interview and infer.** If conventions exist only in the DM's head,
 setup interviews the DM (via `AskUserQuestion`) and infers likely conventions
 from sample articles already in the KB (common frontmatter fields, filename
-patterns, folder sizes). It drafts both `conventions.json` and a new
-`KB-CONVENTIONS.md`, same as tier 2.
+patterns, folder sizes). It produces `conventions.json` only; `sourceConventionsDoc`
+is set to null.
 
 **All tiers converge on the same step:** before writing `conventions.json`,
 setup walks the DM through every proposed rule, confirms the interpretation is
