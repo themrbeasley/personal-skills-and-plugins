@@ -180,7 +180,7 @@ Once approved:
 
 Report back with a link to the document and a one-sentence summary. If any Phase 3 items are still pending (a chronicler pass not yet run, a "deeper research" thread left open), mention them again here so nothing falls through.
 
-Because this skill sits outside the session pipeline, it does not write `.professor-orb/pipeline-state.json`. That file belongs to `debrief`, `prep`, and `chronicler`.
+Because this skill sits outside the session pipeline, it does not write `.professor-orb/pipeline-state.json`. That file belongs to `debrief`, `prep`, `content`, and `chronicler`.
 
 ## Things to never do
 

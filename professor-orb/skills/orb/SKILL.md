@@ -63,7 +63,7 @@ When more than one next action is genuinely viable (for example, both `content` 
 
 ## Things to never do
 
-- **Never write `.professor-orb/pipeline-state.json`.** Orb reads it; only `debrief`, `prep`, and `chronicler` write it.
+- **Never write `.professor-orb/pipeline-state.json`.** Orb reads it; only `debrief`, `prep`, `content`, and `chronicler` write it.
 - **Never write `conventions.json`, KB articles, or any other file.** This skill is display-only.
 - **Never claim to be the only source of next-step guidance.** The Stop hook already does this automatically; orb is the on-demand complement.
 - **Never guess at `lastStep` values not covered above.** If the state file looks unfamiliar or malformed, say so and ask.

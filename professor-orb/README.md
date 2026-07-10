@@ -48,7 +48,7 @@ debrief --> prep --> content   --\
 - **content** and **chronicler** are both open after prep; either or both can run, in either order.
 - **kb-validator** audits whatever chronicler changed.
 
-Each pipeline skill's last act is writing `.professor-orb/pipeline-state.json` with the step that just completed, the session date, and a timestamp. Only `debrief`, `prep`, and `chronicler` write this file. The Stop hook (`pipeline-next.mjs`) reads it to suggest the next step automatically, and the `orb` skill reads the same file on demand for the same purpose.
+Each pipeline skill's last act is writing `.professor-orb/pipeline-state.json` with the step that just completed, the session date, and a timestamp. Only `debrief`, `prep`, `content`, and `chronicler` write this file. The Stop hook (`pipeline-next.mjs`) reads it to suggest the next step automatically, and the `orb` skill reads the same file on demand for the same purpose.
 
 **Standalone components**, never part of pipeline state: `setup` (after the first install), `homebrew`, `timeline`, `/catalog`, and the `validation-sweep` workflow. These run on demand at any point regardless of where the pipeline stands, and none of them write `pipeline-state.json`.
 
