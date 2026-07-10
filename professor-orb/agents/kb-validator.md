@@ -62,7 +62,7 @@ If given a list of files (for example, the articles chronicler just touched), ch
 
 ### Step 3: Identify catalog entries and exempt them from graph checks
 
-Before running cross-reference or index-ownership checks, identify homebrew catalog entries: articles with `type: Homebrew` frontmatter (and/or filed in the catalog location conventions.json documents), written by the `/catalog` command. These sit outside the wikilink graph by design: they carry no wikilinks in or out, and are not owned by any index the way a lore article is. Do not flag a catalog entry as an orphan, as unlinked, or as missing index ownership; that is correct structure, not a violation. Still check their frontmatter, filename, and any rule that applies regardless of graph position.
+Before running cross-reference or index-ownership checks, identify homebrew catalog entries: articles with `type: Homebrew` frontmatter (and/or filed in the catalog location conventions.json documents), written by the `/catalog` command. These sit outside the wikilink graph by design: they carry no wikilinks in their body and are not linked to from other articles. Do not flag a catalog entry as an orphan or as unlinked; that is correct structure, not a violation. Index-ownership checks still apply to catalog entries, because the `/catalog` command updates the owning Homebrew index to list each new entry. Still check their frontmatter, filename, and any rule that applies regardless of graph position.
 
 ### Step 4: For each in-scope article, check every convention rule
 
@@ -82,7 +82,7 @@ Before running cross-reference or index-ownership checks, identify homebrew cata
 - For each link, check whether the target exists anywhere in the KB
 - Flag dead links, respecting any project-specific exception documented in conventions.json or CLAUDE.md (for example, dead links being acceptable in session reports)
 
-**Structural validation** (per `structural` category rules, skipping catalog entries per Step 3 for ownership checks):
+**Structural validation** (per `structural` category rules; catalog entries are subject to index-ownership checks per Step 3):
 - Each folder with content has exactly one owning index, if the project uses an index-parity rule
 - Each article's wikilink appears in exactly one owning index (KB-wide; realistically only exhaustive when run by the validation sweep workflow)
 - Folders that have crossed a documented split or absorb threshold
