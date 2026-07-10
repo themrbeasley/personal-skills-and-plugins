@@ -1,5 +1,6 @@
 {
   "name": "professor-orb-marketplace",
+  "description": "Mr. Beasley's personal Claude Code plugins for tabletop campaign management.",
   "owner": {
     "name": "Mr. Beasley"
   },
@@ -7,7 +8,8 @@
     {
       "name": "professor-orb",
       "description": "Post-session workflow suite for D&D DMs: debrief, prep, content, lore updates, campaign chronology, and homebrew design.",
-      "source": "./professor-orb/.claude-plugin"
+      "version": "1.1.0",
+      "source": "./professor-orb"
     }
   ]
 }
