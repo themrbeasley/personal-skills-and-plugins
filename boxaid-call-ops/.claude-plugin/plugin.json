@@ -1,0 +1,7 @@
+{
+  "name": "boxaid-call-ops",
+  "description": "Both bookends of a Boxaid support call. /call-start opens it: the Tune-Up Snapshot ready to paste, a fresh call scratchpad, and call mode armed so the kill guard runs at full scope. /teardown closes it: the KB page, call-log row, service report, and cover email fan out over a workflow for-loop, are verified adversarially, and split into what Claude writes and what the operator commits by hand. Pairs with loose sidecars (the workflow .js, report-template.html, and the call-mode hooks) in the consumer repo.",
+  "author": {
+    "name": "Mr. Beasley"
+  }
+}
