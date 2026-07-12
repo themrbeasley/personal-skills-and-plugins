@@ -59,6 +59,37 @@ Follow the project's filename conventions (charset, suffix by type if one applie
 
 Never write a raw `.html` file. Content only ever lives inside the assembled markdown entry's frontmatter or body blocks.
 
+## Step 5: Stamp lifecycle status
+
+Every catalog entry carries a `status` field, because all catalogued homebrew is playtest material until the DM says otherwise. Allowed values:
+
+- `playtest`: the default for a new capture. Untested or lightly tested at the table.
+- `active`: the DM has settled on this version as the one currently in play.
+- `reverted`: the DM tried this version and pulled it back; the entry stays for the record.
+- `discontinued`: retired and no longer in play.
+
+Set `playtest` on a new capture unless the DM explicitly says otherwise. A later revision (Step 6) may change the status, for example moving a proven piece from `playtest` to `active`, or marking one that did not work out `reverted` or `discontinued`.
+
+For a stat block with multiple parts (say, a monster with several abilities, or a class with several subclass features), the entry's overall `status` need not describe every part uniformly. A single part can be noted discontinued in place, as an inline note on that part in the body, while the rest of the entry and its `status` field stay as they are. Do not discontinue the whole entry over one part the DM has dropped.
+
+## Step 6: Record the version
+
+Every capture is versioned along one of two tracks, chosen once per catalog and then followed consistently.
+
+**Detect existing entry.** Before writing, check whether an entry for this piece of homebrew already exists in the catalog (by name, and by the owning index from Step 2). If an entry already exists, this capture is a revision of it. If not, this is version 1.
+
+**Offered git track.** If the homebrew catalog folder is not already inside a git repository, offer, with AskUserQuestion, to make it one so every capture from here forward is versioned by commit history. This offer is DM-approval-gated and never forced; if the DM does not want git, or does not answer, fall back to the no-git baseline below and do not ask again this session. If the DM accepts:
+
+1. Run `git init` locally in the catalog root.
+2. Proceed with writing the entry (Step 4) and updating the owning index (the "Update the owning index" step below).
+3. Commit the change with a message naming the entry and its version, for example `catalog: <entry name> v<version>`.
+
+Creating a private remote and pushing to it stays entirely the DM's own action. Do not attempt account creation, authentication, or pushing as part of this command.
+
+**No-git baseline.** If the DM declines the git offer, or the catalog is not a git repository for any other reason, track versioning in the entry itself: the `version` frontmatter field (starting at 1, incremented by 1 on each revision), plus a short dated changelog line appended to the entry recording what this capture changed. Where useful, state the honest limitation in that changelog area: without git, there is no full recovery of a prior version's exact content, only the running changelog description of what changed.
+
+**Triggering a new version.** A new version is triggered by re-running `/catalog` on a piece of homebrew that already has an entry (per the detection above). There is no separate "revise" command; the same `/catalog` invocation handles both first capture and later revisions.
+
 ## Step 5: Update the owning index
 
 Update the Homebrew catalog's owning index to list the new entry, following whatever index format and ownership rule the project already uses (single ownership: the entry's link belongs in exactly one index).
