@@ -86,3 +86,38 @@ for a named, characterized one; `npc` entries additionally populate the flavor f
 - **[H]** (npc flavor only) roleplay bio, personality, faction / affiliation, location(s),
   plot hooks / secrets, relationships, portrait reference. Also "Habitat" and "Treasure"
   lines (absent from SRD 5.2.1; Monster-Manual-style, not SRD-native).
+
+## species
+
+- **[F]** name; creature type; size; speed.
+- **[B]** a flat set of named traits (`{name, description}`); named sub-choice tables
+  (draconic ancestry, elven / gnomish lineage, giant ancestry, fiendish legacy) where the
+  species presents a choice.
+- **[H]** structured resource tracking (uses / recharge) parsed out of trait prose; "size
+  chosen at creation" boolean.
+
+## subclass
+
+- **[F]** name; parent class; subclass-feature levels (array of ints).
+- **[B]** a one-line tagline; a flavor paragraph; level-keyed features (`Level N: Name` plus
+  prose).
+- **[H]** balance / tier tags; author; version metadata.
+
+## class
+
+- **[F]** name; primary ability; hit point die; saving-throw proficiencies; skill
+  proficiencies (choose-N plus list); weapon proficiencies; armor training; tool
+  proficiencies (optional, some classes grant none); starting-equipment options;
+  subclass-choice level.
+- **[B]** the progression table (`Level | Proficiency Bonus | Features | class-resource
+  columns`); level-keyed features; the multiclass-entry subset.
+- **[H]** a flexible `extraColumns` structure for class-specific resource trackers (names
+  vary per class); playstyle / tier tags.
+
+## other
+
+Catch-all so no novel kind of homebrew is ever blocked.
+
+- **[F]** name; a DM-defined type label.
+- **[B]** free-form, preserved verbatim.
+- **[H]** everything.
