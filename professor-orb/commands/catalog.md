@@ -1,27 +1,31 @@
 ---
-description: "Capture a locked, post-tweak piece of homebrew (the DM's final as-built Foundry HTML) into the homebrew catalog: write one markdown entry and update the owning Homebrew index. Standalone, on demand, not part of the session pipeline."
-argument-hint: "[paste the locked, post-tweak Foundry HTML]"
+description: "Capture one finalized, DM-confirmed piece of homebrew as a type-specific catalog entry and maintain it across its playtest life: write one markdown entry, stamp its lifecycle status, record a version, and update the owning Homebrew index. Standalone, on demand, not part of the session pipeline."
+argument-hint: "[optionally paste finalized homebrew, or name what to catalog]"
 ---
 
-# /catalog: Capture Locked Homebrew
+# /catalog: Capture Finalized Homebrew
 
 > **Before you begin:** read `../skills/SHARED-PRINCIPLES.md` (relative to this plugin) and apply its rules throughout this workflow.
 
-You are capturing one piece of homebrew that the DM has already finished designing, implemented in their VTT (usually Foundry), and tweaked to its final table-real form. This command does exactly three things: write one markdown catalog entry, update the owning Homebrew index, and nothing else. It is precise and repeatable by design, capture is a command, not a reminder.
+You are capturing one piece of homebrew the DM has already finished designing and confirmed, usually the homebrew skill's iterated output. This command turns that finalized design into a per-type catalog entry: it stamps the entry's lifecycle status, records a version, writes one markdown catalog entry, and updates the owning Homebrew index, then stops. It is precise and repeatable by design, capture is a command, not a reminder.
 
-This command is **standalone**, like `homebrew` and `timeline`. It is not part of the debrief, prep, content, chronicler, kb-validator session pipeline and does not write `.professor-orb/pipeline-state.json`.
+This command is **standalone**, like `homebrew` and `timeline`. It is not part of the debrief, prep, content, chronicler, kb-validator session pipeline and never writes `.professor-orb/pipeline-state.json`.
 
 ## What this command is not
 
-- Not a place to store the homebrew skill's pre-tweak drafts. Only the locked, as-built version belongs here.
+- Not a store for pre-finalization drafts. Only finalized, confirmed homebrew belongs here.
 - Not a general KB writer. It writes exactly one entry file and touches exactly one index.
-- Not an approval loop for the entry content. The DM invoking `/catalog` with pasted HTML is itself the explicit approval for that write (Shared Principle 2 still applies to the KB as a whole; this command is the one place where the DM's invocation already satisfies it).
+- Not a second approval loop. The DM invoking `/catalog` on content they just confirmed is itself the approval for that write (Shared Principle 2 still applies to the KB as a whole; this command is the one place where the DM's invocation already satisfies it).
 
-## Step 1: Get the locked HTML
+## Step 1: Get the finalized homebrew
 
-If the DM ran `/catalog` and pasted HTML in the same message, use that HTML. If they ran `/catalog` with nothing pasted, ask them for the locked, post-tweak HTML directly. Do not catalog a draft pulled from earlier conversation memory, even if one is sitting right there in the chat history. Skill drafts never enter the catalog; only the DM's confirmed, as-built paste does.
+The primary source is the finalized homebrew the DM just confirmed, typically the homebrew skill's iterated output pasted or referenced in the same message. This needs no Foundry. If the DM instead supplies a manual paste of finalized content, use that.
 
-If the paste looks truncated, cut off mid-tag, or otherwise malformed, ask the DM about it rather than repairing or completing it yourself.
+Reading an exported Foundry actor or item JSON is a planned enrichment and is not yet available in this version. For now, capture from the finalized design or a paste; do not ask the DM for a Foundry export.
+
+Catalog only finalized, confirmed homebrew. The guard is not "only a fresh paste"; it is "only content the DM has finalized." The DM invoking /catalog on content they just confirmed is the approval. Do not re-paste what the assistant already authored, and do not catalog an unfinished draft.
+
+If content looks truncated, cut off mid-tag, or otherwise malformed, ask the DM about it rather than repairing or completing it yourself.
 
 ## Step 2: Resolve conventions
 
