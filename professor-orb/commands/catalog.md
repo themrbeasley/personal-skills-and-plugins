@@ -19,7 +19,7 @@ This command is **standalone**, like `homebrew` and `timeline`. It is not part o
 
 ## Step 1: Get the finalized homebrew
 
-The primary source is the finalized homebrew the DM just confirmed, typically the homebrew skill's iterated output pasted or referenced in the same message. This needs no Foundry. If the DM instead supplies a manual paste of finalized content, use that.
+The primary source is the finalized homebrew the DM just confirmed, typically the homebrew skill's iterated output, whether pasted or referenced in the same message, or confirmed earlier in this conversation. This needs no Foundry. If the DM instead supplies a manual paste of finalized content, use that.
 
 Reading an exported Foundry actor or item JSON is a planned enrichment and is not yet available in this version. For now, capture from the finalized design or a paste; do not ask the DM for a Foundry export.
 
@@ -50,7 +50,9 @@ Each template section tags its fields: **[F]** frontmatter fields, **[B]** the n
 
 ## Step 4: Assemble the entry
 
-Write one markdown file to the homebrew catalog folder (per Step 2). The file is:
+First determine whether an entry for this homebrew already exists in the catalog (by name, and by the owning index from Step 2). If it does, this capture is a revision, and you edit that existing entry file in place rather than creating a second new file. If not, this is a new capture and you create a new file. Carry that revision-or-new determination forward into Step 6.
+
+Write (or, for a revision, update in place) one markdown file to the homebrew catalog folder (per Step 2). The file is:
 
 1. YAML frontmatter combining the required floor (`name`, `type`, `status`, `version`, `date`) with the type's **[F]** fields from Step 3 and anything `.professor-orb/conventions.json` marks required, in the field order conventions defines. `status` and `version` are set per the command's lifecycle handling, not chosen here.
 2. A body made of the type's **[B]** blocks, each holding the DM's finalized content verbatim. Never edit, reformat, complete, or otherwise improve it. Do not add wikilinks inside the entry: catalog entries sit outside the wikilink graph.
@@ -74,25 +76,29 @@ For a stat block with multiple parts (say, a monster with several abilities, or 
 
 ## Step 6: Record the version
 
-Every capture is versioned along one of two tracks, chosen once per catalog and then followed consistently.
+Every capture is versioned along one of two tracks: git-backed or the no-git baseline. Whichever track applies, follow it consistently for the rest of this capture.
 
-**Detect existing entry.** Before writing, check whether an entry for this piece of homebrew already exists in the catalog (by name, and by the owning index from Step 2). If an entry already exists, this capture is a revision of it. If not, this is version 1.
+**Revision or new.** Use the revision-or-new determination already made at the start of Step 4. If this is a revision, it becomes the next version of the existing entry. If not, this is version 1.
 
-**Offered git track.** If the homebrew catalog folder is not already inside a git repository, offer, with AskUserQuestion, to make it one so every capture from here forward is versioned by commit history. This offer is DM-approval-gated and never forced; if the DM does not want git, or does not answer, fall back to the no-git baseline below and do not ask again this session. If the DM accepts:
+**Git track.** Whether this capture gets committed to git depends on whether the catalog folder is already inside a git repository:
 
-1. Run `git init` locally in the catalog root.
-2. Proceed with writing the entry (Step 4) and updating the owning index (the "Update the owning index" step below).
-3. Commit the change with a message naming the entry and its version, for example `catalog: <entry name> v<version>`.
+- **Not yet a git repository.** Offer, with AskUserQuestion, to make it one so every capture from here forward is versioned by commit history. This offer is DM-approval-gated and never forced; if the DM does not want git, or does not answer, fall back to the no-git baseline below. A decline is scoped to this session only, so do not ask again this session, but a later session may offer git again since no permanent per-catalog choice is recorded. If the DM accepts:
+
+  1. Run `git init` locally in the catalog root.
+  2. Proceed with writing the entry (Step 4) and updating the owning index (the "Update the owning index" step below).
+  3. Commit the change with a message naming the entry and its version, for example `catalog: <entry name> v<version>`.
+
+- **Already a git repository.** Do not offer; there is nothing left to opt into. Write or update the entry (Step 4) and update the owning index, then commit that change the same way: a message naming the entry and its version, for example `catalog: <entry name> v<version>`. This applies to every capture against an already-git catalog, first capture or later revision alike.
 
 Creating a private remote and pushing to it stays entirely the DM's own action. Do not attempt account creation, authentication, or pushing as part of this command.
 
-**No-git baseline.** If the DM declines the git offer, or the catalog is not a git repository for any other reason, track versioning in the entry itself: the `version` frontmatter field (starting at 1, incremented by 1 on each revision), plus a short dated changelog line appended to the entry recording what this capture changed. Where useful, state the honest limitation in that changelog area: without git, there is no full recovery of a prior version's exact content, only the running changelog description of what changed.
+**No-git baseline.** If the DM declines the git offer, track versioning in the entry itself: the `version` frontmatter field (starting at 1, incremented by 1 on each revision), plus a short dated changelog line appended to the entry recording what this capture changed. Where useful, state the honest limitation in that changelog area: without git, there is no full recovery of a prior version's exact content, only the running changelog description of what changed.
 
-**Triggering a new version.** A new version is triggered by re-running `/catalog` on a piece of homebrew that already has an entry (per the detection above). There is no separate "revise" command; the same `/catalog` invocation handles both first capture and later revisions.
+**Triggering a new version.** A new version is triggered by re-running `/catalog` on a piece of homebrew that already has an entry (per the revision-or-new determination in Step 4). There is no separate "revise" command; the same `/catalog` invocation handles both first capture and later revisions.
 
 ## Step 7: Update the owning index
 
-Update the Homebrew catalog's owning index to list the new entry, following whatever index format and ownership rule the project already uses. Ownership is single: the entry's link belongs in exactly one index, never duplicated across indexes.
+Update the Homebrew catalog's owning index to list the entry, following whatever index format and ownership rule the project already uses. Ownership is single: the entry's link belongs in exactly one index, never duplicated across indexes. On a revision (per Step 4's determination), add the entry's link only if it is not already listed; do not duplicate the index line on re-capture.
 
 If the catalog already has sub-indexes, follow that existing structure. Do not invent a new sub-index split on your own initiative. If the catalog has grown to the point where a new sub-index split looks warranted (per the project's split threshold convention, if one exists), propose that split to the DM with AskUserQuestion instead of creating it unprompted. Absent a clear threshold or an obvious existing split pattern, add the entry to the current owning index and move on.
 
@@ -126,7 +132,7 @@ Keep it short: a handful of facts, not a restatement of the entry's contents.
 - **Standalone**, like `homebrew` and `timeline`: runs on demand, independent of the session pipeline's state, and never writes `.professor-orb/pipeline-state.json`.
 - **Fed by:** the `homebrew` skill (`professor-orb/skills/homebrew/SKILL.md`), which points the DM here once a design is finalized, and again later once that design is implemented in Foundry, but never runs this capture itself.
 - **Reads:** `.professor-orb/conventions.json` (CLAUDE.md fallback) for KB structure and frontmatter rules, and `references/catalog-type-templates.md` (relative to this command) for the type-specific field and body-block schema.
-- **Writes:** exactly one new markdown entry in the homebrew catalog folder, plus the owning Homebrew index. Nothing else.
+- **Writes:** one markdown entry in the homebrew catalog folder (new, or updated in place on a revision), plus the owning Homebrew index. Nothing else.
 - **Read back by:** the `homebrew` skill, which treats catalogued entries as design precedent alongside published material when checking for design overlap.
 
 Foundry-JSON sourcing (reading an exported actor or item JSON directly, per Step 1) arrives in Phase 2 and is not available in this version.
