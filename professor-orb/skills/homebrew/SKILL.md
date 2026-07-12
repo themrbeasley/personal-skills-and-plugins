@@ -18,7 +18,7 @@ Check for `.professor-orb/conventions.json` first. If it exists, it is authorita
 **If `.professor-orb/conventions.json` is missing,** fall back to reading the project's `CLAUDE.md` (or equivalent project instructions file) directly. Extract:
 
 - **VTT platform**, if the project names one. This informs the VTT Automation Awareness section below.
-- **Where the homebrew catalog lives**, if the project has already run `/catalog` before. Locked, as-built entries there are useful precedent alongside published material when checking for design overlap.
+- **Where the homebrew catalog lives**, if the project has already run `/catalog` before. Catalogued entries there are useful precedent alongside published material when checking for design overlap.
 - **Writing style rules**, if any apply to homebrew output.
 
 If neither exists, proceed without them; homebrew design does not require KB conventions to function, only to integrate cleanly with the rest of the project when they are available.
@@ -89,7 +89,7 @@ See `references/2024-glossary-phrases.md` for extended phrasing reference.
 
 ## Checking for Design Overlap
 
-When the user proposes a design concept, check whether it maps to existing published content, or to a homebrew item already locked into the project's homebrew catalog by `/catalog`. Only cite specific content you are confident about.
+When the user proposes a design concept, check whether it maps to existing published content, or to a homebrew item already catalogued in the project's homebrew catalog by `/catalog`. Only cite specific content you are confident about.
 
 **Process:**
 1. Identify the core mechanic (trigger, effect, conditions).
