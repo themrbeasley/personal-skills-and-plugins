@@ -47,7 +47,7 @@ Before writing anything, settle how this catalog records versions. This is decid
 Check these in order:
 
 1. **Is the catalog folder already inside a git repository?** If yes, the mode is git: every capture is a commit, and the repository's own presence is the record of that choice. Skip the offer and carry `git` forward to Step 7.
-2. **Does a versioning marker exist at `.professor-orb/catalog-versioning.json`?** If yes, read its `mode` (`git` or `changelog`) and carry that forward to Step 7. Skip the offer.
+2. **Does a versioning marker exist at `.professor-orb/catalog-versioning.json`?** This marker lives in the project's `.professor-orb/` state folder, alongside `conventions.json` from Step 2, not in the catalog folder. If it exists, read its `mode` (`git` or `changelog`) and carry that forward to Step 7. Skip the offer.
 3. **Neither a git repository nor a marker exists.** Versioning has never been established for this catalog, so this is the moment to offer it, once. Pre-existing catalog entries do not count as "established": a catalog can already hold entries, including ones captured before this command existed, and still have never had its versioning set up. Do not read the presence of entries as a prior decision.
 
 **Making the first-time offer (case 3 only).** Use AskUserQuestion to offer setting the catalog up as a local git repository, so every capture becomes a real commit with full history and recoverable prior versions. Recommend it, but do not force it; this is a single first-run offer, not a recurring prompt.
@@ -112,6 +112,8 @@ Update the Homebrew catalog's owning index to list the entry, following whatever
 If the catalog already has sub-indexes, follow that existing structure. Do not invent a new sub-index split on your own initiative. If the catalog has grown to the point where a new sub-index split looks warranted (per the project's split threshold convention, if one exists), propose that split to the DM with AskUserQuestion instead of creating it unprompted. Absent a clear threshold or an obvious existing split pattern, add the entry to the current owning index and move on.
 
 Do not edit any other article to add a wikilink to the new entry. The only structural touch this command makes is the owning index update; catalog entries sit outside the wikilink graph, per Step 5.
+
+In git mode (per Step 3), the entry and this index update are both now written, so make the commit described in Step 7 as the last action before reporting back.
 
 ## Step 9: Report back
 

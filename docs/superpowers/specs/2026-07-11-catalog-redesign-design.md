@@ -196,25 +196,37 @@ Because all catalogued homebrew is playtest material, every entry carries a stat
 **discontinued**. Settable per entry, and notable per-part for stat blocks (one trait
 discontinued while the rest stays) via an inline note on that part.
 
-## Versioning (two tracks)
+## Versioning (two tracks, established once)
 
 The plugin must not force git on anyone (it is system-agnostic and the KB may be plain
-markdown), but a private homebrew repo is a good idea and should be offered.
+markdown), but a private homebrew repo is a good idea and should be offered. The mode is
+established once, the first time a catalog is used, and then followed silently.
 
-- **Offered git track (the real history).** On capture, if the catalog is not already a
-  git repo, the command **offers** to make it one — never forced, DM-approval-gated. If
-  the DM accepts, the command runs `git init` locally and every capture and revision
-  becomes a commit, so history, diff, and revert are real git operations. Creating a
-  private remote and pushing stays the DM's action (account and auth territory the
-  command must not enter).
-- **No-git baseline.** For a DM who declines, or a KB that is not git, the entry tracks a
-  version number, a last-updated date, and a short per-capture changelog line. Honest
-  limitation: without git there is no full old-content recovery, which is exactly why the
-  git offer exists rather than a hand-rolled markdown history.
+- **First-time establishment.** Before the first capture writes anything, the command
+  checks whether versioning has been established: is the catalog already inside a git
+  repo, or does a marker `.professor-orb/catalog-versioning.json` exist? If neither, this
+  is first use, so the command offers git once (DM-approval-gated, never forced).
+  Pre-existing catalog entries do NOT count as established, so a catalog holding legacy
+  entries still gets the offer. The chosen mode is recorded in the marker so the command
+  never re-asks.
+- **Git track (the real history).** If the DM accepts (or the catalog is already a git
+  repo), the command runs `git init` locally and every capture and revision becomes a
+  commit, so history, diff, and revert are real git operations. In git mode the entry
+  carries no changelog block; the commit history is the record. Creating a private remote
+  and pushing stays the DM's action (account and auth territory the command must not
+  enter).
+- **No-git baseline.** If the DM declines, the marker records changelog mode and the entry
+  tracks a version number plus a short per-capture changelog line. Honest limitation:
+  without git there is no full old-content recovery, which is why the git offer exists
+  rather than a hand-rolled markdown history.
 
 A new version is triggered by the DM re-running `/catalog` on a homebrew that already has
 an entry; the command detects the existing entry and records the capture as a revision
-(git commit on the git track, changelog line on the baseline).
+(git commit in git mode, changelog line in changelog mode).
+
+Recording the chosen mode in the marker is what makes the offer fire exactly once and
+never nag; an earlier iteration recorded no choice, which let a first run silently default
+to the no-git baseline without ever offering.
 
 ## Preserved machinery (unchanged from the current command)
 
