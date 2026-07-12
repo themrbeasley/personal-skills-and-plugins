@@ -40,31 +40,24 @@ Read it rather than re-deriving these rules from prose (Shared Principle 9).
 
 **If `.professor-orb/conventions.json` is missing,** fall back to reading the project's `CLAUDE.md` (or equivalent instructions file) directly. Extract the same information: where the homebrew catalog lives, frontmatter schema, filename conventions, and index format. If neither source says where the catalog lives, ask the DM.
 
-## Step 3: Collect and confirm metadata
+## Step 3: Identify the type and select its template
 
-The entry's frontmatter needs at minimum:
+Determine the artifact's type. If the DM named it, or it is unambiguous from the finalized content itself (a stat block is plainly a monster or npc, a five-level progression table is plainly a class), use that. If it is genuinely ambiguous, ask with AskUserQuestion, offering the ten type keys: `spell`, `magic-item`, `feat`, `feature`, `monster`, `npc`, `species`, `subclass`, `class`, `other`.
 
-- `name`, the homebrew item's name
-- artifact type (spell, item, feat, subclass, class, monster, or whatever category fits)
-- rarity or level, whichever applies to this artifact type (magic item rarity, spell level, and so on)
-- `date`, the capture date (today, not the design date)
-- `type: Homebrew`
-- `publish: false`
+Read `references/catalog-type-templates.md` (relative to this command) and use the `## <type key>` section matching the chosen type. For `monster` or `npc`, both keys draw on the shared `## monster and npc (shared stat-block schema)` section; `npc` additionally populates that section's flavor fields.
 
-If `.professor-orb/conventions.json` defines additional required fields, an order requirement, or a stricter enum for any of these, those govern; the fields above are the catalog-specific minimum, not a ceiling.
+Each template section tags its fields: **[F]** frontmatter fields, **[B]** the named body blocks, and **[H]** homebrew-only fields with no SRD basis. Fill the **[F]** fields from what is evident in the DM's finalized content. For anything ambiguous, missing, or not decidable from the content alone, use AskUserQuestion to confirm it before writing; never guess a frontmatter value. Treat the **[B]** blocks per the template's Preservation rule: they hold the DM's finalized content and are carried into the entry verbatim, not rewritten or filled in from your own judgment.
 
-Fill in whatever is evident directly from the pasted HTML (a name in a heading, a rarity line, a level indicator). For anything not supplied by the DM and not evident from the HTML, such as an ambiguous artifact type, a missing rarity or level, or an unclear name, use AskUserQuestion to confirm it before writing. Do not guess.
-
-## Step 4: Write the entry
+## Step 4: Assemble the entry
 
 Write one markdown file to the homebrew catalog folder (per Step 2). The file is:
 
-1. YAML frontmatter with the fields confirmed in Step 3, matching the project's conventions in field order and required-field set.
-2. The pasted HTML, wrapped in a fenced code block, byte-for-byte as the DM supplied it. Never edit, reformat, indent, or otherwise improve the HTML. Do not add wikilinks inside the entry: catalog entries sit outside the wikilink graph.
+1. YAML frontmatter combining the required floor (`name`, `type`, `status`, `version`, `date`) with the type's **[F]** fields from Step 3 and anything `.professor-orb/conventions.json` marks required, in the field order conventions defines. `status` and `version` are set per the command's lifecycle handling, not chosen here.
+2. A body made of the type's **[B]** blocks, each holding the DM's finalized content verbatim. Never edit, reformat, complete, or otherwise improve it. Do not add wikilinks inside the entry: catalog entries sit outside the wikilink graph.
 
-Follow the project's filename conventions (charset, suffix by type if one applies to Homebrew entries). If conventions.json is present, this write should pass the PostToolUse validator hook without a warning or block; if a block violation comes back, fix the entry and retry rather than working around the hook.
+Follow the project's filename conventions (charset, suffix by type if one applies). The write should pass the PostToolUse validator hook without a warning or block; if a block violation comes back, fix the entry and retry rather than working around the hook.
 
-Never create a raw `.html` file. The HTML only ever lives inside the fenced block of the markdown entry.
+Never write a raw `.html` file. Content only ever lives inside the assembled markdown entry's frontmatter or body blocks.
 
 ## Step 5: Update the owning index
 
