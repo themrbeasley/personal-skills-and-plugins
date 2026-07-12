@@ -90,32 +90,43 @@ Creating a private remote and pushing to it stays entirely the DM's own action. 
 
 **Triggering a new version.** A new version is triggered by re-running `/catalog` on a piece of homebrew that already has an entry (per the detection above). There is no separate "revise" command; the same `/catalog` invocation handles both first capture and later revisions.
 
-## Step 5: Update the owning index
+## Step 7: Update the owning index
 
-Update the Homebrew catalog's owning index to list the new entry, following whatever index format and ownership rule the project already uses (single ownership: the entry's link belongs in exactly one index).
+Update the Homebrew catalog's owning index to list the new entry, following whatever index format and ownership rule the project already uses. Ownership is single: the entry's link belongs in exactly one index, never duplicated across indexes.
 
 If the catalog already has sub-indexes, follow that existing structure. Do not invent a new sub-index split on your own initiative. If the catalog has grown to the point where a new sub-index split looks warranted (per the project's split threshold convention, if one exists), propose that split to the DM with AskUserQuestion instead of creating it unprompted. Absent a clear threshold or an obvious existing split pattern, add the entry to the current owning index and move on.
 
-Do not edit any other article to add a wikilink to the new entry. The only structural touch this command makes is the owning index update.
+Do not edit any other article to add a wikilink to the new entry. The only structural touch this command makes is the owning index update; catalog entries sit outside the wikilink graph, per Step 4.
 
-## Step 6: Report back
+## Step 8: Report back
 
-Tell the DM the file path of the new catalog entry and confirm the index update. Keep this short: a path and a one-line confirmation, not a restatement of the entry's contents.
+Tell the DM, in one short block:
+
+- The entry's file path
+- Its type
+- Its `status` (Step 5)
+- Its `version` (Step 6), and whether this catalog folder is git-versioned or on the no-git baseline
+- A one-line confirmation that the owning index was updated
+
+Keep it short: a handful of facts, not a restatement of the entry's contents.
 
 ## Things to never do
 
-- Never catalog a draft from conversation memory instead of the DM's actual paste.
-- Never edit, reformat, or complete the pasted HTML.
-- Never write a raw `.html` file.
-- Never add a wikilink inside the entry, or edit another article to link to it.
+- Never catalog an unfinished or unconfirmed draft. Only content the DM has explicitly finalized belongs in the catalog.
+- Never edit, reformat, or complete the DM's finalized content. The **[B]** blocks are carried verbatim.
+- Never write a raw `.html` file. Content only ever lives inside the assembled markdown entry.
+- Never add a wikilink inside the entry, or edit another article to add a wikilink to it. Catalog entries sit outside the wikilink graph.
 - Never invent a new sub-index split without proposing it to the DM first via AskUserQuestion.
 - Never write `.professor-orb/pipeline-state.json`. This command is outside the session pipeline.
-- Never ask for a second approval on the write itself once the DM has pasted the locked HTML; that paste is the approval.
+- Never force git, or attempt remote creation, authentication, or pushing. The git offer in Step 6 is DM-approval-gated, local-only, and never repeated once declined this session.
+- Never present a homebrew-only (**[H]**) field as SRD canon. **[H]** fields have no SRD basis and should read as house rules, not published rules.
 
 ## How this command connects to the others
 
-- **Standalone**, like `homebrew` and `timeline`: runs on demand, independent of the session pipeline's state.
-- **Fed by:** the `homebrew` skill (`professor-orb/skills/homebrew/SKILL.md`), which points the DM here once a design is locked and implemented, but never runs this capture itself.
-- **Reads:** `.professor-orb/conventions.json` (CLAUDE.md fallback) for KB structure and frontmatter rules.
+- **Standalone**, like `homebrew` and `timeline`: runs on demand, independent of the session pipeline's state, and never writes `.professor-orb/pipeline-state.json`.
+- **Fed by:** the `homebrew` skill (`professor-orb/skills/homebrew/SKILL.md`), which points the DM here once a design is finalized, and again later once that design is implemented in Foundry, but never runs this capture itself.
+- **Reads:** `.professor-orb/conventions.json` (CLAUDE.md fallback) for KB structure and frontmatter rules, and `references/catalog-type-templates.md` (relative to this command) for the type-specific field and body-block schema.
 - **Writes:** exactly one new markdown entry in the homebrew catalog folder, plus the owning Homebrew index. Nothing else.
 - **Read back by:** the `homebrew` skill, which treats catalogued entries as design precedent alongside published material when checking for design overlap.
+
+Foundry-JSON sourcing (reading an exported actor or item JSON directly, per Step 1) arrives in Phase 2 and is not available in this version.
