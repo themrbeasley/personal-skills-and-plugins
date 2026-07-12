@@ -1,6 +1,6 @@
 ---
 name: homebrew
-description: "D&D 5.5e (2024 rules) homebrew design assistant for creating, reviewing, and advising on homebrew content: spells, items, feats, subclasses, full classes, monsters, and custom mechanics. Use this skill whenever the user is designing new homebrew from scratch, workshopping or brainstorming a mechanic, polishing or balancing something already written, or advising another person on their homebrew. Also trigger when the user wants rules language cleaned up to 2024 standards, a formatted stat block or ability entry produced, a mechanic checked against VTT automation constraints, or anything benchmarked against CR or magic item rarity. If the user mentions homebrew, balancing, stat blocks, spell design, subclass features, magic items, CR, or does this work mechanically, use this skill. Standalone skill that sits outside the debrief, prep, content/chronicler, kb-validator session pipeline and runs on demand at any point; it does not write pipeline state. Once the DM finalizes a homebrew item, including any tweaks made while implementing it in Foundry VTT, this skill points the DM at the /catalog command to capture the locked, as-built version into the knowledge base. Homebrew never catalogs on its own."
+description: "D&D 5.5e (2024 rules) homebrew design assistant for creating, reviewing, and advising on homebrew content: spells, items, feats, subclasses, full classes, monsters, and custom mechanics. Use this skill whenever the user is designing new homebrew from scratch, workshopping or brainstorming a mechanic, polishing or balancing something already written, or advising another person on their homebrew. Also trigger when the user wants rules language cleaned up to 2024 standards, a formatted stat block or ability entry produced, a mechanic checked against VTT automation constraints, or anything benchmarked against CR or magic item rarity. If the user mentions homebrew, balancing, stat blocks, spell design, subclass features, magic items, CR, or does this work mechanically, use this skill. Standalone skill that sits outside the debrief, prep, content/chronicler, kb-validator session pipeline and runs on demand at any point; it does not write pipeline state. Once the DM finalizes a homebrew item, including any tweaks made while implementing it in Foundry VTT, this skill points the DM at the /catalog command to capture the finalized version into the knowledge base. Homebrew never catalogs on its own."
 ---
 
 > **Before you begin:** read `../SHARED-PRINCIPLES.md` and apply its rules throughout this workflow.
@@ -163,11 +163,11 @@ Default to setting-agnostic, generic D&D 5.5e tone. Do not invent flavor text, f
 
 ---
 
-## When the design is locked: point to `/catalog`
+## When a design is finalized: point to `/catalog`
 
-A homebrew item is not finished when this skill produces its final formatted text. It is finished when the DM has actually implemented it (in Foundry VTT, on paper, wherever the table plays) and settled on whatever tweaks came out of that implementation. This skill's output is a draft toward that as-built version, not the as-built version itself.
+A homebrew design is ready to catalog once you and the DM have finalized it in this skill, iterated on and confirmed. It does not need to be implemented in Foundry VTT, on paper, or anywhere else first; the finalized design produced here is the primary thing `/catalog` captures.
 
-Once the DM confirms a piece of homebrew is locked, including any changes made while wiring it up in Foundry, mention the `/catalog` command as the way to capture that locked, as-built version into the knowledge base. Say this once, at the natural end of the design flow, not on every message. This skill does not run cataloging itself and does not write the catalog entry; `/catalog` is a separate command the DM runs when ready.
+Once the DM confirms a design is finalized, mention the `/catalog` command as the way to capture it into the knowledge base. Say this once, at the natural end of the design flow, not on every message. All catalogued homebrew is playtest material, so the DM can re-run `/catalog` later to version a revision, including tweaks that come out of actually implementing it at the table. This skill does not run cataloging itself and does not write the catalog entry; `/catalog` is a separate command the DM runs when ready.
 
 ---
 
@@ -190,5 +190,5 @@ Once the DM confirms a piece of homebrew is locked, including any changes made w
 
 - **Standalone**, like `timeline`: usable at any point, independent of the session pipeline's state.
 - **Reads (optionally):** `.professor-orb/conventions.json` or `CLAUDE.md` for VTT platform notes and the homebrew catalog's location; the project's SRD copy if present; existing catalogued homebrew as design precedent.
-- **Hands off to `/catalog`:** Once the DM locks a design (post-implementation, post-tweak), this skill points them at `/catalog` to capture the as-built version. It never runs that capture itself.
+- **Hands off to `/catalog`:** Once the DM finalizes a design, this skill points them at `/catalog` to capture the finalized version, and again later to version revisions, such as post-implementation tweaks. It never runs that capture itself.
 - **Orthogonal to the session pipeline:** Homebrew design can happen before, during, or after any pipeline skill runs, and does not depend on or feed `debrief`, `prep`, `content`, `chronicler`, or `kb-validator` directly.

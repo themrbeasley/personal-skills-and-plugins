@@ -31,12 +31,12 @@ Professor Orb is a post-session workflow plugin for D&D DMs. Every skill drafts 
 | content | Skill | Generate player-facing recaps, handouts, setpieces, and timeline visualizations from a session report | "write the recap," "draft the letter from X," "boxed text," "player-facing timeline" |
 | chronicler | Skill | Draft a KB lore-update proposal from the session report and execute it after DM approval. The only pipeline skill that writes the KB | "update the lore," "canonize last session," "apply the session changes" |
 | timeline | Skill | Build or maintain campaign chronology documents, or answer a temporal question; spawns `historian` and runs temporal triage on flagged inconsistencies | "build a timeline," "when did X happen," "update the chronology" |
-| homebrew | Skill | D&D 5.5e (2024 rules) homebrew design, review, and balance assistant; points to `/catalog` once a design is locked | Any homebrew design, workshopping, balance, or rules-language question |
+| homebrew | Skill | D&D 5.5e (2024 rules) homebrew design, review, and balance assistant; points to `/catalog` once a design is finalized | Any homebrew design, workshopping, balance, or rules-language question |
 | orb | Skill | This menu: what is available and what to run next | `/orb`, "what tools are available," "what should I run next" |
 | lore | Agent (read-only) | Cross-references session events against the KB and drafts a lore-update proposal | Spawned automatically at the end of `debrief`, or on demand for a lore/contradiction check |
 | historian | Agent (read-only) | Chronological indexing, calendar conversion, temporal consistency checks | Spawned by `timeline` (and by `content` for timeline visualizations), or on demand for a temporal query |
 | kb-validator | Agent (read-only) | Audits KB article frontmatter, cross-references, index ownership, and filenames against `conventions.json` | After a `chronicler` pass, or on demand for a KB health check |
-| /catalog | Command | Capture one locked, post-tweak piece of homebrew (the DM's final as-built Foundry HTML) into the homebrew catalog | `/catalog` with the locked HTML pasted |
+| /catalog | Command | Capture a finalized piece of homebrew as a type-specific, versioned catalog entry across its playtest life | Invoking `/catalog` once a design is finalized, optionally pasting it or naming what to catalog |
 | validation-sweep | Workflow | Whole-KB convention audit at scale: a read-only scan phase, then an approved fix phase | Via the Workflow tool, from `.claude/workflows/validation-sweep.mjs` (copied there by `setup`) |
 | write-time validator | Hook (PostToolUse) | Validates a just-written KB article's frontmatter against `conventions.json` | Automatic on every Write/Edit; silent on success |
 | pipeline-next | Hook (Stop) | Suggests the next session-pipeline step after a pipeline skill finishes | Automatic; silent when there is nothing to suggest |
