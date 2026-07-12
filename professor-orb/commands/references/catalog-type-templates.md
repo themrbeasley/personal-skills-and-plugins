@@ -63,3 +63,26 @@ a class/subclass feature). Bionoid Bond is the exemplar.
   Combat Mode headings).
 - **[H]** the entire standalone / campaign-granted notion, plus prerequisite / trigger /
   scope. None are SRD.
+
+## monster and npc (shared stat-block schema)
+
+`monster` and `npc` are two type keys over one stat-block schema. An NPC is, per the SRD
+glossary, a monster with a personal name and personality: same stat block, differing only in
+which flavor fields are populated. Use type key `monster` for a bestiary creature and `npc`
+for a named, characterized one; `npc` entries additionally populate the flavor fields below.
+
+- **[F]** name; size; creature type (plus descriptive tag); alignment; AC; initiative
+  (modifier plus score); HP (number plus hit-dice expression); speed (walking plus special
+  movement); six ability scores (STR, DEX, CON, INT, WIS, CHA); saving-throw modifiers;
+  skills; resistances; vulnerabilities; damage and condition immunities; gear; senses
+  (special senses plus passive Perception); languages (plus telepathy); CR (plus XP, plus
+  Proficiency Bonus).
+- **[B]** Traits, Actions, Bonus Actions, Reactions, Legendary Actions. Each named entry is a
+  `{name, description}` pair. Omit an empty section entirely. Use 2024 phrasing verbatim from
+  the source: `Melee/Ranged Attack Roll: +X, reach/range N ft. Hit: N (dice) Type damage.`;
+  saves as `<Ability> Saving Throw: DC N, <targets>. Failure: ... Success: ...`; Multiattack
+  first in Actions; Legendary Actions preceded by the usage boilerplate line; Legendary
+  Resistance is a Trait, not its own section.
+- **[H]** (npc flavor only) roleplay bio, personality, faction / affiliation, location(s),
+  plot hooks / secrets, relationships, portrait reference. Also "Habitat" and "Treasure"
+  lines (absent from SRD 5.2.1; Monster-Manual-style, not SRD-native).
