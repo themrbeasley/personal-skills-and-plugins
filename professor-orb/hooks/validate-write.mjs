@@ -471,12 +471,16 @@ function checkTagVocabulary(params, ctx) {
 }
 
 function checkProhibitedPattern(params, ctx) {
-  const { pattern, appliesTo = "body", excludeTableDelimiters = false } = params;
+  const { pattern, appliesTo = "body", excludeTableDelimiters = false, flags = "u" } = params;
   if (!pattern) return true;
 
+  // JavaScript regex has no inline flag groups (e.g. "(?im)..."); a rule that
+  // needs case-insensitive or multiline matching sets the "flags" param instead
+  // (e.g. "im"). Defaults to "u" to preserve the historical behavior of rules
+  // that omit it.
   let re;
   try {
-    re = new RegExp(pattern, "u");
+    re = new RegExp(pattern, flags);
   } catch {
     try {
       re = new RegExp(pattern);

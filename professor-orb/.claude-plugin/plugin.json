@@ -1,6 +1,6 @@
 {
   "name": "professor-orb",
   "description": "Post-session workflow suite for D&D DMs: debrief, prep, content, lore updates, campaign chronology, and homebrew design. Reads your project's conventions for campaign-specific rules.",
-  "version": "1.2.2",
+  "version": "1.2.3",
   "author": { "name": "Mr. Beasley" }
 }

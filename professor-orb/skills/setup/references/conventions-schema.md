@@ -178,7 +178,7 @@ Checked against the article's body text.
 |---|---|---|
 | `wikilinkPolicy` | `format` (description string, e.g. `[[Filename\|Display Text]]`), `requireExistingTarget` (bool) | Wikilinks in the body are well-formed and, if `requireExistingTarget` is true, point at a file that exists in the KB |
 | `tagVocabulary` | *(none beyond the top-level `tagRegistryPath`)* | Tags used in frontmatter are cross-checked against the tag registry; new tags are reported with suggested near-matches, never blocked (see note below) |
-| `prohibitedPattern` | `pattern` (regex string), `appliesTo` (`"body"` or `"frontmatter"`), `excludeTableDelimiters` (bool, body only, default false) | The text does not contain a disallowed pattern, e.g. em dashes. When the pattern also bans a double-hyphen used as a prose em-dash substitute, set `excludeTableDelimiters: true` so Markdown table delimiter rows and horizontal rules are not flagged |
+| `prohibitedPattern` | `pattern` (regex string), `appliesTo` (`"body"` or `"frontmatter"`), `flags` (regex flags string, default `"u"`), `excludeTableDelimiters` (bool, body only, default false) | The text does not contain a disallowed pattern, e.g. em dashes. Set `flags` for case-insensitive or multiline matching (e.g. `"im"`); JavaScript regex does not support inline `(?im)` groups, so put those flags here instead. When the pattern also bans a double-hyphen used as a prose em-dash substitute, set `excludeTableDelimiters: true` so Markdown table delimiter rows and horizontal rules are not flagged |
 
 **Note on `prohibitedPattern` and Markdown tables:** an em-dash rule often bans both
 the em dash character (codepoint U+2014) and a double-hyphen used as a prose
