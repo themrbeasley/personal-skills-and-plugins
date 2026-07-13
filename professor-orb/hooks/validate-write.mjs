@@ -471,7 +471,7 @@ function checkTagVocabulary(params, ctx) {
 }
 
 function checkProhibitedPattern(params, ctx) {
-  const { pattern, appliesTo = "body" } = params;
+  const { pattern, appliesTo = "body", excludeTableDelimiters = false } = params;
   if (!pattern) return true;
 
   let re;
@@ -485,7 +485,22 @@ function checkProhibitedPattern(params, ctx) {
     }
   }
 
-  const text = appliesTo === "frontmatter" ? JSON.stringify(ctx.frontmatter) : ctx.body || "";
+  let text = appliesTo === "frontmatter" ? JSON.stringify(ctx.frontmatter) : ctx.body || "";
+
+  if (appliesTo !== "frontmatter" && excludeTableDelimiters) {
+    // Markdown table delimiter rows (|---|, | :--- | ---: |) and horizontal
+    // rules (---) are made only of hyphens, pipes, colons, and whitespace, so
+    // the "--" half of an em-dash rule matches them even though they are not
+    // em-dash substitutes. Drop such lines before testing. Prose that uses "--"
+    // (word--word, word -- word) contains other characters and is still caught;
+    // a line carrying a real em dash also survives this filter (U+2014 is not in
+    // the class) and is still caught.
+    text = text
+      .split("\n")
+      .filter((line) => !/^[\s|:-]*-[\s|:-]*$/.test(line))
+      .join("\n");
+  }
+
   if (re.test(text)) {
     return `Prohibited pattern (${pattern}) found in ${appliesTo}.`;
   }

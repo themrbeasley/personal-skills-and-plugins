@@ -178,7 +178,18 @@ Checked against the article's body text.
 |---|---|---|
 | `wikilinkPolicy` | `format` (description string, e.g. `[[Filename\|Display Text]]`), `requireExistingTarget` (bool) | Wikilinks in the body are well-formed and, if `requireExistingTarget` is true, point at a file that exists in the KB |
 | `tagVocabulary` | *(none beyond the top-level `tagRegistryPath`)* | Tags used in frontmatter are cross-checked against the tag registry; new tags are reported with suggested near-matches, never blocked (see note below) |
-| `prohibitedPattern` | `pattern` (regex string), `appliesTo` (`"body"` or `"frontmatter"`) | The text does not contain a disallowed pattern, e.g. em dashes |
+| `prohibitedPattern` | `pattern` (regex string), `appliesTo` (`"body"` or `"frontmatter"`), `excludeTableDelimiters` (bool, body only, default false) | The text does not contain a disallowed pattern, e.g. em dashes. When the pattern also bans a double-hyphen used as a prose em-dash substitute, set `excludeTableDelimiters: true` so Markdown table delimiter rows and horizontal rules are not flagged |
+
+**Note on `prohibitedPattern` and Markdown tables:** an em-dash rule often bans both
+the em dash character (codepoint U+2014) and a double-hyphen used as a prose
+substitute for it.
+Because a double-hyphen also occurs in Markdown table delimiter rows (the `|---|` line
+under a table header) and horizontal rules, a rule whose pattern includes the
+double-hyphen alternative MUST also set `excludeTableDelimiters: true`; without it, every
+write of a normal table is blocked. With the flag set, table delimiters and horizontal
+rules pass, while prose uses of a double-hyphen (whether joined to words or spaced) are
+still caught, as is any real em dash even inside a table cell. A rule that bans only the
+literal em dash character (`pattern: "\\u2014"`) does not need the flag.
 
 **Note on `tagVocabulary`:** this check exists to encourage reuse, not to cap the
 tag vocabulary. Setup should default this rule's `enforcement` to `warn` and
@@ -353,10 +364,11 @@ conventions document; a tier 2 or 3 project would have
       "category": "content",
       "check": "prohibitedPattern",
       "enforcement": "block",
-      "description": "Article body text must not contain em dashes.",
+      "description": "Article body text must not contain em dashes or a double-hyphen used as a prose substitute for one.",
       "params": {
-        "pattern": "\\u2014",
-        "appliesTo": "body"
+        "pattern": "\\u2014|--",
+        "appliesTo": "body",
+        "excludeTableDelimiters": true
       }
     }
   }
