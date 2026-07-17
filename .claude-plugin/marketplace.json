@@ -8,7 +8,7 @@
     {
       "name": "professor-orb",
       "description": "Post-session workflow suite for D&D DMs: debrief, prep, content, lore updates, campaign chronology, and homebrew design.",
-      "version": "1.3.0",
+      "version": "1.4.0",
       "source": "./professor-orb"
     }
   ]
