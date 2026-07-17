@@ -90,6 +90,7 @@ Before running cross-reference or index-ownership checks, identify homebrew cata
 
 **Content validation** (per `content` category rules):
 - Prohibited patterns (for example, em dashes), if the project defines one
+- Body-implies-frontmatter rules: where the body matches the rule's `bodyPattern`, every field in its `requireFrontmatter` must be present with exactly that value. A missing field is a violation, not a pass: these rules exist because an absent field falls back to a default, which is how the content leaks. The write-time hook only ever sees new writes, so articles that predate the rule are yours to catch
 - Tag vocabulary against the tag registry (`tagRegistryPath`), reported informationally per the schema's own guidance, never as a blocker
 
 ### Step 5: Classify every violation by fixability
