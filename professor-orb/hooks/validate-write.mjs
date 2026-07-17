@@ -417,7 +417,9 @@ function checkWikilinkPolicy(params, ctx) {
   let m;
   while ((m = re.exec(body)) !== null) {
     const inner = m[1];
-    const target = inner ? inner.split("|")[0].trim() : "";
+    // Inside a Markdown table a wikilink escapes its pipe ([[Target\|Display]])
+    // so the cell is not split; treat "\|" and "|" as the same separator.
+    const target = inner ? inner.split(/\\?\|/)[0].trim() : "";
     if (!target) {
       badLinks.push(m[0]);
       continue;

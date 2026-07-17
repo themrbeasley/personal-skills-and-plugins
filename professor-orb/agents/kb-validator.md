@@ -79,6 +79,7 @@ Before running cross-reference or index-ownership checks, identify homebrew cata
 
 **Cross-reference validation** (per `content` category rules, skipping catalog entries per Step 3):
 - Extract every wikilink from the article body
+- Inside Markdown tables a wikilink must escape its pipe separator as `\|` (for example `[[The-Knight\|The Knight]]`), because a bare pipe would split the table cell. The escaped form is the required in-table syntax, equivalent to the bare-pipe form in prose. Never flag it as malformed against the documented `[[Target|Display]]` format, and never propose "fixing" it to a bare pipe inside a table
 - For each link, check whether the target exists anywhere in the KB
 - Flag dead links, respecting any project-specific exception documented in conventions.json or CLAUDE.md (for example, dead links being acceptable in session reports)
 
