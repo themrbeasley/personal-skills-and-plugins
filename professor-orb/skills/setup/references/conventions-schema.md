@@ -112,8 +112,11 @@ Every entry in `rules` follows the same shape, regardless of category:
     // One of: "block" | "warn" | "off". See "Enforcement levels" below.
     "enforcement": "block",
 
-    // Human-readable one-liner, shown in hook error/warning output and in
-    // the validation sweep's report, verbatim. Not used for logic. A terse
+    // Human-readable one-liner. This is what a DM reads directly in
+    // conventions.json, and it doubles as the hook's fallback message for a
+    // check that produces no more specific message of its own (no current
+    // built-in check needs that fallback, since each one generates its own
+    // message, but a future check might). Not used for logic. A terse
     // sentence stating what the rule checks, nothing more: never migration
     // status, approval claims, changelog notes, dates, or statistics.
     "description": "The `type` field must be one of the KB's recognized types.",
@@ -137,15 +140,18 @@ new files) but must be unique within the file. Nothing about a rule ID is
 semantically meaningful to the hook; it only reads `category`, `check`,
 `enforcement`, and `params`.
 
-**The `description` field is a terse sentence, never narrative.** It states
-what the rule checks, in one clean sentence, and nothing else. The hook
-surfaces this string verbatim on a block or a warn, and the sweep surfaces it
-verbatim in its report, so `description` is never a place for migration
+**Note on `description`:** this field is a terse sentence, never narrative.
+It states what the rule checks, in one clean sentence, and nothing else.
+`description` is what a DM reads directly in conventions.json, and it is the
+hook's fallback message for a check that produces no more specific message of
+its own (no current built-in check needs that fallback, since each one
+generates its own violation message, but a future check might), so treat it
+as production text: terse and factual. It is never a place for migration
 status, DM-approval claims, audit or changelog notes, dates, percentages, or
 other statistics. A `description` that reads like a commit message or a
 status update is a sign it was written by summarizing a conversation instead
-of stating a check; rewrite it as the one-line fact a DM would want to see in
-a hook error.
+of stating a check; rewrite it as the one-line fact that belongs in
+conventions.json.
 
 ## Rule catalog
 
