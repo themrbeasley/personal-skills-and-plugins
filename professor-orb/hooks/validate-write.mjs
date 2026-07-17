@@ -526,6 +526,34 @@ function checkProhibitedPattern(params, ctx) {
   return true;
 }
 
+function checkBodyImpliesFrontmatter(params, ctx) {
+  const { bodyPattern, flags = "u", requireFrontmatter } = params;
+  if (!bodyPattern || !requireFrontmatter || typeof requireFrontmatter !== "object") {
+    return null;
+  }
+
+  let re;
+  try {
+    re = new RegExp(bodyPattern, flags);
+  } catch {
+    return null;
+  }
+
+  if (!re.test(ctx.body || "")) return true;
+
+  const failures = [];
+  for (const field of Object.keys(requireFrontmatter)) {
+    const want = requireFrontmatter[field];
+    const actual = ctx.frontmatter[field];
+    if (actual !== want) {
+      const found = actual === undefined ? "missing" : JSON.stringify(actual);
+      failures.push(`"${field}" must be ${JSON.stringify(want)} (currently ${found})`);
+    }
+  }
+  if (failures.length === 0) return true;
+  return `Body matches /${bodyPattern}/, so frontmatter ${failures.join("; ")}.`;
+}
+
 const CHECKS = {
   requiredFields: checkRequiredFields,
   enum: checkEnum,
@@ -540,6 +568,7 @@ const CHECKS = {
   wikilinkPolicy: checkWikilinkPolicy,
   tagVocabulary: checkTagVocabulary,
   prohibitedPattern: checkProhibitedPattern,
+  bodyImpliesFrontmatter: checkBodyImpliesFrontmatter,
 };
 
 // ---------------------------------------------------------------------------
