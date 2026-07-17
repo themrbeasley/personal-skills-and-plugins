@@ -341,6 +341,7 @@ async function run() {
       mechanicallyFixable: [],
       needsJudgment: [],
       singleOwnershipFindings: [],
+      indexParityFindings: [],
       proposedTagRegistry: {},
     }
   }
@@ -367,6 +368,19 @@ async function run() {
     }
   }
 
+  // indexParity is a whole-folder rule, so like singleOwnership no single shard
+  // can judge it: a shard sees only its slice of a folder, never the folder's
+  // full file list. It is evaluated centrally in the Aggregate phase below from
+  // the scout's complete enumeration. Discover its rule id the same way, so the
+  // finding carries the project's own rule name (for example structuralIndexParity).
+  let indexParityRuleId = 'indexParity'
+  for (const ruleId of Object.keys(rules)) {
+    if (rules[ruleId] && rules[ruleId].check === 'indexParity') {
+      indexParityRuleId = ruleId
+      break
+    }
+  }
+
   if (files.length === 0) {
     log('Scout found conventions.json but no markdown article files under kbRoot. Nothing to check.')
     return {
@@ -379,6 +393,7 @@ async function run() {
       mechanicallyFixable: [],
       needsJudgment: [],
       singleOwnershipFindings: [],
+      indexParityFindings: [],
       proposedTagRegistry: {},
       tagRegistryPath,
       nextStep: 'No KB articles were found under kbRoot. Confirm kbRoot in .professor-orb/conventions.json points at the right folder.',
@@ -464,6 +479,54 @@ async function run() {
   }
   for (const finding of singleOwnershipFindings) needsJudgment.push(finding)
 
+  // indexParity, evaluated centrally: no shard sees a whole folder, so group the
+  // scout's complete file list by folder and count the index files in each. An
+  // index file is one whose basename (extension stripped) ends with the project's
+  // indexSuffix, matched case-insensitively to agree with the write-time hook (a
+  // mis-cased "-index" still counts as an index). A folder holding more than one
+  // is a parity violation; which index survives is the DM's call, so it is a
+  // needs-judgment finding, never an auto-fix. With no configured suffix there is
+  // no central way to tell an index from an article, so the check is skipped: the
+  // scout returns an empty suffix when the project defines no indexParity rule,
+  // and an empty suffix would otherwise match every file.
+  const indexParityFindings = []
+  if (indexSuffix) {
+    const suffixLower = indexSuffix.toLowerCase()
+    const indexesByFolder = new Map()
+    for (const file of files) {
+      const normalized = file.replace(/\\/g, '/')
+      const lastSlash = normalized.lastIndexOf('/')
+      const folder = lastSlash === -1 ? '' : normalized.slice(0, lastSlash)
+      const base = lastSlash === -1 ? normalized : normalized.slice(lastSlash + 1)
+      const lastDot = base.lastIndexOf('.')
+      const stem = lastDot > 0 ? base.slice(0, lastDot) : base
+      if (!stem.toLowerCase().endsWith(suffixLower)) continue
+      const list = indexesByFolder.get(folder) || []
+      list.push(normalized)
+      indexesByFolder.set(folder, list)
+    }
+    for (const [folder, indexes] of indexesByFolder.entries()) {
+      if (indexes.length <= 1) continue
+      const sortedIndexes = indexes.slice().sort()
+      const folderLabel = folder || kbRoot || '(project root)'
+      indexParityFindings.push({
+        file: folderLabel,
+        ruleId: indexParityRuleId,
+        description:
+          'This folder holds ' +
+          indexes.length +
+          ' index files: ' +
+          sortedIndexes.join(', ') +
+          '. Convention allows at most one index per folder.',
+        question:
+          'Which single index should own ' +
+          folderLabel +
+          '? Merge the others into it and delete them, or rename the extras so they are no longer index files.',
+      })
+    }
+  }
+  for (const finding of indexParityFindings) needsJudgment.push(finding)
+
   const proposedTagRegistry = {}
   for (const [tag, count] of tagTotals.entries()) proposedTagRegistry[tag] = count
 
@@ -480,7 +543,9 @@ async function run() {
       needsJudgment.length +
       ' needs-judgment item(s) (' +
       singleOwnershipFindings.length +
-      ' of them single-ownership findings).',
+      ' single-ownership, ' +
+      indexParityFindings.length +
+      ' index-parity).',
   )
 
   return {
@@ -494,10 +559,11 @@ async function run() {
     mechanicallyFixable,
     needsJudgment,
     singleOwnershipFindings,
+    indexParityFindings,
     proposedTagRegistry,
     tagRegistryPath,
     nextStep:
-      'Present the mechanically fixable bucket to the DM for one batch approval (a single yes covers the whole bucket), resolve each needs-judgment item individually (including the single-ownership findings), then re-invoke this workflow with args.mode "fix", args.approvedFixes set to the approved subset, and, if the DM approves it, args.approvedTagRegistry set to proposedTagRegistry.',
+      'Present the mechanically fixable bucket to the DM for one batch approval (a single yes covers the whole bucket), resolve each needs-judgment item individually (including the single-ownership and index-parity findings), then re-invoke this workflow with args.mode "fix", args.approvedFixes set to the approved subset, and, if the DM approves it, args.approvedTagRegistry set to proposedTagRegistry.',
   }
 }
 
