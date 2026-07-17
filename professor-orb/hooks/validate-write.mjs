@@ -736,14 +736,17 @@ function main() {
       warnings.push(`[${ruleId}] ${message}`);
     }
 
-    // Only a rule that actually failed reaches here. A malformed autofix value
-    // is treated as absent, never as an enforcement change.
+    // Only a rule that actually failed reaches here, and only one whose
+    // enforcement is a recognized level that produced a violation entry above.
+    // A malformed autofix value, or an unrecognized enforcement value, is
+    // treated as absent: it never emits a request and never changes enforcement.
     if (
+      (rule.enforcement === "block" || rule.enforcement === "warn") &&
       typeof rule.autofix === "string" &&
       rule.autofix.trim() !== "" &&
       agentType !== FIXER_AGENT
     ) {
-      autofixRequests.push(formatAutofixRequest(ruleId, rule.autofix, ctx));
+      autofixRequests.push(formatAutofixRequest(ruleId, rule.autofix.trim(), ctx));
     }
   }
 
