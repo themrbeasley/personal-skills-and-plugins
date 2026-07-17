@@ -325,6 +325,13 @@ function checkIndexParity(params, ctx) {
   const { indexSuffix } = params;
   if (!indexSuffix) return null;
 
+  // An Edit requires the file to already exist, so it can never introduce a
+  // new index into a folder; only a Write can worsen parity. A Write that
+  // overwrites an existing index is indistinguishable post-write from one
+  // that created it, so Write still fires; that residual imprecision is
+  // accepted until the deferred parity migration lands.
+  if (ctx.toolName === "Edit") return true;
+
   const dir = path.dirname(ctx.absFilePath);
   const entries = safeReaddir(dir);
   if (!entries) return null;
@@ -599,6 +606,7 @@ function main() {
 
   const ctx = {
     projectRoot,
+    toolName,
     kbRootAbs,
     absFilePath,
     relPath: relToKb,
