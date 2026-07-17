@@ -329,7 +329,8 @@ function checkIndexParity(params, ctx) {
   // new index into a folder; only a Write can worsen parity. A Write that
   // overwrites an existing index is indistinguishable post-write from one
   // that created it, so Write still fires; that residual imprecision is
-  // accepted until the deferred parity migration lands.
+  // accepted as an inherent limit of checking from post-write disk state
+  // alone.
   if (ctx.toolName === "Edit") return true;
 
   const dir = path.dirname(ctx.absFilePath);
@@ -362,7 +363,7 @@ function checkIndexParity(params, ctx) {
   const conflicts = existingIndexFiles.filter((f) => f.toLowerCase() !== selfLower);
   if (conflicts.length > 0) {
     const folderLabel = path.dirname(ctx.relPath) || ".";
-    return `Folder "${folderLabel}" now holds more than one index file, which breaks parity. This hook runs after the write, so the file is already on disk; consolidate or revert so the folder keeps exactly one index.`;
+    return `Folder "${folderLabel}" now holds more than one index file, which breaks parity. This hook runs after the write, so the file is already on disk; move or revert so the folder keeps exactly one index.`;
   }
   return true;
 }
@@ -433,20 +434,30 @@ function wikilinkTargetExists(kbRootAbs, target) {
 
 function checkWikilinkPolicy(params, ctx) {
   const requireExistingTarget = Boolean(params.requireExistingTarget);
+  const requireDisplayText = Boolean(params.requireDisplayText);
   const body = ctx.body || "";
   const re = /\[\[([^[\]]*)\]\]/g;
 
   const badLinks = [];
+  const bareLinks = [];
   const missingTargets = [];
   let m;
   while ((m = re.exec(body)) !== null) {
     const inner = m[1];
     // Inside a Markdown table a wikilink escapes its pipe ([[Target\|Display]])
     // so the cell is not split; treat "\|" and "|" as the same separator.
-    const target = inner ? inner.split(/\\?\|/)[0].trim() : "";
+    const parts = inner ? inner.split(/\\?\|/) : [];
+    const target = parts.length > 0 ? parts[0].trim() : "";
     if (!target) {
       badLinks.push(m[0]);
       continue;
+    }
+    // A link with no separator at all (piped or escaped-piped) has no display
+    // text, e.g. [[Target]]. Piped ([[Target|Display]]) and table-escaped
+    // ([[Target\|Display]]) forms both split into two or more parts above and
+    // are not flagged here.
+    if (requireDisplayText && parts.length < 2) {
+      bareLinks.push(m[0]);
     }
     if (requireExistingTarget && !wikilinkTargetExists(ctx.kbRootAbs, target)) {
       missingTargets.push(target);
@@ -456,6 +467,11 @@ function checkWikilinkPolicy(params, ctx) {
   const problems = [];
   if (badLinks.length > 0) {
     problems.push(`Malformed wikilink(s): ${badLinks.join(", ")}.`);
+  }
+  if (bareLinks.length > 0) {
+    problems.push(
+      `Wikilink(s) missing display text (use [[Target|Display]]): ${bareLinks.join(", ")}.`
+    );
   }
   if (missingTargets.length > 0) {
     problems.push(`Wikilink target(s) not found in KB: ${missingTargets.join(", ")}.`);
@@ -537,6 +553,28 @@ function checkProhibitedPattern(params, ctx) {
   return true;
 }
 
+// Shared by checkBodyImpliesFrontmatter and checkFrontmatterImpliesFrontmatter:
+// once each check's own trigger has matched (a body pattern, or a frontmatter
+// "when" match), both require the same set of frontmatter fields to carry
+// specific values and report failures the same way.
+function requireFrontmatterFailures(requireFrontmatter, frontmatter) {
+  const failures = [];
+  for (const field of Object.keys(requireFrontmatter)) {
+    const want = requireFrontmatter[field];
+    const actual = frontmatter[field];
+    // The frontmatter parser reads every unquoted number as a string, so a
+    // numeric requirement is compared against its string form; booleans and
+    // strings stay strict, keeping a quoted "false" distinct from false.
+    const satisfied =
+      actual === want || (typeof want === "number" && actual === String(want));
+    if (!satisfied) {
+      const found = actual === undefined ? "missing" : JSON.stringify(actual);
+      failures.push(`"${field}" must be ${JSON.stringify(want)} (currently ${found})`);
+    }
+  }
+  return failures;
+}
+
 function checkBodyImpliesFrontmatter(params, ctx) {
   const { bodyPattern, flags = "u", requireFrontmatter } = params;
   if (
@@ -566,22 +604,29 @@ function checkBodyImpliesFrontmatter(params, ctx) {
 
   if (!re.test(ctx.body || "")) return true;
 
-  const failures = [];
-  for (const field of Object.keys(requireFrontmatter)) {
-    const want = requireFrontmatter[field];
-    const actual = ctx.frontmatter[field];
-    // The frontmatter parser reads every unquoted number as a string, so a
-    // numeric requirement is compared against its string form; booleans and
-    // strings stay strict, keeping a quoted "false" distinct from false.
-    const satisfied =
-      actual === want || (typeof want === "number" && actual === String(want));
-    if (!satisfied) {
-      const found = actual === undefined ? "missing" : JSON.stringify(actual);
-      failures.push(`"${field}" must be ${JSON.stringify(want)} (currently ${found})`);
-    }
-  }
+  const failures = requireFrontmatterFailures(requireFrontmatter, ctx.frontmatter);
   if (failures.length === 0) return true;
   return `Body matches /${bodyPattern}/, so frontmatter ${failures.join("; ")}.`;
+}
+
+function checkFrontmatterImpliesFrontmatter(params, ctx) {
+  const { when, requireFrontmatter } = params;
+  if (
+    !when ||
+    typeof when !== "object" ||
+    Array.isArray(when) ||
+    !requireFrontmatter ||
+    typeof requireFrontmatter !== "object" ||
+    Array.isArray(requireFrontmatter)
+  ) {
+    return null;
+  }
+
+  if (!matchesWhen(when, ctx.frontmatter)) return true;
+
+  const failures = requireFrontmatterFailures(requireFrontmatter, ctx.frontmatter);
+  if (failures.length === 0) return true;
+  return `Frontmatter matches ${JSON.stringify(when)}, so ${failures.join("; ")}.`;
 }
 
 const CHECKS = {
@@ -599,6 +644,7 @@ const CHECKS = {
   tagVocabulary: checkTagVocabulary,
   prohibitedPattern: checkProhibitedPattern,
   bodyImpliesFrontmatter: checkBodyImpliesFrontmatter,
+  frontmatterImpliesFrontmatter: checkFrontmatterImpliesFrontmatter,
 };
 
 // ---------------------------------------------------------------------------
