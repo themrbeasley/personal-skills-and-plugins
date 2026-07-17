@@ -711,13 +711,29 @@ function main() {
     }
   }
 
+  // Exit 2 is the only channel that reaches Claude with a non-zero status, and
+  // a JSON body is parsed only on exit 0, so the two are mutually exclusive. A
+  // blocking write therefore carries its warnings on stderr as well; before
+  // this they were discarded whenever anything blocked.
   if (blockViolations.length > 0) {
-    process.stderr.write(blockViolations.join("\n") + "\n");
+    process.stderr.write([...blockViolations, ...warnings].join("\n") + "\n");
     process.exit(2);
   }
 
+  // PostToolUse stdout goes to the debug log, not to Claude and not to the
+  // transcript: only UserPromptSubmit, UserPromptExpansion, and SessionStart
+  // treat it as context. additionalContext in a JSON body is the supported way
+  // for this event to reach the model, so warn rules use it. Printing bare text
+  // here, as earlier versions did, meant no warn rule was ever seen by anyone.
   if (warnings.length > 0) {
-    process.stdout.write(warnings.join("\n") + "\n");
+    process.stdout.write(
+      JSON.stringify({
+        hookSpecificOutput: {
+          hookEventName: "PostToolUse",
+          additionalContext: warnings.join("\n"),
+        },
+      })
+    );
   }
 
   process.exit(0);

@@ -206,8 +206,13 @@ rule's level.
 | level | hook behavior | who acts on it |
 |---|---|---|
 | `block` | Exits with code 2 and prints the violation to stderr. The hook runs after the write, so the file is already on disk; the exit code surfaces the violation as an error rather than preventing anything. | Claude sees the error and repairs or reverts the just-written file. |
-| `warn` | Exits 0, prints the violation to stdout. The write proceeds. | Claude sees the warning and may act on it, but nothing is gated. |
+| `warn` | Exits 0 and returns the violation as `hookSpecificOutput.additionalContext`. The write proceeds. | Claude sees the warning next to the tool result and may act on it, but nothing is gated. |
 | `off` | Not evaluated at write time. | Documented for the DM's and the sweep's benefit only. The sweep may still choose to report `off` rules informationally, but never fails on them. |
+
+A PostToolUse hook's plain stdout reaches the debug log only, never Claude and
+never the transcript; `additionalContext` in a JSON body is the supported channel
+for this event. Any future check that wants to tell Claude something must go
+through the same field rather than printing.
 
 `block` should be reserved for rules where a wrong answer is unambiguous and
 cheap to detect locally, for example an invalid `type` enum value or a missing
