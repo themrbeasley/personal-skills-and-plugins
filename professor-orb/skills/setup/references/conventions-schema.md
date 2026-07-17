@@ -253,6 +253,15 @@ candidate: leave those opted out and let the DM decide each one.
 `autofix` composes with any `enforcement` level and any `check` kind. Nothing
 about a particular project's rules lives in plugin code.
 
+A fixer is contractually forbidden to touch code, fenced or inline, so a
+violation that lives inside code cannot be cleared by autofix. If a rule still
+matches such content (for example an em dash rule that does not exclude code),
+the article stays flagged and re-requests a fix on each write; the recursion
+guard bounds this to one no-op dispatch per write, never a loop, but the flag
+does not go away on its own. Prefer a check that excludes code where the
+convention allows it, or accept the standing flag on the rare article that
+carries a violation-shaped character inside genuine code.
+
 ## Example conventions.json
 
 A realistic (abbreviated) file, using Rolara-shaped values as examples. A
