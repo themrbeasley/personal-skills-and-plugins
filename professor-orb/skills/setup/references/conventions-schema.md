@@ -113,7 +113,9 @@ Every entry in `rules` follows the same shape, regardless of category:
     "enforcement": "block",
 
     // Human-readable one-liner, shown in hook error/warning output and in
-    // the validation sweep's report. Not used for logic.
+    // the validation sweep's report, verbatim. Not used for logic. A terse
+    // sentence stating what the rule checks, nothing more: never migration
+    // status, approval claims, changelog notes, dates, or statistics.
     "description": "The `type` field must be one of the KB's recognized types.",
 
     // Optional. Plain-English instructions for fixing a violation of THIS rule,
@@ -135,6 +137,16 @@ new files) but must be unique within the file. Nothing about a rule ID is
 semantically meaningful to the hook; it only reads `category`, `check`,
 `enforcement`, and `params`.
 
+**The `description` field is a terse sentence, never narrative.** It states
+what the rule checks, in one clean sentence, and nothing else. The hook
+surfaces this string verbatim on a block or a warn, and the sweep surfaces it
+verbatim in its report, so `description` is never a place for migration
+status, DM-approval claims, audit or changelog notes, dates, percentages, or
+other statistics. A `description` that reads like a commit message or a
+status update is a sign it was written by summarizing a conversation instead
+of stating a check; rewrite it as the one-line fact a DM would want to see in
+a hook error.
+
 ## Rule catalog
 
 Four categories, matching the four kinds of conventions a knowledge base
@@ -151,6 +163,7 @@ Checked by parsing the YAML frontmatter of the file being written.
 | `enum` | `field` (string), `values` (array of allowed strings) | The named field's value is one of `values` |
 | `default` | `field`, `value`, `overrides` (array of `{ when, value }`, where `when` matches on other frontmatter fields, e.g. `type` or `tags`) | Whether a field missing its default should warn/block, and which default applies given the article's other field values |
 | `format` | `field`, `format` (one of `string`, `boolean`, `string-array`, `date`), `optional` (bool) | The named field, when present, has the expected type shape |
+| `frontmatterImpliesFrontmatter` | `when` (object mapping frontmatter field names to a required value or array of values, matched the same way as the `default` check's `overrides[].when`), `requireFrontmatter` (object, never an array, mapping frontmatter field names to a required boolean, string, or number) | If the article's own frontmatter matches `when`, every field named in `requireFrontmatter` must be present with exactly the given value; a missing field fails. Built for publish gating, for example a `dm-only` or `NSFW` tag must force `publish: false` explicitly rather than falling back to a default that could leak. Booleans and strings compare strictly, so a quoted `"false"` does not satisfy a required `false`; a required number is compared against the frontmatter parser's string reading of it, so `2` matches `field: 2`. This is the frontmatter-triggered sibling of `bodyImpliesFrontmatter` (Content rules, below): same `requireFrontmatter` semantics, but the trigger is a frontmatter condition instead of a body pattern |
 
 ### Filename rules
 
@@ -184,10 +197,10 @@ Checked against the article's body text.
 
 | check | params | what it checks |
 |---|---|---|
-| `wikilinkPolicy` | `format` (description string, e.g. `[[Filename\|Display Text]]`), `requireExistingTarget` (bool) | Wikilinks in the body are well-formed and, if `requireExistingTarget` is true, point at a file that exists in the KB. Inside Markdown tables the pipe separator appears escaped as `\|` (a bare pipe would split the cell); checkers treat the escaped and bare forms as the same separator, never as a malformed link |
+| `wikilinkPolicy` | `format` (description string, e.g. `[[Filename\|Display Text]]`), `requireExistingTarget` (bool), `requireDisplayText` (bool, default false) | Wikilinks in the body are well-formed and, if `requireExistingTarget` is true, point at a file that exists in the KB. If `requireDisplayText` is true, a wikilink with no separator at all (e.g. `[[Target]]`) is flagged as missing display text; a wikilink that carries one, whether table-escaped (`[[Target\|Display]]`) or plain, still passes. Inside Markdown tables the pipe separator appears escaped as `\|` (a bare pipe would split the cell); checkers treat the escaped and bare forms as the same separator, never as a malformed link |
 | `tagVocabulary` | *(none beyond the top-level `tagRegistryPath`)* | Tags used in frontmatter are cross-checked against the tag registry; new tags are reported with suggested near-matches, never blocked (see note below) |
 | `prohibitedPattern` | `pattern` (regex string), `appliesTo` (`"body"` or `"frontmatter"`), `flags` (regex flags string, default `"u"`), `excludeTableDelimiters` (bool, body only, default false) | The text does not contain a disallowed pattern, e.g. em dashes. Set `flags` for case-insensitive or multiline matching (e.g. `"im"`); JavaScript regex does not support inline `(?im)` groups, so put those flags here instead. When the pattern also bans a double-hyphen used as a prose em-dash substitute, set `excludeTableDelimiters: true` so Markdown table delimiter rows and horizontal rules are not flagged |
-| `bodyImpliesFrontmatter` | `bodyPattern` (regex string), `flags` (regex flags string, default `"u"`), `requireFrontmatter` (object, never an array, mapping frontmatter field names to a required boolean, string, or number) | If the article body matches `bodyPattern`, every field named in `requireFrontmatter` must be present in frontmatter with exactly the given value; a missing field fails. Built for publish gating: a body carrying a DM-only content marker must set `publish: false` explicitly, because a missing field would fall back to the site's default and leak. Booleans and strings compare strictly, so a quoted `"false"` does not satisfy a required `false` (it is a real bug worth surfacing); a required number is compared against the frontmatter parser's string reading of it, so `2` matches `field: 2` |
+| `bodyImpliesFrontmatter` | `bodyPattern` (regex string), `flags` (regex flags string, default `"u"`), `requireFrontmatter` (object, never an array, mapping frontmatter field names to a required boolean, string, or number) | If the article body matches `bodyPattern`, every field named in `requireFrontmatter` must be present in frontmatter with exactly the given value; a missing field fails. Built for publish gating: a body carrying a DM-only content marker must set `publish: false` explicitly, because a missing field would fall back to the site's default and leak. Booleans and strings compare strictly, so a quoted `"false"` does not satisfy a required `false` (it is a real bug worth surfacing); a required number is compared against the frontmatter parser's string reading of it, so `2` matches `field: 2`. See `frontmatterImpliesFrontmatter` (Frontmatter rules, above) for the same mechanism triggered by a frontmatter condition instead of a body pattern |
 
 **Note on `prohibitedPattern` and Markdown tables:** an em-dash rule often bans both
 the em dash character (codepoint U+2014) and a double-hyphen used as a prose
@@ -205,6 +218,26 @@ tag vocabulary. Setup should default this rule's `enforcement` to `warn` and
 should push back if a DM asks for `block`, since blocking on an unrecognized tag
 would prevent any KB from ever growing its vocabulary. `off` is reasonable for a
 DM who does not want tag drift tracked at all.
+
+## Enforcement scopes
+
+Every convention that setup considers falls into exactly one of three
+enforcement scopes, classified by where it can actually be checked. Only the
+first scope becomes an active rule in `conventions.json`.
+
+| scope | what it can see | where it is recorded |
+|---|---|---|
+| Per-write (the hook) | Only the file just written, the folder it lives in, and cheap existence lookups (e.g. whether a wikilink target exists somewhere in the KB) | An active rule in `conventions.json`, using one of the check kinds in the catalog above |
+| Whole-KB (the validation sweep) | The entire KB: every article, every folder, the full index graph | A legitimate convention, but not a write-time gate; the hook returns "not applicable" for it (`singleOwnership` is the example already in this schema). Recorded in `conventions.json` as a sweep-scope entry, typically `enforcement: "off"`, so the sweep's report can still pick it up |
+| Human judgment | No deterministic answer exists, for example which of two colliding filenames is "primary," or whether a prose cross-reference reads well | Never `conventions.json`. Setup routes it to the consumer project's CLAUDE.md, as guidance for a human, or a model exercising judgment, to read |
+
+Setup classifies each candidate convention by scope before proposing it to
+the DM, and only per-write-checkable conventions are emitted as active
+rules. Judgment-only conventions go to CLAUDE.md, never into
+`conventions.json`. A migration, for example "the KB used to allow X, DMs
+should now write Y," is tracked only as a proposal during the setup
+conversation; it is never asserted as settled fact inside `conventions.json`,
+whether as a rule of its own or folded into a `description`.
 
 ## Enforcement levels
 
