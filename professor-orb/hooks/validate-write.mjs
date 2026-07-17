@@ -337,11 +337,17 @@ function checkIndexParity(params, ctx) {
   if (!entries) return null;
 
   // Only block writes that worsen parity; ordinary article writes never fail this check.
-  const isIndexWrite = baseNameNoExt(ctx.fileName).endsWith(indexSuffix);
+  // Suffix matching is case-insensitive: a mis-cased "-index" file is still
+  // an index for parity purposes. filenameSuffixByType stays case-sensitive
+  // because flagging the wrong casing itself is that rule's job.
+  const suffixLower = indexSuffix.toLowerCase();
+  const isIndexWrite = baseNameNoExt(ctx.fileName).toLowerCase().endsWith(suffixLower);
   if (!isIndexWrite) return true;
 
   // File being written is an index file. Block only if a different index already exists.
-  const existingIndexFiles = entries.filter((f) => baseNameNoExt(f).endsWith(indexSuffix));
+  const existingIndexFiles = entries.filter((f) =>
+    baseNameNoExt(f).toLowerCase().endsWith(suffixLower)
+  );
   const conflicts = existingIndexFiles.filter((f) => f !== ctx.fileName);
   if (conflicts.length > 0) {
     const folderLabel = path.dirname(ctx.relPath) || ".";
