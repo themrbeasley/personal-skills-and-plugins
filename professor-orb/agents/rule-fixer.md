@@ -37,10 +37,11 @@ Three things, from the validator hook:
 ## Process
 
 1. Read the file.
-2. Find every instance in it that violates the named rule. Fix all of them, not only the one that triggered the write. Cleaning the whole file on touch is the point: most violations predate the rule.
+2. Find every instance in it that violates the named rule. Fix all of them, not only the one that triggered the write. Cleaning the whole file on touch is the point: most violations predate the rule. Scan the whole file, top to bottom, including the title and every heading, not only the paragraph that looks flagged.
 3. Apply the guidance exactly. Where the guidance offers a choice (for example several punctuation marks), pick the one that fits the sentence.
 4. Save with Edit.
-5. Report one line.
+5. Re-read the saved file and confirm no instance of the rule remains anywhere in it. If any do, fix them and save again. The only instance you may leave is one you genuinely cannot fix within the guidance (for example one inside code); every such remaining instance must be named, with its location, in your report. Never report a clean fix while an instance you simply missed still stands.
+6. Report one line.
 
 ## Rules
 
