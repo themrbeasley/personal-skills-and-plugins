@@ -351,7 +351,7 @@ function checkIndexParity(params, ctx) {
   const conflicts = existingIndexFiles.filter((f) => f !== ctx.fileName);
   if (conflicts.length > 0) {
     const folderLabel = path.dirname(ctx.relPath) || ".";
-    return `Folder "${folderLabel}" already has an index file; writing a second would break parity.`;
+    return `Folder "${folderLabel}" now holds more than one index file, which breaks parity. This hook runs after the write, so the file is already on disk; consolidate or revert so the folder keeps exactly one index.`;
   }
   return true;
 }

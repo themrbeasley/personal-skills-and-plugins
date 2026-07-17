@@ -186,7 +186,7 @@ substitute for it.
 Because a double-hyphen also occurs in Markdown table delimiter rows (the `|---|` line
 under a table header) and horizontal rules, a rule whose pattern includes the
 double-hyphen alternative MUST also set `excludeTableDelimiters: true`; without it, every
-write of a normal table is blocked. With the flag set, table delimiters and horizontal
+write of a normal table trips the block. With the flag set, table delimiters and horizontal
 rules pass, while prose uses of a double-hyphen (whether joined to words or spaced) are
 still caught, as is any real em dash even inside a table cell. A rule that bans only the
 literal em dash character (`pattern: "\\u2014"`) does not need the flag.
@@ -204,7 +204,7 @@ rule's level.
 
 | level | hook behavior | who acts on it |
 |---|---|---|
-| `block` | Exits with code 2 and prints the violation to stderr. The write is stopped. | Claude sees the error and self-heals before retrying the write. |
+| `block` | Exits with code 2 and prints the violation to stderr. The hook runs after the write, so the file is already on disk; the exit code surfaces the violation as an error rather than preventing anything. | Claude sees the error and repairs or reverts the just-written file. |
 | `warn` | Exits 0, prints the violation to stdout. The write proceeds. | Claude sees the warning and may act on it, but nothing is gated. |
 | `off` | Not evaluated at write time. | Documented for the DM's and the sweep's benefit only. The sweep may still choose to report `off` rules informationally, but never fails on them. |
 
