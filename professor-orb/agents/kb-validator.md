@@ -72,6 +72,7 @@ Before running cross-reference or index-ownership checks, identify homebrew cata
 - Enum fields (for example, `type`) use a valid value
 - Fields with a documented default carry it, or an allowed override
 - Fields have the expected format (string, boolean, string array, date)
+- Frontmatter-implies-frontmatter rules: where the article's own frontmatter matches the rule's `when`, every field in its `requireFrontmatter` must be present with exactly that value. A missing field is a violation, not a pass: this is the leak guard, for example a `dm-only` or NSFW tag must force `publish: false` explicitly rather than falling back to a default that could leak. Same mechanism as the body-implies-frontmatter rule below, triggered by a frontmatter condition instead of a body pattern
 
 **Filename validation** (per `filename` category rules):
 - Matches the required suffix for its article type, if one applies
@@ -80,6 +81,7 @@ Before running cross-reference or index-ownership checks, identify homebrew cata
 **Cross-reference validation** (per `content` category rules, skipping catalog entries per Step 3):
 - Extract every wikilink from the article body
 - Inside Markdown tables a wikilink must escape its pipe separator as `\|` (for example `[[The-Knight\|The Knight]]`), because a bare pipe would split the table cell. The escaped form is the required in-table syntax, equivalent to the bare-pipe form in prose. Never flag it as malformed against the documented `[[Target|Display]]` format, and never propose "fixing" it to a bare pipe inside a table
+- If the rule sets `requireDisplayText` true, flag a wikilink with no separator at all (for example `[[Target]]`) as missing display text; a wikilink that has one, whether table-escaped (`[[Target\|Display]]`) or plain (`[[Target|Display]]`), still passes
 - For each link, check whether the target exists anywhere in the KB
 - Flag dead links, respecting any project-specific exception documented in conventions.json or CLAUDE.md (for example, dead links being acceptable in session reports)
 
@@ -90,7 +92,7 @@ Before running cross-reference or index-ownership checks, identify homebrew cata
 
 **Content validation** (per `content` category rules):
 - Prohibited patterns (for example, em dashes), if the project defines one
-- Body-implies-frontmatter rules: where the body matches the rule's `bodyPattern`, every field in its `requireFrontmatter` must be present with exactly that value. A missing field is a violation, not a pass: these rules exist because an absent field falls back to a default, which is how the content leaks. The write-time hook only ever sees new writes, so articles that predate the rule are yours to catch
+- Body-implies-frontmatter rules: where the body matches the rule's `bodyPattern`, every field in its `requireFrontmatter` must be present with exactly that value. A missing field is a violation, not a pass: these rules exist because an absent field falls back to a default, which is how the content leaks. The write-time hook only ever sees new writes, so articles that predate the rule are yours to catch. See the frontmatter-implies-frontmatter rule above for the same mechanism triggered by a frontmatter condition instead of a body pattern
 - Tag vocabulary against the tag registry (`tagRegistryPath`), reported informationally per the schema's own guidance, never as a blocker
 
 ### Step 5: Classify every violation by fixability

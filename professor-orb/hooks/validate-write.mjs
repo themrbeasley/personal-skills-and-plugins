@@ -615,6 +615,7 @@ function checkFrontmatterImpliesFrontmatter(params, ctx) {
     !when ||
     typeof when !== "object" ||
     Array.isArray(when) ||
+    Object.keys(when).length === 0 ||
     !requireFrontmatter ||
     typeof requireFrontmatter !== "object" ||
     Array.isArray(requireFrontmatter)
