@@ -95,7 +95,7 @@ When a rule fails, has a non-empty `autofix` string, and the hook is not already
 
 ```
 [contentNoEmDashes] Prohibited pattern (\u2014|--) found in body.
-AUTOFIX AVAILABLE. Dispatch the professor-orb rule-fixer agent now, once per file, and do not fix this yourself.
+AUTOFIX AVAILABLE for [contentNoEmDashes]. Dispatch the professor-orb rule-fixer agent now, once for this file, and do not fix this yourself.
   file: rolara-kb/characters/Kivin.md
   rule: contentNoEmDashes
   guidance: Replace each em dash or double hyphen with the punctuation that fits the sentence: ...

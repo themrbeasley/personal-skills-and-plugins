@@ -116,6 +116,14 @@ Every entry in `rules` follows the same shape, regardless of category:
     // the validation sweep's report. Not used for logic.
     "description": "The `type` field must be one of the KB's recognized types.",
 
+    // Optional. Plain-English instructions for fixing a violation of THIS rule,
+    // written for a model to follow. Present means the DM has pre-approved this
+    // class of fix: when the rule fails, the hook asks the main session to
+    // dispatch the rule-fixer agent, which applies the guidance to the whole
+    // file and reports one line. Absent (the default) means violations are
+    // only reported. A non-string or empty value is treated as absent.
+    "autofix": "Replace each X with Y. Change nothing else.",
+
     // Check-specific parameters. Shape depends on "check"; see the catalog.
     "params": { "...": "..." }
   }
@@ -206,8 +214,13 @@ rule's level.
 | level | hook behavior | who acts on it |
 |---|---|---|
 | `block` | Exits with code 2 and prints the violation to stderr. The hook runs after the write, so the file is already on disk; the exit code surfaces the violation as an error rather than preventing anything. | Claude sees the error and repairs or reverts the just-written file. |
-| `warn` | Exits 0, prints the violation to stdout. The write proceeds. | Claude sees the warning and may act on it, but nothing is gated. |
+| `warn` | Exits 0 and returns the violation as `hookSpecificOutput.additionalContext`. The write proceeds. | Claude sees the warning next to the tool result and may act on it, but nothing is gated. |
 | `off` | Not evaluated at write time. | Documented for the DM's and the sweep's benefit only. The sweep may still choose to report `off` rules informationally, but never fails on them. |
+
+A PostToolUse hook's plain stdout reaches the debug log only, never Claude and
+never the transcript; `additionalContext` in a JSON body is the supported channel
+for this event. Any future check that wants to tell Claude something must go
+through the same field rather than printing.
 
 `block` should be reserved for rules where a wrong answer is unambiguous and
 cheap to detect locally, for example an invalid `type` enum value or a missing
@@ -219,6 +232,35 @@ sweep's report but does not want gating individual writes.
 The setup skill always confirms each rule's enforcement level with the DM via
 `AskUserQuestion` rather than assuming one; the levels above are guidance, not
 defaults baked into the schema itself.
+
+## Autofix
+
+A rule may carry an optional `autofix` string. It holds plain-English guidance a
+model can follow to correct a violation of that rule, and its presence is the
+DM's standing approval for that class of fix.
+
+When a rule with `autofix` fails, the hook appends a request naming the file, the
+rule, and the guidance verbatim, and the main session dispatches the `rule-fixer`
+agent to apply it. The hook cannot dispatch the agent itself; it can only make
+the request. If the main session does not act on it, behavior degrades to a
+reported violation, which is the same as having no `autofix` at all.
+
+Write guidance that is specific about what may change and what may not. The
+fixer applies it to every instance in the file, not only the one that triggered
+the write, so a rule whose fix depends on per-instance judgment is a poor
+candidate: leave those opted out and let the DM decide each one.
+
+`autofix` composes with any `enforcement` level and any `check` kind. Nothing
+about a particular project's rules lives in plugin code.
+
+A fixer is contractually forbidden to touch code, fenced or inline, so a
+violation that lives inside code cannot be cleared by autofix. If a rule still
+matches such content (for example an em dash rule that does not exclude code),
+the article stays flagged and re-requests a fix on each write; the recursion
+guard bounds this to one no-op dispatch per write, never a loop, but the flag
+does not go away on its own. Prefer a check that excludes code where the
+convention allows it, or accept the standing flag on the rare article that
+carries a violation-shaped character inside genuine code.
 
 ## Example conventions.json
 
