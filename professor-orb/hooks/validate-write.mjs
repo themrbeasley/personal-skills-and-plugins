@@ -602,6 +602,26 @@ const CHECKS = {
 };
 
 // ---------------------------------------------------------------------------
+// Autofix requests
+// ---------------------------------------------------------------------------
+
+// The agent the hook asks the main session to dispatch. A hook cannot dispatch
+// it directly: a hook is a subprocess handed JSON on stdin, with no channel to
+// the Agent tool. It can only leave the request in output Claude reads, so this
+// is an instruction the main session follows, not a forced call.
+const FIXER_AGENT = "rule-fixer";
+
+function formatAutofixRequest(ruleId, guidance, ctx) {
+  return [
+    `AUTOFIX AVAILABLE for [${ruleId}]. Dispatch the professor-orb ${FIXER_AGENT} agent now, once for this file, and do not fix this yourself.`,
+    `  file: ${ctx.relProjectPath}`,
+    `  rule: ${ruleId}`,
+    `  guidance: ${guidance}`,
+    "The DM pre-approved this fix class by setting autofix on the rule, so apply it without asking.",
+  ].join("\n");
+}
+
+// ---------------------------------------------------------------------------
 // Main
 // ---------------------------------------------------------------------------
 
@@ -618,6 +638,10 @@ function main() {
   if (!input || typeof input !== "object") process.exit(0);
 
   const toolName = input.tool_name;
+
+  // Present only when the hook fires inside a subagent. Used to stop the fixer
+  // being asked to dispatch itself.
+  const agentType = input.agent_type;
   if (toolName && toolName !== "Write" && toolName !== "Edit") {
     process.exit(0);
   }
@@ -675,6 +699,7 @@ function main() {
     kbRootAbs,
     absFilePath,
     relPath: relToKb,
+    relProjectPath: path.relative(projectRoot, absFilePath),
     fileName: path.basename(absFilePath),
     frontmatter: parsed.data,
     frontmatterOrder: parsed.order,
@@ -684,6 +709,7 @@ function main() {
 
   const blockViolations = [];
   const warnings = [];
+  const autofixRequests = [];
 
   for (const ruleId of Object.keys(conventions.rules)) {
     const rule = conventions.rules[ruleId];
@@ -709,6 +735,16 @@ function main() {
     } else if (rule.enforcement === "warn") {
       warnings.push(`[${ruleId}] ${message}`);
     }
+
+    // Only a rule that actually failed reaches here. A malformed autofix value
+    // is treated as absent, never as an enforcement change.
+    if (
+      typeof rule.autofix === "string" &&
+      rule.autofix.trim() !== "" &&
+      agentType !== FIXER_AGENT
+    ) {
+      autofixRequests.push(formatAutofixRequest(ruleId, rule.autofix, ctx));
+    }
   }
 
   // Exit 2 is the only channel that reaches Claude with a non-zero status, and
@@ -716,7 +752,7 @@ function main() {
   // blocking write therefore carries its warnings on stderr as well; before
   // this they were discarded whenever anything blocked.
   if (blockViolations.length > 0) {
-    process.stderr.write([...blockViolations, ...warnings].join("\n") + "\n");
+    process.stderr.write([...blockViolations, ...warnings, ...autofixRequests].join("\n") + "\n");
     process.exit(2);
   }
 
@@ -725,12 +761,12 @@ function main() {
   // treat it as context. additionalContext in a JSON body is the supported way
   // for this event to reach the model, so warn rules use it. Printing bare text
   // here, as earlier versions did, meant no warn rule was ever seen by anyone.
-  if (warnings.length > 0) {
+  if (warnings.length > 0 || autofixRequests.length > 0) {
     process.stdout.write(
       JSON.stringify({
         hookSpecificOutput: {
           hookEventName: "PostToolUse",
-          additionalContext: warnings.join("\n"),
+          additionalContext: [...warnings, ...autofixRequests].join("\n"),
         },
       })
     );

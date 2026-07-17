@@ -116,6 +116,14 @@ Every entry in `rules` follows the same shape, regardless of category:
     // the validation sweep's report. Not used for logic.
     "description": "The `type` field must be one of the KB's recognized types.",
 
+    // Optional. Plain-English instructions for fixing a violation of THIS rule,
+    // written for a model to follow. Present means the DM has pre-approved this
+    // class of fix: when the rule fails, the hook asks the main session to
+    // dispatch the rule-fixer agent, which applies the guidance to the whole
+    // file and reports one line. Absent (the default) means violations are
+    // only reported. A non-string or empty value is treated as absent.
+    "autofix": "Replace each X with Y. Change nothing else.",
+
     // Check-specific parameters. Shape depends on "check"; see the catalog.
     "params": { "...": "..." }
   }
@@ -224,6 +232,26 @@ sweep's report but does not want gating individual writes.
 The setup skill always confirms each rule's enforcement level with the DM via
 `AskUserQuestion` rather than assuming one; the levels above are guidance, not
 defaults baked into the schema itself.
+
+## Autofix
+
+A rule may carry an optional `autofix` string. It holds plain-English guidance a
+model can follow to correct a violation of that rule, and its presence is the
+DM's standing approval for that class of fix.
+
+When a rule with `autofix` fails, the hook appends a request naming the file, the
+rule, and the guidance verbatim, and the main session dispatches the `rule-fixer`
+agent to apply it. The hook cannot dispatch the agent itself; it can only make
+the request. If the main session does not act on it, behavior degrades to a
+reported violation, which is the same as having no `autofix` at all.
+
+Write guidance that is specific about what may change and what may not. The
+fixer applies it to every instance in the file, not only the one that triggered
+the write, so a rule whose fix depends on per-instance judgment is a poor
+candidate: leave those opted out and let the DM decide each one.
+
+`autofix` composes with any `enforcement` level and any `check` kind. Nothing
+about a particular project's rules lives in plugin code.
 
 ## Example conventions.json
 
