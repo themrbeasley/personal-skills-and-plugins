@@ -345,10 +345,21 @@ function checkIndexParity(params, ctx) {
   if (!isIndexWrite) return true;
 
   // File being written is an index file. Block only if a different index already exists.
-  const existingIndexFiles = entries.filter((f) =>
-    baseNameNoExt(f).toLowerCase().endsWith(suffixLower)
+  // Only markdown articles count: an image or subfolder whose name happens to
+  // end in the suffix is not an index.
+  const existingIndexFiles = entries.filter(
+    (f) =>
+      path.extname(f).toLowerCase() === ".md" &&
+      baseNameNoExt(f).toLowerCase().endsWith(suffixLower)
   );
-  const conflicts = existingIndexFiles.filter((f) => f !== ctx.fileName);
+  // Self-exclusion is case-insensitive too. On a case-insensitive filesystem
+  // (Windows, macOS) a write whose path casing differs from the on-disk entry
+  // updates that same file, and readdir keeps returning the original casing;
+  // comparing exactly would count the just-written file as its own conflict.
+  // The trade-off: on a case-sensitive filesystem two indexes differing only
+  // by case read as one here, which the sweep is the right place to catch.
+  const selfLower = ctx.fileName.toLowerCase();
+  const conflicts = existingIndexFiles.filter((f) => f.toLowerCase() !== selfLower);
   if (conflicts.length > 0) {
     const folderLabel = path.dirname(ctx.relPath) || ".";
     return `Folder "${folderLabel}" now holds more than one index file, which breaks parity. This hook runs after the write, so the file is already on disk; consolidate or revert so the folder keeps exactly one index.`;
@@ -528,15 +539,29 @@ function checkProhibitedPattern(params, ctx) {
 
 function checkBodyImpliesFrontmatter(params, ctx) {
   const { bodyPattern, flags = "u", requireFrontmatter } = params;
-  if (!bodyPattern || !requireFrontmatter || typeof requireFrontmatter !== "object") {
+  if (
+    !bodyPattern ||
+    !requireFrontmatter ||
+    typeof requireFrontmatter !== "object" ||
+    Array.isArray(requireFrontmatter)
+  ) {
     return null;
   }
 
+  // Retry without flags when the pattern is valid only outside unicode mode
+  // (a lone "]" or an escaped hyphen, say). This mirrors prohibitedPattern:
+  // failing to compile would silently switch a leak-prevention rule off, and
+  // failing closed on a pattern the author reasonably wrote is worse than
+  // matching it with default flags.
   let re;
   try {
     re = new RegExp(bodyPattern, flags);
   } catch {
-    return null;
+    try {
+      re = new RegExp(bodyPattern);
+    } catch {
+      return null;
+    }
   }
 
   if (!re.test(ctx.body || "")) return true;
@@ -545,7 +570,12 @@ function checkBodyImpliesFrontmatter(params, ctx) {
   for (const field of Object.keys(requireFrontmatter)) {
     const want = requireFrontmatter[field];
     const actual = ctx.frontmatter[field];
-    if (actual !== want) {
+    // The frontmatter parser reads every unquoted number as a string, so a
+    // numeric requirement is compared against its string form; booleans and
+    // strings stay strict, keeping a quoted "false" distinct from false.
+    const satisfied =
+      actual === want || (typeof want === "number" && actual === String(want));
+    if (!satisfied) {
       const found = actual === undefined ? "missing" : JSON.stringify(actual);
       failures.push(`"${field}" must be ${JSON.stringify(want)} (currently ${found})`);
     }
