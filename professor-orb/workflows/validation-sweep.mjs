@@ -433,9 +433,35 @@ async function run() {
 
   phase('Aggregate')
 
+  // Ownership matching runs on a shared key, not on raw strings. The scout
+  // enumerates each article by its full relative path (for example
+  // rolara-kb/characters/archfey/Baba-Yaga.md), but an index claims ownership
+  // with an Obsidian short wikilink whose target is only the basename (for
+  // example [[Baba-Yaga]]). Comparing a full path against a bare basename never
+  // matches, which previously made the single-ownership pass report every
+  // article as an unowned orphan. Reduce both sides to the same key first: the
+  // lowercased basename with no extension. Obsidian forbids | # ^ [ ] in note
+  // names, so stripping a display alias, a heading or block anchor, a folder
+  // path, and a trailing .md only ever removes wikilink decoration, never part
+  // of a real basename. The project's filename-collision convention keeps
+  // basenames unique across folders, so this key does not conflate two distinct
+  // articles; any collision that slips through is surfaced below rather than
+  // silently merged.
+  const toOwnershipKey = (raw) => {
+    let s = String(raw).trim()
+    s = s.replace(/^\[\[|\]\]$/g, '') // strip [[ ]] if a raw wikilink slipped through
+    s = s.replace(/\\\|/g, '|') // unescape a table-escaped pipe (\| -> |)
+    s = s.split('|')[0] // drop a wikilink display alias
+    s = s.split('#')[0] // drop a heading or block-reference anchor
+    s = s.replace(/\\/g, '/').replace(/\/+$/, '') // normalize separators, drop a trailing slash
+    const base = s.slice(s.lastIndexOf('/') + 1) // basename
+    return base.replace(/\.md$/i, '').trim().toLowerCase() // drop a .md extension
+  }
+
   const allArticles = new Set()
+  const articlePathsByKey = new Map()
   const catalogEntries = new Set()
-  const ownersByArticle = new Map()
+  const ownersByKey = new Map()
   const tagTotals = new Map()
   const mechanicallyFixable = []
   const needsJudgment = []
@@ -443,12 +469,19 @@ async function run() {
 
   for (const shard of validShardResults) {
     filesChecked += shard.filesChecked || 0
-    for (const a of shard.articles || []) allArticles.add(a)
+    for (const a of shard.articles || []) {
+      allArticles.add(a)
+      const key = toOwnershipKey(a)
+      const paths = articlePathsByKey.get(key) || []
+      paths.push(a)
+      articlePathsByKey.set(key, paths)
+    }
     for (const c of shard.catalogEntries || []) catalogEntries.add(c)
     for (const claim of shard.ownershipClaims || []) {
-      const owners = ownersByArticle.get(claim.ownedArticle) || []
+      const key = toOwnershipKey(claim.ownedArticle)
+      const owners = ownersByKey.get(key) || []
       owners.push(claim.indexFile)
-      ownersByArticle.set(claim.ownedArticle, owners)
+      ownersByKey.set(key, owners)
     }
     for (const t of shard.tagsUsed || []) {
       tagTotals.set(t.tag, (tagTotals.get(t.tag) || 0) + t.count)
@@ -457,9 +490,34 @@ async function run() {
     for (const j of shard.needsJudgment || []) needsJudgment.push(j)
   }
 
+  // The basename key assumes basenames are unique KB-wide, which is the
+  // project's filename-collision convention but is not enforced by any hook. If
+  // two different article paths reduce to the same key, their owner lists merge
+  // and the single-ownership verdict for both becomes unreliable: an orphan can
+  // look owned, or one owner can look like several. Surface any such collision
+  // so the DM knows those files' ownership results are approximate, instead of
+  // trusting a silently merged verdict.
+  const basenameCollisions = []
+  for (const paths of articlePathsByKey.values()) {
+    const distinct = Array.from(new Set(paths))
+    if (distinct.length > 1) basenameCollisions.push(distinct)
+  }
+  if (basenameCollisions.length > 0) {
+    log(
+      'Warning: ' +
+        basenameCollisions.length +
+        ' basename collision(s) across folders (for example ' +
+        basenameCollisions[0].join(' and ') +
+        '). Ownership is matched by basename, the form indexes link to, so single-ownership results for these files may be unreliable. The KB filename convention is meant to keep basenames unique across folders.',
+    )
+  }
+
   const singleOwnershipFindings = []
   for (const article of allArticles) {
-    const owners = ownersByArticle.get(article) || []
+    // Count distinct owning indexes: an index that happens to list the same
+    // article twice is still one owner, not a single-ownership violation, so
+    // collapse duplicate index files before counting.
+    const owners = Array.from(new Set(ownersByKey.get(toOwnershipKey(article)) || []))
     if (owners.length === 1) continue
     if (owners.length === 0) {
       singleOwnershipFindings.push({
