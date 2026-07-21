@@ -78,10 +78,10 @@ try {
         @{ label = 'netsh interface disable';        pattern = '(?is)netsh\s+interface\s+set\s+interface[^\r\n]{0,80}disable' }
         @{ label = 'ipconfig release';               pattern = '(?is)ipconfig\s+/release' }
         @{ label = 'bcdedit safe boot';              pattern = '(?is)bcdedit[^\r\n]{0,80}safeboot' }
-        @{ label = 'msconfig safe boot';             pattern = '(?is)\b(?:open|run|launch|go\s+to|navigate\s+to|start|boot\s+into)\b[\s\S]{0,40}\bmsconfig\b[\s\S]{0,200}safe\s?boot' }
-        @{ label = 'ScreenConnect Safe Mode button'; pattern = "(?is)\b(?:press|click|tap|select|hit)\b[\s\S]{0,160}(?:safe\s?mode[\s\S]{0,160}button|button[\s\S]{0,160}safe\s?mode)" }
+        @{ label = 'msconfig safe boot';             pattern = '(?is)\b(?:open|run|launch|go\s+to|navigate\s+to|start|boot\s+into|type|use)\b[\s\S]{0,40}\bmsconfig\b[\s\S]{0,200}safe\s?boot' }
+        @{ label = 'ScreenConnect Safe Mode button'; pattern = '(?is)\b(?:press|click|tap|select|hit)\b[\s\S]{0,160}(?:safe\s?mode[\s\S]{0,160}button|button[\s\S]{0,160}safe\s?mode)' }
         @{ label = 'power off';                      pattern = '(?is)(?<!\b(?:rule|guard|pattern|blocked|block|fired|triggered|flagged)\b[\s\S]{0,40})Stop-Computer\b(?![\s\S]{0,40}\b(?:rule|guard|pattern|blocked|block|fired|triggered|flagged)\b)' }
-        @{ label = 'shutdown without restart';       pattern = '(?im)^.*\bshutdown(?:\.exe)?\b\s*/(?:s|f|t\s*\d)(?![^\r\n]*(?:/r|-r)\b).*$' }
+        @{ label = 'shutdown without restart';       pattern = '(?im)^.*\bshutdown(?:\.exe)?\b\s*[-/](?:s|f|t\s*\d|g|p|h|l)(?![^\r\n]*(?:/r|-r)\b).*$' }
     )
 
     # ---- Restarts are allowed, but only with the reconnect warning line.

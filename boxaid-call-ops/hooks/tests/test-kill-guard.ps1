@@ -108,9 +108,14 @@ Assert-Blocked 'tier2 netsh interface off'    (Stop-Payload 'netsh interface set
 Assert-Blocked 'tier2 ipconfig release'       (Stop-Payload 'ipconfig /release')
 Assert-Blocked 'tier2 bcdedit safeboot'       (Stop-Payload 'bcdedit /set {current} safeboot minimal')
 Assert-Blocked 'tier2 msconfig safe boot'     (Stop-Payload 'Open msconfig, go to the Boot tab, and tick Safe boot.')
+Assert-Blocked 'tier2 msconfig safe boot via type'    (Stop-Payload 'Type msconfig into the Run dialog, go to Boot, and check Safe boot.')
 Assert-Blocked 'tier2 screenconnect safe mode button' (Stop-Payload 'In the ScreenConnect toolbar, press the Safe Mode button.')
 Assert-Blocked 'tier2 stop-computer'          (Stop-Payload 'Stop-Computer -Force')
 Assert-Blocked 'tier2 bare shutdown'          (Stop-Payload 'shutdown /s /t 0')
+Assert-Blocked 'tier2 shutdown immediate poweroff'    (Stop-Payload 'shutdown /p')
+Assert-Blocked 'tier2 shutdown restart-and-reopen'    (Stop-Payload 'shutdown /g')
+Assert-Blocked 'tier2 shutdown hibernate'             (Stop-Payload 'shutdown /h')
+Assert-Blocked 'tier2 shutdown dash-style flag'       (Stop-Payload 'shutdown -s -t 0')
 
 # ---------------------------------------------------------------- restarts
 Assert-Blocked 'restart with no reconnect warning' (Stop-Payload 'Reboot now: shutdown /r /t 0')
