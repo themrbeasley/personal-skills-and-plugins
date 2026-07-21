@@ -81,7 +81,7 @@ try {
         @{ label = 'msconfig safe boot';             pattern = '(?is)msconfig[\s\S]{0,200}safe\s?boot' }
         @{ label = 'ScreenConnect Safe Mode button'; pattern = "(?is)(?:$sc[\s\S]{0,160}safe\s?mode|safe\s?mode[\s\S]{0,160}button)" }
         @{ label = 'power off';                      pattern = '(?is)Stop-Computer' }
-        @{ label = 'shutdown without restart';       pattern = '(?im)^.*\bshutdown(?:\.exe)?\b(?![^\r\n]*(?:/r|-r)\b).*$' }
+        @{ label = 'shutdown without restart';       pattern = '(?im)^.*\bshutdown(?:\.exe)?\b\s*/(?:s|f|t\s*\d)(?![^\r\n]*(?:/r|-r)\b).*$' }
     )
 
     # ---- Restarts are allowed, but only with the reconnect warning line.

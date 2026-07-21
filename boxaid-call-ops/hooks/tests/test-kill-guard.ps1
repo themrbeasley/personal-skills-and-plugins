@@ -126,6 +126,7 @@ shutdown /r /t 0
 # ---------------------------------------------------------------- false positives
 Assert-Passed 'the Tune-Up Snapshot one-liner is not a kill' (Tool-Payload '$out = "=== STARTUP ITEMS ===" + (Get-CimInstance Win32_StartupCommand | Out-String) + (Get-ItemProperty ''HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*'' -EA SilentlyContinue | Where-Object { $_.DisplayName } | Out-String); $out | Set-Clipboard')
 Assert-Passed 'reinstating the service is not a kill'        (Stop-Payload 'Set-Service -Name "ScreenConnect Client (a1b2c3)" -StartupType Automatic')
+Assert-Passed 'explaining a blocked shutdown mention is not a kill' (Stop-Payload 'KILL GUARD BLOCK fired because that reply mentioned shutdown. I will not suggest shutting down the machine.')
 
 # ---------------------------------------------------------------- fail open
 $garbage = 'not json at all' | powershell.exe -NoProfile -ExecutionPolicy Bypass -File $guard
