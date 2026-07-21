@@ -127,6 +127,10 @@ shutdown /r /t 0
 Assert-Passed 'the Tune-Up Snapshot one-liner is not a kill' (Tool-Payload '$out = "=== STARTUP ITEMS ===" + (Get-CimInstance Win32_StartupCommand | Out-String) + (Get-ItemProperty ''HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*'' -EA SilentlyContinue | Where-Object { $_.DisplayName } | Out-String); $out | Set-Clipboard')
 Assert-Passed 'reinstating the service is not a kill'        (Stop-Payload 'Set-Service -Name "ScreenConnect Client (a1b2c3)" -StartupType Automatic')
 Assert-Passed 'explaining a blocked shutdown mention is not a kill' (Stop-Payload 'KILL GUARD BLOCK fired because that reply mentioned shutdown. I will not suggest shutting down the machine.')
+Assert-Passed 'explaining a blocked network adapter disable rule is not a kill' (Stop-Payload 'That reply was blocked by the network adapter disable rule because it named Disable-NetAdapter. I will not suggest disabling network adapters during the call.')
+Assert-Passed 'explaining a blocked msconfig safe boot rule is not a kill' (Stop-Payload 'The msconfig safe boot rule blocked your last message. I will not suggest booting into Safe Mode.')
+Assert-Passed 'explaining a blocked ScreenConnect Safe Mode button rule is not a kill' (Stop-Payload 'The ScreenConnect Safe Mode button rule fired because I mentioned it. I will not suggest pressing that button.')
+Assert-Passed 'explaining a blocked power off rule is not a kill' (Stop-Payload 'That reply was blocked by the power off rule because I mentioned Stop-Computer while explaining what happened.')
 
 # ---------------------------------------------------------------- fail open
 $garbage = 'not json at all' | powershell.exe -NoProfile -ExecutionPolicy Bypass -File $guard
