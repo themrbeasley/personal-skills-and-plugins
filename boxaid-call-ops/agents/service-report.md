@@ -45,6 +45,10 @@ Draft the short note the client opens the report with. The operator pastes it in
 - Greeting: MUST use a placeholder like `Hi [first name],` so no client name is stored.
 - Subject: short and plain, for example `Your Boxaid security check-up (recap attached)`.
 - Body: a few sentences only: a one or two line plain recap of what was handled, a pointer to the attached PDF, the free-follow-up line if a scan is still running, the change-passwords-from-a-clean-device note if the machine was tampered or compromised, and a warm closing as the operator. Do not append a formal signature or contact block: the operator's mail client adds that, so a full contact block here would double it.
+- **Payment line, conditional on `call.paid`:**
+  - `call.paid` is `true` (client paid live during the session): omit the payment line entirely. Do not mention payment at all.
+  - `call.paid` is `false` or absent: include one warm, specific line offering the `boxaid.com/shop` payment link and asking the client to complete payment there, plus a request to reply once it's handled so the operator knows to close out the call-log row. Never mention or ask for a tip amount in this line, or anywhere else in the email: tips are voluntary, and a client who leaves one tends to volunteer the amount unprompted in their reply. Explicitly soliciting it reads as tacky.
+  - Length calibration for this line: match the same middle ground as the rest of the body. Not a bare stub ("Please pay at the link.") and not padded past what one warm, specific sentence needs. One or two sentences is enough.
 
 Return: `kind: "email-body"`, `subject` (the subject line), `content` (the email body text), `notes`.
 
