@@ -2,7 +2,29 @@
 
 Date: 2026-07-28
 Components: `professor-orb/skills/setup/SKILL.md`, `professor-orb/commands/catalog.md`
-Status: design, approved 2026-07-28
+Status: **SUPERSEDED 2026-07-28.** Do not implement from this document.
+
+> **Why this was superseded.** Brainstorming continued past this draft and invalidated two
+> of its premises. First, the DM established that setup is meant to impose professor-orb's
+> own organizational schema and migrate the consumer to it, without a confirmation gate,
+> reporting afterward. This document assumed the opposite, that setup respects whatever
+> structure it finds. Second, the canonical layout became multi-setting
+> (`settings/<setting>/`, `homebrew/<setting>/`, `session-reports/<setting>/<campaign>/`),
+> so the three flat lane paths this document specifies for `conventions.json` are wrong.
+> Two new commands, `/scribe` and `/log`, also joined the design.
+>
+> An audit of the plugin (6 agents, 2026-07-28) then found the derive-never-impose posture
+> in roughly 50 places across 8 files, plus a rule-provenance defect in the autofix path.
+> The work was split into three specs:
+>
+> 1. `2026-07-28-canonical-schema-design.md`, the schema is professor-orb's
+> 2. Apply it: multi-setting layout, git-first onboarding, setup's initial migration
+> 3. Lanes: `/scribe`, `/log`, `/catalog`
+>
+> Followed later by `/migrate` and `/genesis`. Material still valid from this document,
+> chiefly the GitHub walkthrough boundaries, the `.gitignore` policy, the `versioning.json`
+> rename and its conversion, and the push policy, is carried into spec 2 rather than
+> reworked here.
 
 ## Problem
 
