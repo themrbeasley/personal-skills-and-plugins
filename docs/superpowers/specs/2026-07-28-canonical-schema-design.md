@@ -7,11 +7,13 @@ Status: design, approved 2026-07-28
 
 > **These three specs ship as one release, in order.** They are not independently
 > shippable and must not be treated as three increments. Phase 1 alone declares a schema
-> nothing can instantiate. Phase 2 alone runs `git init` at the project root, which makes
-> `/catalog`'s repo-presence check return true for every consumer, a hazard only phase 3
-> removes. The `conventions.json` version integer (1, then 2, then 3) identifies the file
-> shape at each phase boundary and exists so an in-progress implementation stays coherent,
-> not so the phases can ship separately. One version bump, 1.5.1 to 1.6.0, at the end.
+> nothing can instantiate, and leaves the rule-provenance fix dead in every existing
+> consumer. Phase 2 runs `git init` at the project root, which would make `/catalog`'s
+> repo-presence check return true for every consumer, so **phase 2 itself** deletes that
+> check and flips Step 3's precedence; phase 3 collapses the remainder. The
+> `conventions.json` version integer (1, then 2, then 3) identifies the file shape at each
+> phase boundary and exists so an in-progress implementation stays coherent, not so the
+> phases can ship separately. One version bump, 1.5.1 to 1.6.0, at the end.
 
 ## Problem
 
@@ -190,8 +192,32 @@ and content rules apply to all prongs.
 | Format | YAML fenced by `---` on line 1. Scalars, booleans, string arrays | n/a |
 | Article definition | A file whose frontmatter carries a `type` field | n/a |
 | Base field order | `publish`, `type`, `tags`, then type-specific fields | `warn` |
-| Required subset | `publish`, `type` | `block` |
-| `publish` default | `true`, except `Homebrew` and NSFW-tagged, which default to `false` | `warn` |
+| Required subset | `type` | `block` |
+| `publish` presence | `publish` should be present and explicit | `warn`, never auto-inserted |
+
+**`publish` is never written by any unattended process, and that is a safety rule, not a
+preference.** An earlier draft put `publish` in the required subset at `block` and gave it a
+`true` default, which phase 2's migration would then have inserted into every article lacking
+it. The guard that would have stopped that is not in the base set: forcing `publish: false`
+when a body carries a DM-only marker is the `bodyImpliesFrontmatter` and
+`frontmatterImpliesFrontmatter` check kinds, which are **project**-scope
+(`conventions-schema.md:209`: "a body carrying a DM-only content marker must set
+`publish: false` explicitly, because a missing field would fall back to the site's default
+and leak"). On any KB not already carrying `publish`, an unattended run would have written
+`publish: true` across unmarked-but-secret lore in bulk. `CONTEXT.md:117` notes the KB feeds
+the DM's separate wiki-website project, so that is a live disclosure path.
+
+Three consequences, all deliberate:
+
+- `publish` is `warn` and outside the required subset, so a consumer who does not publish
+  anything is not blocked by a field they have no use for.
+- No migration, sweep autofix, or `rule-fixer` pass ever inserts or changes a `publish`
+  value. Articles missing it are **reported**. Setting a disclosure flag is the DM's call,
+  and it is the one field where guessing wrong is not recoverable by noticing later.
+- `publish` came from the Rolara-shaped example at `conventions-schema.md:328`. Promoting a
+  consumer's field to a `block` rule for everyone, in the same phase that deletes the
+  sentences saying example values are illustrations, is the exact error this spec set exists
+  to stop. It was caught for the `type` enum and missed for the field beside it.
 
 **Base article types.** `Person`, `Location`, `Organization`, `Item`, `Creature`,
 `Concept`, `Index`, `Homebrew`, `Session Report`, `Session Prep`, `Chronology`.

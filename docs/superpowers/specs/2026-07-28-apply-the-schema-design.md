@@ -310,7 +310,19 @@ the rest of Step 3.
 
 Ignored, as derived or transient: `.professor-orb/pipeline-state.json`,
 `.professor-orb/proposals/`, `.professor-orb/tag-registry*.json`,
-`.obsidian/workspace*.json`, `.obsidian/plugins/`.
+`**/.obsidian/workspace*.json`, `**/.obsidian/plugins/`.
+
+**The `**/` prefix is load-bearing and was verified against real git.** A gitignore pattern
+containing a slash anywhere but at its end is anchored to the directory holding the
+`.gitignore`, so `.obsidian/workspace*.json` matches a vault at the project root and nothing
+else. Measured: with that pattern, `git check-ignore` does not match
+`settings/rolara/.obsidian/workspace.json`, and `git add -A` stages the vault's plugin
+bundles. Three consequences follow, and they compound: vault state and plugin binaries get
+pushed to the DM's private repository; `workspace.json` is rewritten every time Obsidian
+opens or closes, so `git status --porcelain` is never clean again and the clean-tree gate at
+Part 1 step 3 fails on every later resync; and that churn sits inside `/scribe`'s lane, where
+phase 3 exempts `.obsidian/` from the surprise guard. The `**/` form matches at any depth and
+does not over-match articles.
 
 Tracked: `.professor-orb/conventions.json`, `.professor-orb/versioning.json`, and the
 migration manifest.
@@ -337,6 +349,15 @@ contract (`:205-218`), and its dropped-worker accounting (`:276-289`), which is 
 prevents a half-applied migration being reported as complete. That accounting is factored
 into something both scripts call.
 
+**Its workers need `Bash`, which is a real departure from the sweep's grant and must not be
+copied over unexamined.** The sweep's fix workers apply changes "using the Write or Edit
+tool" (`validation-sweep.mjs:214`), and `rule-fixer` is granted `Read, Edit`
+(`agents/rule-fixer.md:20`). Neither can move or rename a file, and that is the migration's
+core operation. Verified: a Write-only worker can only copy content to the new path, leaving
+the original in place, which for a suffix rename produces two files claiming the same article
+and a guaranteed basename collision. `migrate.mjs`'s workers are granted `Bash` and perform
+every relocation through `git mv`.
+
 **Prong discovery and the one confirmation.** The plugin's own documents disagree about
 where Rolara's prongs are: this spec's Problem section cites `CONTEXT.md:90` placing the
 catalog at `rolara-kb/homebrew/`, while an earlier draft described moving `homebrew/`. One
@@ -356,7 +377,10 @@ already establishes for index mutation:
 4. Merge multi-index folders losslessly.
 5. Split folders per the threshold rules, using a corrected entry count.
 6. Normalize known base-type value mismatches, including `chronology` to `Chronology`.
-7. Repair frontmatter: insert missing defaulted fields, reorder to canonical order.
+7. Repair frontmatter: insert missing defaulted fields **except `publish`**, and reorder to
+   canonical order. `publish` is never inserted or changed by any unattended process
+   (phase 1, Part 2): articles missing it are reported, because setting a disclosure flag is
+   the DM's call and guessing wrong leaks unmarked secret lore into their public wiki.
 8. Create or move `.obsidian/` per setting.
 9. Regenerate the per-setting tag registries.
 
@@ -386,7 +410,8 @@ to this one run, whose authority comes from the snapshot commit and the after-ac
 | Index merges concatenate full source content under provenance headings | Merges discarding headings, grouping, ordering, prose |
 | Frontmatter reorder is a line-move on raw text, never parse-and-regenerate | `parseYamlLines` is a documented subset (`validate-write.mjs:21-23`): comments and nested maps are dropped, and `parseScalar` strips quoting, erasing a quoted `"false"` that `conventions-schema.md:209` calls "a real bug worth surfacing" |
 | Entry counts narrowed to markdown articles, excluding indexes and subdirectories | `:384` and `:400` count raw `readdirSync`, so 3 articles plus 3 subfolders reads as 6 |
-| Case-only renames via explicit two-step or `git mv --force` | Windows and OneDrive case-insensitivity |
+| All moves and renames go through `git mv`, never a filesystem rename | Verified: `git mv` records a single staged rename with a coherent index. A plain filesystem rename leaves `D` plus `??`, recoverable only if both sides are staged, and a worker that can only Write cannot delete the old path at all, producing duplicate content under both names and a guaranteed basename collision on any suffix rename |
+| Case-only renames use `git mv` directly; the two-step is a fallback, not a requirement | Verified on this platform (`core.ignorecase = true`): `git mv items-index.md items-INDEX.md` succeeds and the corrected casing survives a commit. An earlier draft mandated a two-step unconditionally, which was unnecessary. Fall back to the two-step only if `git mv` reports an error |
 | Ignored files are never moved, only reported | Files outside the snapshot being relocated unrecoverably |
 | Per-file applied true/false with dropped-worker accounting | OneDrive locks half-applying a bulk move |
 | Manifest written to a tracked path | A half-applied run must be diagnosable from the repository alone |
@@ -453,10 +478,18 @@ The DM approved the mapping and nothing else, so the report is the accountabilit
 It reuses the KB Validation Report shape (`agents/kb-validator.md:118-147`).
 
 It states: the layout before and after; every file moved, renamed, created, merged, or
-deleted, by count, with the manifest path; every link rewritten; which vault to reopen in
+deleted, by count, with the manifest path; **every file whose contents were edited, by
+count and by which operation edited it**; every link rewritten; which vault to reopen in
 Obsidian; anything declined and why (ignored files, absorb candidates, `-TIMELINE` and
-`-HISTORY` files, prose path references); anything that failed, with file and error; and the
-git state: snapshot hash, migration hash, and the exact undo command.
+`-HISTORY` files, articles missing `publish`, prose path references); anything that failed,
+with file and error; and the git state: snapshot hash, migration hash, and the exact undo
+command.
+
+**The edited category is not optional.** An earlier draft enumerated only location changes,
+which left operations 6 and 7, the two that change file *contents* rather than where they
+sit, absent from the report entirely. The snapshot-plus-report bargain that replaces the
+approval gate has to cover the edits, or the DM approved a mapping and received an accounting
+of everything except what was rewritten inside their articles.
 
 **The undo instruction is conditional on a snapshot existing.** On the no-version-control
 path it is replaced by a plain statement that the restructure cannot be reversed

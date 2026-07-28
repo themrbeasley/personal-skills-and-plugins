@@ -69,16 +69,37 @@ discoverable rather than surprising.
    not unstage the DM's work.
 5. **Inspect uncommitted changes within the lane only.**
 6. **Run the surprise guard.**
-7. **Commit with a pathspec**, never a bare `git commit`.
+7. **Stage the lane, then commit with the same pathspec.** Never a bare `git commit`, and
+   never a pathspec commit without the add.
 8. **Report.**
 
-**The staging mechanism is specified, not left to the implementer.** `git add <lane>`
-followed by `git commit` commits the **entire index**, including anything staged earlier
-from another lane, so the lane guarantee would be silently false whenever the DM had staged
-something themselves. The commit is pathspec-scoped: `git commit --only -- <lane paths>`,
-with step 4's precondition as a second line of defence. The staging test in Verification
-covers exactly this case, because it is the one failure that produces a commit that looks
-fine.
+**The staging mechanism is specified, not left to the implementer, and it was verified
+against real git rather than reasoned about.** Two mechanisms are wrong in opposite
+directions:
+
+- `git add <lane>` then a bare `git commit` commits the **entire index**, including anything
+  staged earlier from another lane, so the lane guarantee is silently false whenever the DM
+  has staged something themselves.
+- `git commit --only -- <lane>` with no prior add **silently omits new files**. Measured: in
+  a lane holding one new and one modified article, it committed only the modified one, with
+  no error and exit 0. New files are the primary artifact of every lane, so this fails at
+  precisely the common case.
+
+The verified mechanism is both, in order:
+
+```
+git add -- <lane paths>
+git commit --only -- <lane paths>
+```
+
+Measured behavior: commits exactly the new and modified files inside the lane; leaves a
+pre-staged out-of-lane path staged and uncommitted; leaves other lanes and the repository
+root dirty. Step 4's precondition remains as a second line of defence, since the correct
+posture on a foreign staged path is to stop and tell the DM rather than quietly work around
+their staging.
+
+The staging test in Verification covers exactly this, because it is the one failure that
+produces a commit that looks fine.
 
 **None of the three writes `.professor-orb/pipeline-state.json`.** All are standalone, like
 `homebrew` and `timeline` (`commands/catalog.md:137`).
