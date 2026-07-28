@@ -1,69 +1,86 @@
-# The schema is professor-orb's: base rules, provenance, and the posture correction
+# Phase 1: the schema is professor-orb's
 
-Date: 2026-07-28
-Spec 1 of 3 (followed by: apply it; lane commands)
-Components: `conventions.json` shape, `skills/setup/references/conventions-schema.md`,
-`hooks/validate-write.mjs`, `workflows/validation-sweep.mjs`, `agents/`, `skills/`,
-`commands/`, `CONTEXT.md`, `README.md`, `.claude-plugin/plugin.json`
+Date: 2026-07-28 (revised 2026-07-28 after adversarial verification)
+**Phase 1 of 3 in a single 1.6.0 release.** Phases 2 and 3 are
+`2026-07-28-apply-the-schema-design.md` and `2026-07-28-lane-commands-design.md`.
 Status: design, approved 2026-07-28
+
+> **These three specs ship as one release, in order.** They are not independently
+> shippable and must not be treated as three increments. Phase 1 alone declares a schema
+> nothing can instantiate. Phase 2 alone runs `git init` at the project root, which makes
+> `/catalog`'s repo-presence check return true for every consumer, a hazard only phase 3
+> removes. The `conventions.json` version integer (1, then 2, then 3) identifies the file
+> shape at each phase boundary and exists so an in-progress implementation stays coherent,
+> not so the phases can ship separately. One version bump, 1.5.1 to 1.6.0, at the end.
 
 ## Problem
 
-Professor-orb was built to impose an organizational method on a body of campaign material
-that needs one. `CONTEXT.md:108` states this directly about folder-index parity: it is "the
-structural convention professor-orb **introduces** (amending Rolara's current, sloppier
-practice via the resync flow)." `CONTEXT.md:128` agrees: "The setup skill applies the same
-index system to new consumers, whether they arrive with an established KB or none at all."
+Professor-orb was built to impose an organizational method on campaign material that needs
+one. `CONTEXT.md:108` states this directly about folder-index parity: it is "the structural
+convention professor-orb **introduces** (amending Rolara's current, sloppier practice via
+the resync flow)." `CONTEXT.md:128` agrees: "The setup skill applies the same index system
+to new consumers, whether they arrive with an established KB or none at all."
 
-The instruction files say the opposite. `skills/setup/SKILL.md:12`: "This skill discovers and
-derives; it **never imposes a schema the project does not already use**." `README.md:57`
-elevates that to a governing principle: "The consumer project owns its conventions. The plugin
-discovers them rather than imposing a schema." The plugin's owner has confirmed the setup
-sentence is wrong and was invented by a previous agent rather than reflecting design intent.
+The instruction files say the opposite. `skills/setup/SKILL.md:12`: "This skill discovers
+and derives; it **never imposes a schema the project does not already use**."
+`README.md:11`, one of the two facts the README says govern everything else: "The plugin is
+configuration; the consumer project is the source of truth. No skill hardcodes a folder
+layout, a frontmatter schema, or a filename convention." The plugin's owner has confirmed
+the setup sentence is wrong and was invented by a previous agent.
 
-The consequence is not theoretical. The plugin handles new material well and handles existing
+The consequence is not theoretical. The plugin handles new material well and existing
 material badly, because every component that meets an established KB is instructed to
-reverse-engineer that KB's conventions and then conform to them. A consumer with a
-disorganized KB gets their disorganization ratified as the rule set, and the validator then
-enforces it.
+reverse-engineer that KB's conventions and conform to them. A consumer with a disorganized
+KB gets their disorganization ratified as the rule set, and the validator then enforces it.
 
-An audit of the plugin on 2026-07-28 (6 agents, all 27 plugin files) found the defect is not
-localized:
+An audit (6 agents, all 27 plugin files) found the defect is not localized:
 
-- **Roughly 50 sentences across 8 files** state or reinforce the derive-never-impose posture,
-  17 of them load-bearing enough to block a rewrite outright.
+- **Roughly 50 sentences across 8 files** state or reinforce the derive-never-impose
+  posture, 17 of them load-bearing.
 - **The same deference paragraph is duplicated in ten components** (debrief, prep, content,
-  chronicler, timeline, catalog, lore, historian, kb-validator, homebrew): if
-  `conventions.json` is missing, derive the schema from the consumer's `CLAUDE.md` and
-  existing articles. Four of them (`debrief:29`, `prep:30`, `chronicler:31`, `timeline:30`)
-  go further and authorize inventing conventions on the spot.
+  chronicler, timeline, catalog, lore, historian, kb-validator, homebrew). Four of them
+  (`debrief:29`, `prep:30`, `chronicler:31`, `timeline:30`) go further and authorize
+  inventing conventions on the spot.
 - **The plugin already contradicts itself in both directions.** `setup/SKILL.md` Step 6
-  imposes parity without deriving it, eleven paragraphs below the line that forbids imposing.
-  `CONTEXT.md:28` ("The plugin ships no templates or schemas") contradicts `CONTEXT.md:108`
-  in the same document.
+  imposes parity without deriving it, eleven paragraphs below the line forbidding
+  imposition. `CONTEXT.md:28` ("The plugin ships no templates or schemas") contradicts
+  `CONTEXT.md:108` in the same document.
 - **A rule-provenance defect sits in the autofix path.** `agents/rule-fixer.md:35` tells the
-  fixer that a rule's guidance "came from the project's conventions file, which the DM wrote.
-  Follow it literally," and `hooks/validate-write.mjs:667` says "The DM pre-approved this fix
-  class by setting autofix on the rule, so apply it without asking." Both statements become
-  false the moment professor-orb ships its own rules, and they are what authorize unattended
+  fixer that a rule's guidance "came from the project's conventions file, which the DM
+  wrote. Follow it literally," and `hooks/validate-write.mjs:667` says "The DM pre-approved
+  this fix class by setting autofix on the rule, so apply it without asking." Both become
+  false once professor-orb ships its own rules, and they are what authorize unattended
   edits.
-- **`setup/SKILL.md:43` forbids the plugin from shipping one of its own core rules.** "Only
-  per-write-checkable conventions become active rules in `conventions.json`." Single ownership
-  cannot be checked per-write (`validate-write.mjs:371` returns null permanently, commented
-  "KB-wide check"), yet `validation-sweep.mjs:522` imposes it on every consumer unconditionally.
+- **`enforcement: "off"` does not silence anything outside the hook.** The hook honors it
+  (`validate-write.mjs:763`). The sweep does not: its checker prompt hands workers
+  `rulesJson` verbatim (`validation-sweep.mjs:185`) and says "Check every frontmatter
+  category rule against this file" (`:191`) and "Check every filename category rule"
+  (`:192`) with no enforcement filter. Only `tagVocabulary` consults it (`:193`). Findings
+  from an `off` rule land in `mechanicallyFixable`, which one batch approval applies.
+  `conventions-schema.md:240` claims the opposite: "The sweep may still choose to report
+  `off` rules informationally, but never fails on them."
 
-This spec resolves an existing inconsistency in the plugin's favor. It does not introduce a
-new one.
+This phase resolves an existing inconsistency in the plugin's favor. It does not introduce
+a new one.
+
+**One correction to an earlier draft of this spec.** It claimed `setup/SKILL.md:43` forbids
+shipping sweep-scope rules. It does not. The line reads in full: "Only per-write-checkable
+conventions become active rules in `conventions.json`. A whole-KB convention **may still be
+included as a sweep-scope entry** (`enforcement: "off"` is typical)." The plugin already
+permits what is needed. The only change is that a sweep-scope rule may carry
+`provenance: "professor-orb"` and be emitted unconditionally, rather than only when the
+consumer's own project happens to state it.
 
 ## Decisions
 
-Settled with the DM during brainstorming:
-
-- Professor-orb owns the structural layer. Deriving from the consumer project is not
-  eliminated, it is demoted to an extras layer for what the base schema does not cover.
-- The base/derived split is as enumerated in Part 2 below, approved as proposed.
-- Every rule records its provenance. `rule-fixer` keeps applying both kinds, but the
-  instruction stops claiming the DM authored something they did not.
+- Professor-orb owns the structural layer. Derivation is demoted to an extras layer for
+  what the base schema does not cover.
+- The base/derived split is as enumerated in Part 2, approved as proposed.
+- Every rule records its provenance. `rule-fixer` keeps applying both kinds; the
+  instruction stops claiming the DM authored what they did not.
+- The base rule set ships as a machine-readable artifact, not as prose.
+- Rules become per-setting in phase 2. This phase defines the rule model; phase 2 defines
+  where it lives.
 
 ## Design
 
@@ -71,13 +88,13 @@ Settled with the DM during brainstorming:
 
 The file stops being "the machine-checkable derivation of a consumer project's conventions"
 and becomes "professor-orb's schema, instantiated for this project, plus what this project
-adds." The shape barely changes. Three additions:
+adds."
 
 ```json
 {
   "version": 2,
   "schemaVersion": 1,
-  "kbRoot": "settings/rolara",
+  "kbRoot": "rolara-kb",
   "generatedBy": "setup",
   "generatedAt": "2026-07-28T00:00:00Z",
   "sourceConventionsDoc": null,
@@ -90,263 +107,337 @@ adds." The shape barely changes. Three additions:
       "enforcement": "warn",
       "description": "Every folder with content has exactly one owning -INDEX file.",
       "params": { "indexSuffix": "-INDEX" }
+    },
+    "frontmatterTypeEnum": {
+      "provenance": "professor-orb",
+      "extendedBy": ["Settlement", "Landmark", "Species"],
+      "category": "frontmatter",
+      "check": "enum",
+      "enforcement": "block",
+      "params": { "field": "type", "values": ["Person", "Location", "Settlement"] }
     }
   }
 }
 ```
 
-- **`provenance`** on every rule: `"professor-orb"` or `"project"`. Required. A rule without
-  it is treated as `"project"` for backward compatibility, and setup rewrites it on next run.
-- **`schemaVersion`** at the top level: which version of professor-orb's base rule set this
-  file was generated against. Lets a later run detect that the base layer has moved on and
-  the project's copy is stale. Independent of `version`, which describes the file format.
-- **`version` goes to 2**, since `provenance` is required and consumers of the file must
-  handle both shapes during the transition.
+`kbRoot` stays `rolara-kb` at this phase: `settings/rolara` does not exist until phase 2's
+migration creates it, and a `kbRoot` pointing at a nonexistent folder would make
+`validate-write.mjs:724-729` exit 0 on every write, silently disabling the validator.
 
-**Precedence.** A `"project"` rule may extend a base rule (adding type enum values, adding a
-suffix mapping) but may not weaken or remove one. Where a project rule and a base rule
-address the same check with incompatible params, the base rule wins and setup reports the
-conflict. `enforcement` is the deliberate exception: the DM chooses enforcement levels on
-base rules freely, including `off`.
+- **`provenance`** on every rule: `"professor-orb"` or `"project"`. Required. A rule without
+  it reads as `"project"`, and setup rewrites it on next run.
+- **`schemaVersion`**: which version of professor-orb's base rule set this file was
+  generated against, so a later run can detect the base layer has moved on. Independent of
+  `version`, which describes the file format.
+- **`version` goes to 2** at this phase, and to 3 in phase 2. The integer identifies the
+  shape unambiguously at every point.
+
+**Extension, not duplication.** A project does not get a second rule of the same check kind
+on the same field. `checkEnum` (`validate-write.mjs:236-244`) fails per rule independently,
+so two `enum` rules on `type` would make every article fail one of them. Instead a base rule
+carries `extendedBy`, an array of additional permitted values contributed by the project.
+The hook and the sweep evaluate the union. `extendedBy` entries are the project's;
+`params.values` are professor-orb's; both are visible, and provenance stays legible without
+a second rule entry.
+
+Rules that cannot be extended this way (a project wanting a genuinely different structural
+rule) are not supported. That is the point of imposing a schema.
+
+**Precedence.** A `"project"` rule may add rules the base does not cover. It may not weaken
+or remove a base rule. `enforcement` is the deliberate exception: the DM sets levels on base
+rules freely, including `off`.
+
+**Field order is extensible in place.** Rolara's confirmed order is
+`publish, type, category, tags` (`conventions-schema.md:325-329`), which includes a field
+the base does not define. A project may insert its own fields into the base sequence as long
+as the base fields keep their relative order. A conflict that cannot be resolved that way is
+reported, never mass-rewritten.
 
 **What stops being true.** `conventions-schema.md:25` ("The conventions file is derived, not
-authoritative") is wrong on the first half and right on the second. It becomes: the file is
-professor-orb's schema instantiated for this project, and it is authoritative for structural
-checks. `sourceConventionsDoc` survives unchanged as provenance for the extras layer.
+authoritative") is wrong on the first half. The file is professor-orb's schema instantiated
+for this project, and it is authoritative for structural checks. `sourceConventionsDoc`
+survives as provenance for the extras layer.
 
-### Part 2: the base rule set
+### Part 2: the base rule set, as a shippable artifact
 
-These ship with the plugin and appear in every consumer's `conventions.json` with
-`provenance: "professor-orb"`.
+The base rules ship as `references/base-rules.json` at the plugin root, readable by setup,
+by the hook via `CLAUDE_PLUGIN_ROOT`, and by every fallback path that needs to name the base
+schema without re-deriving it. Prose tables are documentation of that file, never the source.
+
+Each entry carries: rule id, category, check kind, params, default enforcement, description,
+and an `autofix` string where a deterministic correction exists.
 
 **Structural**
 
-| Rule | Value |
-| --- | --- |
-| Folder-index parity | Exactly one index per folder; every subfolder carries its own; a folder with content must have one |
-| Single ownership | An article's wikilink appears in exactly one index |
-| Index suffix | `-INDEX` |
-| Split threshold | 6 or more entries earns a subfolder; articles physically move in |
-| Absorb threshold | Under 4 entries dissolves the folder; articles move up |
-| Master index | The KB root's one index. No special-case concept |
+| Rule | Check | Value | Default |
+| --- | --- | --- | --- |
+| Folder-index parity | `indexParity` | One index per folder; every subfolder carries its own; a folder with content must have one | `warn` |
+| Single ownership | `singleOwnership` | An article's wikilink appears in exactly one index. Sweep scope | `off` at write time |
+| Split threshold | `splitThreshold` | 6 or more entries earns a subfolder | `warn` |
+| Absorb threshold | `absorbThreshold` | Under 4 entries dissolves the folder | `warn` |
+| Index suffix | (param) | `-INDEX` | n/a |
+
+**Structural rules apply to setting KB roots only.** They are not applied to
+`homebrew/<setting>/` or `session-reports/<setting>/<campaign>/`, whose folder shape is
+determined by the layout rather than by content volume. Every structural rule entry carries
+a `scope` param reading `kb` so the hook and sweep both honor this. Frontmatter, filename,
+and content rules apply to all prongs.
 
 **Frontmatter**
 
-| Rule | Value |
-| --- | --- |
-| Format | YAML fenced by `---` on line 1. Scalars, booleans, and string arrays only |
-| Article definition | A file whose frontmatter carries a `type` field |
-| Base field order | `publish`, `type`, `tags`, then type-specific fields |
-| Required subset | `publish`, `type` |
-| `publish` default | `true`, except `Homebrew` and NSFW-tagged articles, which default to `false` |
+| Rule | Value | Default |
+| --- | --- | --- |
+| Format | YAML fenced by `---` on line 1. Scalars, booleans, string arrays | n/a |
+| Article definition | A file whose frontmatter carries a `type` field | n/a |
+| Base field order | `publish`, `type`, `tags`, then type-specific fields | `warn` |
+| Required subset | `publish`, `type` | `block` |
+| `publish` default | `true`, except `Homebrew` and NSFW-tagged, which default to `false` | `warn` |
 
-**Base article types.** `Person`, `Location`, `Organization`, `Item`, `Creature`, `Concept`,
-`Index`, `Homebrew`, `Session Report`, `Session Prep`, `Chronology`. A project extends this
-list; it does not replace it. Rolara's existing `Settlement`, `Landmark`, `Species`,
-`Ethnicity`, `Material`, `Vehicle`, `Technology`, `Spell`, `Myth`, `Natural-Law`,
-`Supernatural-Law`, and `Law` become `provenance: "project"` extensions, which is the
-intended demonstration of the two-layer model.
+**Base article types.** `Person`, `Location`, `Organization`, `Item`, `Creature`,
+`Concept`, `Index`, `Homebrew`, `Session Report`, `Session Prep`, `Chronology`.
+
+**This list is canonical here and nowhere else.** Phase 2 cites it rather than restating it.
+An earlier draft restated a shorter list in phase 2, which would have regenerated Rolara's
+`conventions.json` without five types it actually uses, on a rule enforced at `block`,
+breaking every subsequent write to those articles.
+
+**A project's extras are derived from its KB, not hand-listed.** At setup or resync, the
+distinct `type` values actually present in the consumer's articles become `extendedBy`
+entries, confirmed with the DM. Rolara's would include `Settlement`, `Landmark`, `Species`,
+`Ethnicity`, `Material`, `Vehicle`, `Technology`, `Spell`, `Article`, `Myth`, `Natural-Law`,
+`Supernatural-Law`, and `Law`. Deriving rather than hand-listing is what prevents a
+transcription error from blocking writes, and it is the one place derivation remains
+load-bearing.
+
+**`Chronology` requires a normalization step.** `skills/timeline/SKILL.md:128` emits
+lowercase `type: chronology`, inconsistent with every other capitalized type. The base type
+is `Chronology`, phase 2's migration normalizes existing `chronology` values, and timeline
+is updated to emit the capitalized form. This is the `chronology` to `Chronology` item
+deferred from the 1.3.0 plan, now unavoidable because the base enum makes the mismatch a
+`block` violation.
 
 **Filename**
 
-| Rule | Value |
-| --- | --- |
-| Suffix by type | `Index` to `-INDEX`, `Session Report` to `-REPORT`, `Session Prep` to `-PREP`, `Chronology` to `-CHRONOLOGY` |
-| Charset | `^[A-Za-z0-9-]+$` |
+| Rule | Value | Default |
+| --- | --- | --- |
+| Suffix by type | `Index` to `-INDEX`, `Session Report` to `-REPORT`, `Session Prep` to `-PREP`, `Chronology` to `-CHRONOLOGY` | `block` |
+| Charset | `^[A-Za-z0-9-]+$` | `warn` |
+
+`-CHRONOLOGY` matches what `timeline/SKILL.md:22` already documents as its default. Files
+carrying `-TIMELINE` or `-HISTORY`, also valid under timeline's current text, are reported
+rather than renamed, because renaming them is a link-breaking operation for a cosmetic gain.
+
+**Filename rules cannot be autofixed by the sweep as it stands.** Its fix workers are told
+to "apply the approved fix precisely using the Write or Edit tool"
+(`validation-sweep.mjs:214`), which cannot rename a file: it would create a duplicate under
+the corrected name and leave the original. Base filename rules therefore ship with no
+`autofix` string, and filename violations are reported. Phase 2's migration executor is what
+actually renames, once, with the link rewrite paired to it.
 
 **Wikilinks**
 
 | Rule | Value |
 | --- | --- |
-| Style | Obsidian filename-based, not path-based. This is what makes migration moves non-breaking |
-| Table escaping | Inside markdown tables the separator is `\|`; escaped and bare forms are the same separator, never a malformed link |
-| Catalog entries | `type: Homebrew` articles sit outside the wikilink graph: no links in or out, never flagged as orphans, still subject to index ownership |
+| Style | Obsidian filename-based, not path-based. Moves within one search root are link-safe; renames are not |
+| Table escaping | Inside tables the separator is `\|`; escaped and bare forms are the same separator, never a malformed link |
+| Catalog entries | `type: Homebrew` articles carry no outgoing wikilinks and are never flagged for having none, nor for not being linked to from other article **bodies**. They remain subject to index ownership |
 
-**Enforcement levels ship as opinionated defaults, not fixed values.** The DM adjusts them.
-`conventions-schema.md:272` ("the levels above are guidance, not defaults baked into the
-schema itself") is corrected to say the base rules ship with defaults that the DM may change.
-
-**Single ownership is admitted as a sweep-scope base rule.** `setup/SKILL.md:43`'s "only
-per-write-checkable conventions become active rules" is rewritten: base rules may be
-whole-KB scope. The rule is recorded with `enforcement: "off"` for the write-time hook and is
-checked by the sweep, which already does so unconditionally. This makes existing sweep
-behavior legible instead of surprising.
+The catalog-entry wording is `validation-sweep.mjs:190` verbatim in substance. An earlier
+draft compressed it to "never flagged as orphans," which contradicted the same table's
+single-ownership row, because index ownership *is* a link in. The exemption is from
+**article-body** links, not from index ownership.
 
 ### Part 3: rule provenance and the autofix path
 
-Three sentences currently assert that every rule's autofix guidance was written by the DM:
+Three statements assert every rule's autofix guidance was written by the DM, and they are
+what authorize edits without asking:
 
-- `agents/rule-fixer.md:35`: "It came from the project's conventions file, which the DM wrote.
-  Follow it literally."
+- `agents/rule-fixer.md:4-5`: "Applies one pre-approved convention fix to one KB article,
+  using guidance **the DM wrote** into that rule"
+- `agents/rule-fixer.md:16`: "The DM pre-approved this fix class by configuring autofix on
+  the rule, so the fix is applied without asking."
+- `agents/rule-fixer.md:35`: "It came from the project's conventions file, which the DM
+  wrote. Follow it literally."
 - `hooks/validate-write.mjs:667`: "The DM pre-approved this fix class by setting autofix on
   the rule, so apply it without asking."
-- `skills/setup/references/conventions-schema.md:277-279`: "its presence is the DM's standing
-  approval for that class of fix."
+- `skills/setup/references/conventions-schema.md:277-279`: "its presence is the DM's
+  standing approval for that class of fix."
 
-All three become false when base rules ship with autofix guidance, and all three are what
-authorize edits without asking. Each is rewritten to key on `provenance`:
+All five key on `provenance`:
 
-- **`provenance: "project"`**: unchanged. The guidance is the DM's and their standing approval.
-- **`provenance: "professor-orb"`**: the guidance is the plugin's, and the DM's standing
-  approval comes from the enforcement level they confirmed at setup rather than from
-  authorship. `rule-fixer` still applies it without asking. The instruction says so honestly
-  rather than misattributing it.
+- **`provenance: "project"`**: unchanged. The guidance is the DM's and their standing
+  approval.
+- **`provenance: "professor-orb"`**: the guidance is the plugin's. The DM's standing
+  approval comes from the enforcement level they confirmed at setup, not from authorship.
+  `rule-fixer` still applies it without asking, and says so honestly.
 
-`conventions-schema.md:292` ("Nothing about a particular project's rules lives in plugin
-code") stays true as written, since base rules are not a particular project's rules, but
-gains a clarifying clause so it is not read as denying a base layer.
+An earlier draft named only `rule-fixer.md:35`, which would have left the agent's own
+description, the first thing a dispatching model reads, still making the false claim.
 
-### Part 4: the three sync sites
+### Part 4: check semantics have four copies
 
-The base rule set has three independent copies that must agree:
+The base rule set and its check semantics are duplicated across:
 
-1. `hooks/validate-write.mjs`, the `CHECKS` table (per-write enforcement)
-2. `workflows/validation-sweep.mjs`, the inline `checkerPrompt` at lines 174-203 (whole-KB)
-3. `agents/kb-validator.md`, Step 4 (single-article audit)
+1. `skills/setup/references/conventions-schema.md`, the check catalog. **Normative.** The
+   other three implement what it documents.
+2. `hooks/validate-write.mjs`, the `CHECKS` table (per-write enforcement)
+3. `workflows/validation-sweep.mjs`, the inline `checkerPrompt` at `:174-203` (whole-KB)
+4. `agents/kb-validator.md`, Step 4 (single-article audit)
 
-`agents/kb-validator.md:46` claims the third is driven by the second: "By the validation sweep
+`references/base-rules.json` (Part 2) is the machine-readable base *data*; these four are
+the *semantics* that interpret it. The data is now single-sourced; the semantics remain
+four-way duplicated, and that obligation is stated in each file rather than mechanized. A
+Node hook cannot read markdown at speed, which is why this is documented rather than solved.
+
+`agents/kb-validator.md:46` claims the third drives the fourth: "By the validation sweep
 workflow, which orchestrates you at scale across the whole KB, sharding the work and
 consolidating your reports." This is false. The sweep builds its own prompt and dispatches
 anonymous haiku agents; `validation-sweep.mjs:45` names kb-validator only as the lighter
-alternative. The description repeats the false claim at lines 11-12, and lines 61 and 116 rely
-on it.
+alternative. The description repeats it at `:11-12`, and `:61` and `:116` rely on it.
 
-**Correction:** fix the false claim, and state the three-copy obligation explicitly in each
-file so a future edit to one is known to require the others. A single shared reference file is
-the better end state, but the hook is Node and cannot read a markdown reference at speed, so
-the obligation is documented rather than mechanized. This mirrors the existing precedent at
-`workflows/validation-sweep.ownership.test.mjs:7-9`, which already carries a byte-alignment
-obligation against the sweep.
+The sweep's `rulesJson` pass-through stays as it is. It receives whatever
+`conventions.json` holds, which after this phase includes the base layer.
 
-### Part 5: one fallback statement replacing ten
+### Part 5: `enforcement: "off"` must actually silence
 
-Ten components carry near-identical text: if `conventions.json` is missing, derive the schema
-from the consumer's `CLAUDE.md` and existing articles. Four also authorize inventing
+`off` is the DM's only lever over an imposed schema, and Part 3 grounds all unattended
+base-rule autofix in "the enforcement level they confirmed at setup." It has to work.
+
+- The hook already honors it (`validate-write.mjs:763`).
+- **The sweep does not.** Its checker prompt gains an enforcement filter: a rule with
+  `enforcement: "off"` is not checked, or is reported informationally only and never enters
+  `mechanicallyFixable`. `conventions-schema.md:240` already documents the intended
+  behavior; the prompt is what diverges.
+- `agents/kb-validator.md:57` deliberately checks every rule regardless of level ("a rule
+  set to `off` at write time is still worth surfacing in a broad audit"). That stays, and
+  is correct for a single-article audit a human reads, because nothing auto-applies from it.
+  The distinction is that the sweep's findings feed a batch the DM approves with one yes.
+
+### Part 6: one fallback statement replacing ten
+
+Ten components carry near-identical text: if `conventions.json` is missing, derive the
+schema from the consumer's `CLAUDE.md` and existing articles. Four also authorize inventing
 conventions on the spot.
 
-All ten are replaced by one shared statement, added to `skills/SHARED-PRINCIPLES.md` and
-referenced by each component rather than restated:
+All ten are replaced by one statement in `skills/SHARED-PRINCIPLES.md`, referenced rather
+than restated:
 
-> When `.professor-orb/conventions.json` is absent, apply professor-orb's base schema and say
-> that setup has not run. Do not infer structural conventions from the project's prose or from
-> its existing articles, and never invent conventions on the spot: two components inventing
-> independently will disagree. The project's `CLAUDE.md` remains authoritative for campaign
-> facts and content, never for structure.
+> When `.professor-orb/conventions.json` is absent, apply professor-orb's base schema, which
+> ships at `references/base-rules.json`, and say that setup has not run. Do not infer
+> structural conventions from the project's prose or from its existing articles, and never
+> invent conventions on the spot: two components inventing independently will disagree. The
+> project's `CLAUDE.md` remains authoritative for campaign facts and content, never for
+> structure.
 
 Structure means folder layout, index rules, frontmatter schema, filename conventions, and
 wikilink format. `commands/catalog.md:41` is included in this replacement.
 
-### Part 6: the posture edits
+### Part 7: the posture edits
 
-Roughly 50 sentences change. The full load-bearing list is in the appendix. The governing
-distinction, which must be applied sentence by sentence rather than by search and replace:
+Roughly 50 sentences change. The load-bearing list is in the appendix. The governing
+distinction, applied sentence by sentence rather than by search and replace:
 
-- **Deference on structure is wrong and changes.** Folder layout, index naming and ownership,
-  split and absorb thresholds, frontmatter schema and field order, filename conventions,
-  wikilink format.
-- **Deference on campaign facts and content is correct and must survive untouched.**
-  `SHARED-PRINCIPLES.md` Principles 1, 3, 5, and 7; `historian.md:57` ("Calendar facts live in
-  KB articles"); timeline's rule that the DM picks the theory of time travel; lore and
-  historian's quote-anchored flag format; chronicler's tone and paragraph-length matching to
-  neighbouring articles.
+- **Deference on structure is wrong and changes.** Folder layout, index naming and
+  ownership, split and absorb thresholds, frontmatter schema and field order, filename
+  conventions, wikilink format.
+- **Deference on campaign facts and content is correct and survives untouched.**
+  `SHARED-PRINCIPLES.md` Principles 1, 3, 5, and 7; `historian.md:57` ("Calendar facts live
+  in KB articles"); timeline's rule that the DM picks the theory of time travel; lore and
+  historian's quote-anchored flag format; chronicler's tone and paragraph-length matching.
 - **Derivation that stays correct as the extras layer.** Tag vocabulary, project-specific
-  article types, Obsidian-specific practices, VTT platform, content exclusion tags, and the
-  per-rule enforcement levels the DM chooses.
+  article types, Obsidian practices, VTT platform, content exclusion tags, and the per-rule
+  enforcement levels the DM chooses.
 
-Two edits deserve naming here because they are the plugin's most public surfaces:
+The plugin's most public surfaces:
 
-- **`.claude-plugin/plugin.json:3`**, the marketplace card: "Reads your project's conventions
-  for campaign-specific rules." Rewritten to describe an applied method. The matching
-  description in `.claude-plugin/marketplace.json` changes with it.
-- **`README.md:11` and `README.md:57`**, the two "facts that govern everything else in this
-  plugin." Both currently name folder layout, frontmatter schema, and filename convention as
-  consumer-owned. Both are rewritten. `README.md:3`'s pitch ("all against whichever knowledge
-  base structure the DM already uses") goes with them.
+- **`.claude-plugin/plugin.json:3`**, the marketplace card: "Reads your project's
+  conventions for campaign-specific rules." Rewritten to describe an applied method. The
+  matching text in `.claude-plugin/marketplace.json` changes with it.
+- **`README.md:11` and `README.md:12`** are the two facts the README says govern everything
+  else. `:11` names folder layout, frontmatter schema, and filename convention as
+  consumer-owned; `:12` says setup produces the file "by deriving rules from the consumer
+  project." Both are rewritten. `README.md:3`'s pitch ("all against whichever knowledge base
+  structure the DM already uses") goes with them.
+- **`README.md:57`** is a separate Design-philosophy restatement, not one of the two
+  governing facts. Its full clause is "No skill hardcodes a path, a folder name, or a
+  frontmatter field." **Only the first third survives.** "No skill hardcodes a path" stays,
+  because paths remain resolved from `conventions.json`, which is what makes phase 3's lane
+  commands possible. "A folder name, or a frontmatter field" is deleted, because those are
+  now professor-orb's. An earlier draft said this clause "survives intact" while quoting
+  only the surviving third, which is exactly the kind of truncation this spec set exists to
+  stop.
 
-**One clause survives intact and should be preserved deliberately:** `README.md:57`'s "No
-skill hardcodes a path." Paths remain resolved from `conventions.json`, which is what makes
-spec 3's lane commands possible. Owning the schema is not the same as hardcoding paths, and
-conflating them would break the next two specs.
+### Part 8: false claims to correct
 
-### Part 7: false claims to correct
-
-Four statements are simply untrue today and are corrected as part of this pass, since the
-posture edits touch the same files:
-
-1. **`CONTEXT.md:34-35`**: "Only the chronicler skill mutates it, and only after DM approval."
-   Five components write inside `kbRoot`: `debrief` (reports plus campaign and master indexes),
-   `prep`, `content`, `timeline` (Phase 6), and `/catalog`. The same false claim appears at
+1. **`CONTEXT.md:34-35`**: "Only the chronicler skill mutates it, and only after DM
+   approval." Five components write inside `kbRoot`: `debrief` (reports plus campaign and
+   master indexes), `prep`, `content`, `timeline` (Phase 6), and `/catalog`. Repeated at
    `README.md:59`, `skills/orb/SKILL.md:18`, `agents/lore.md:30` and `:181`, and
    `agents/kb-validator.md:37` and `:151`.
 2. **`skills/timeline/SKILL.md`** contradicts itself 140 lines apart. Line 34: "it never
-   writes a KB article itself even after approval: chronicler is always the writer." Line 191:
-   "Never write KB articles itself." Phase 6, lines 177-178: "Write the document to the path
-   established in Phase 1" and "Update indexes." Line 203 confirms the writes. This is the same
-   defect class as `setup/SKILL.md:12` and is resolved by making Phase 6's behavior the stated
-   rule.
+   writes a KB article itself even after approval: chronicler is always the writer." Line
+   191: "Never write KB articles itself." Phase 6, lines 177-178: "Write the document to the
+   path established in Phase 1" and "Update indexes." Resolved by making Phase 6's behavior
+   the stated rule.
 3. **`agents/kb-validator.md:46`**, the sweep-orchestration claim, per Part 4.
-4. **`CONTEXT.md:125-127`** describes a "rebuild step" that "proposes regenerated index files
-   (propose-then-execute, like chronicler)." No such component exists. The entry is corrected
-   to describe what exists, with a forward pointer to spec 2's migration, which is where that
-   machinery actually belongs.
+4. **`CONTEXT.md:125-127`** describes a "rebuild step" that "proposes regenerated index
+   files (propose-then-execute, like chronicler)." No such component exists. Corrected to
+   describe what exists, with a forward pointer to phase 2's migration executor.
 
 ## Out of scope
 
-Deliberately excluded, to keep this spec implementable:
-
-- **Setup's workflow.** The three intake tiers are restructured in spec 2, which is where
-  setup's steps, the multi-setting layout, git-first onboarding, and the initial migration all
-  land. This spec changes what the schema **is** and how it is represented, not the workflow
-  that produces it. `setup/SKILL.md`'s posture sentences are edited here; its step structure
-  is not.
-- **The migration itself.** No file in any consumer project moves as a result of this spec.
-- **`/scribe`, `/log`, `/catalog` Step 3, the Stop hook.** All spec 3.
+- **Setup's workflow, the layout, and the migration.** Phase 2.
+- **`/scribe`, `/log`, `/catalog` Step 3, the Stop hook.** Phase 3.
 - **`/migrate` and `/genesis`.** Later specs.
-- **`versioning.json`, GitHub onboarding, `.gitignore`.** Carried from the superseded
-  `2026-07-28-project-repo-onboarding-design.md` into spec 2.
-- **Mechanizing the three sync sites into one source.** Documented as an obligation here;
-  worth revisiting once the base rule set has stabilized.
+- **Mechanizing the four semantic copies into one source.** Documented as an obligation;
+  revisit once the base rule set stabilizes.
+- **New check kinds beyond those the base rules need.** Every base rule maps to an existing
+  check kind or ships with none and is reported by the migration instead.
 
 ## Files touched
 
 | File | Change |
 | --- | --- |
-| `skills/setup/references/conventions-schema.md` | Base rule set, `provenance`, `schemaVersion`, version 2 shape, framing at `:5`/`:25`/`:37`/`:40`, tier text at `:466`/`:479`, autofix at `:277-279` |
-| `skills/setup/SKILL.md` | Posture sentences (`:12`, `:33`, `:37`, `:38`, `:39`, `:43`, `:47`, `:81`). Step structure unchanged, that is spec 2 |
-| `skills/SHARED-PRINCIPLES.md` | New shared fallback statement; Principle 9's "derivation" framing at `:51` |
-| `hooks/validate-write.mjs` | `provenance` handling, autofix message at `:667`, sync-site note |
-| `workflows/validation-sweep.mjs` | Sync-site note; `checkerPrompt` aligned to the base rule set |
+| `references/base-rules.json` | **New.** The machine-readable base rule set |
+| `skills/setup/references/conventions-schema.md` | `provenance`, `extendedBy`, `schemaVersion`, `scope` param, v2 shape, framing at `:5`/`:25`/`:37`/`:40`, enforcement scopes at `:228-246`, tier text at `:466`/`:479`, autofix at `:277-279` |
+| `skills/setup/SKILL.md` | Posture sentences (`:12`, `:33`, `:37`, `:38`, `:39`, `:47`, `:81`). `:43` needs only the sweep-scope-provenance clarification. Step structure is phase 2 |
+| `skills/SHARED-PRINCIPLES.md` | Shared fallback statement; Principle 9's "derivation" framing at `:51` |
+| `hooks/validate-write.mjs` | `provenance` and `extendedBy` handling, `scope` param, autofix message at `:667` |
+| `workflows/validation-sweep.mjs` | Enforcement filter in `checkerPrompt`; `extendedBy` union; sync-site note |
 | `agents/kb-validator.md` | False orchestration claim (`:11-12`, `:46`, `:61`, `:116`), fallback (`:55`), parity conditionality (`:89`), writer claims |
-| `agents/rule-fixer.md` | Provenance-aware guidance at `:35` |
+| `agents/rule-fixer.md` | Provenance-aware guidance at `:4-5`, `:16`, `:35` |
 | `agents/lore.md`, `agents/historian.md` | Fallback replacement, "derivation" framing, writer claims |
-| `skills/debrief/SKILL.md`, `prep`, `content`, `chronicler`, `timeline`, `homebrew` | Fallback replacement; structural deference; timeline's self-contradiction |
-| `commands/catalog.md` | Fallback at `:41`; index format and ownership deference at `:110`, `:112` |
+| `skills/debrief`, `prep`, `content`, `chronicler`, `timeline`, `homebrew` | Fallback replacement; structural deference; timeline's self-contradiction; timeline emits `Chronology` |
+| `commands/catalog.md` | Fallback at `:41`; index format and ownership deference at `:110`; the split-threshold clause of `:112` only, since its AskUserQuestion gate survives |
 | `CONTEXT.md` | `:28`, `:34-35`, `:44`, `:49`, `:52`, `:95-96`, `:125-127` |
-| `README.md` | `:3`, `:11`, `:12`, `:14`, `:57`, `:59`, `:70` |
-| `.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json` | Description; version 1.5.1 to 1.6.0, same commit |
+| `README.md` | `:3`, `:11`, `:12`, `:14`, `:57` (partial), `:59`, `:70` |
+
+Version bump happens once, at the end of phase 3.
 
 ## Verification
 
-No test framework covers the markdown components, so verification is behavioral plus one
-mechanical check:
-
-- `node workflows/validation-sweep.ownership.test.mjs` still passes (the one existing test).
-- Grep the plugin for the deference formulas ("never imposes", "the project already uses",
-  "establish conventions as you go", "derive", "infer the schema") and confirm every remaining
-  hit is content-side or extras-layer deference, not structural.
-- Confirm the fallback statement appears once in `SHARED-PRINCIPLES.md` and that all ten
-  components reference rather than restate it.
-- Confirm the base rule set is byte-consistent across the three sync sites.
-- Confirm no em dashes in any changed file (`SHARED-PRINCIPLES.md` Principle 6).
-- Read `CONTEXT.md` end to end and confirm no entry contradicts another on who owns structure.
-- Exercise the hook against a fixture `conventions.json` carrying both provenance values and
-  confirm the autofix message differs appropriately and neither path crashes a write.
+- `node workflows/validation-sweep.ownership.test.mjs` still passes.
+- `references/base-rules.json` parses, and every entry names an existing check kind.
+- Grep for the deference formulas ("never imposes", "the project already uses", "establish
+  conventions as you go", "infer the schema") and confirm every remaining hit is
+  content-side or extras-layer deference.
+- Confirm the fallback statement appears once and all ten components reference it.
+- **Assert `enforcement: "off"` silences.** Run the sweep against a fixture with a violated
+  `off` rule and confirm nothing enters `mechanicallyFixable`.
+- Assert a base `enum` rule with `extendedBy` accepts both base and project values, in the
+  hook and in the sweep.
+- Exercise the hook against a fixture carrying both provenance values; confirm the autofix
+  message differs and neither path crashes a write.
+- Confirm no em dashes in changed files. `CONTEXT.md` currently has eleven (lines 46, 76,
+  104, 115, 138, 152, 164, 182, 183, 194, 204); `README.md`, `SHARED-PRINCIPLES.md`,
+  `commands/catalog.md`, and `skills/setup/SKILL.md` have none.
+- Read `CONTEXT.md` end to end and confirm no entry contradicts another on who owns
+  structure.
 
 ## Appendix: load-bearing edits
 
-The 17 sentences the audit classified as blocking. Supporting and incidental findings (roughly
-35 more) are in the audit transcript at
-`.claude/projects/.../subagents/workflows/wf_d5ca9c3d-14e/journal.jsonl`, entry 6.
+The 17 sentences the audit classified as blocking. Roughly 35 supporting and incidental
+findings are in the audit transcript, `wf_d5ca9c3d-14e/journal.jsonl` entry 6.
 
 | File:line | Quote |
 | --- | --- |
@@ -370,13 +461,9 @@ The 17 sentences the audit classified as blocking. Supporting and incidental fin
 
 ## Notes
 
-Version bump is minor (1.5.1 to 1.6.0). The `conventions.json` format change is versioned and
-backward-compatible on read (a rule without `provenance` is treated as `"project"`), so no
-consumer breaks before setup next runs.
-
-`commands/references/catalog-type-templates.md` is precedent worth studying during
-implementation: it is already an opinionated, plugin-owned schema grounded in SRD 5.2.1 rather
-than in any consumer project, and its tone is the tone a rewritten `conventions-schema.md`
-should adopt. It also carries an unrelated defect worth fixing in passing: lines 10-11 point
-at `docs/superpowers/specs/2026-07-11-catalog-redesign-design.md`, a path that exists only in
-the development repo and not in an installed plugin.
+`commands/references/catalog-type-templates.md` is precedent worth studying: it is already
+an opinionated, plugin-owned schema grounded in SRD 5.2.1 rather than in any consumer
+project, and its tone is what a rewritten `conventions-schema.md` should adopt. It also
+carries an unrelated defect: lines 10-11 point at
+`docs/superpowers/specs/2026-07-11-catalog-redesign-design.md`, a path that exists only in
+the development repo, not in an installed plugin.
