@@ -284,4 +284,129 @@ function scopedV3(scope) {
   check('scope "kb" rule does run for a file in the kb prong', r.code, 2);
 }
 
+console.log("\n=== owning-setting selection across two settings ===");
+
+// Every other v3 fixture in this file declares exactly one setting, which makes
+// "picks the setting whose prong roots contain the file" indistinguishable from
+// "picks settings[0]". These fixtures give the two settings DIFFERENT enum
+// values, so selecting the wrong owner produces a visibly different exit code
+// rather than the same one. Verified by mutation: hardcoding owner = settings[0]
+// turns the "second" cases red.
+function twoSettingRule(values) {
+  return {
+    frontmatterTypeEnum: {
+      provenance: "professor-orb",
+      category: "frontmatter",
+      check: "enum",
+      enforcement: "block",
+      description: "type must be recognized.",
+      params: { field: "type", values },
+    },
+  };
+}
+
+const V3_TWO = {
+  version: 3,
+  settings: [
+    {
+      name: "first",
+      kbRoot: "settings/first",
+      homebrewRoot: "homebrew/first",
+      sessionReportsRoot: "session-reports/first",
+      // Accepts Person, rejects Deity.
+      rules: twoSettingRule(["Person"]),
+    },
+    {
+      name: "second",
+      kbRoot: "settings/second",
+      homebrewRoot: "homebrew/second",
+      sessionReportsRoot: "session-reports/second",
+      // Accepts Deity, rejects Person. The mirror image of the first.
+      rules: twoSettingRule(["Deity"]),
+    },
+  ],
+};
+
+{
+  const r = runHook({
+    conventions: V3_TWO,
+    files: { "settings/second/Allowed.md": "---\ntype: Deity\n---\n\nbody\n" },
+    targetRel: "settings/second/Allowed.md",
+  });
+  check("second setting owns its own kb file: its enum accepts Deity", r.code, 0);
+}
+
+{
+  const r = runHook({
+    conventions: V3_TWO,
+    files: { "settings/second/Rejected.md": "---\ntype: Person\n---\n\nbody\n" },
+    targetRel: "settings/second/Rejected.md",
+  });
+  check("second setting's rules apply, so Person is rejected there", r.code, 2);
+}
+
+{
+  const r = runHook({
+    conventions: V3_TWO,
+    files: { "homebrew/second/Allowed.md": "---\ntype: Deity\n---\n\nbody\n" },
+    targetRel: "homebrew/second/Allowed.md",
+  });
+  check("ownership reaches a non-first setting through a non-kb prong", r.code, 0);
+}
+
+// The pair in the other direction. These two would stay green under
+// owner = settings[0]; they exist to catch the opposite regression, a loop that
+// ends up preferring the LAST matching setting.
+{
+  const r = runHook({
+    conventions: V3_TWO,
+    files: { "settings/first/Allowed.md": "---\ntype: Person\n---\n\nbody\n" },
+    targetRel: "settings/first/Allowed.md",
+  });
+  check("first setting still owns its own kb file: its enum accepts Person", r.code, 0);
+}
+
+{
+  const r = runHook({
+    conventions: V3_TWO,
+    files: { "settings/first/Rejected.md": "---\ntype: Deity\n---\n\nbody\n" },
+    targetRel: "settings/first/Rejected.md",
+  });
+  check("first setting's rules apply, so Deity is rejected there", r.code, 2);
+}
+
+console.log("\n=== malformed settings entries are filtered, not fatal ===");
+
+// resolveSettings filters entries that are null or carry a non-string kbRoot.
+// Without that filter prongContaining dereferences null and main() throws an
+// uncaught TypeError, which surfaces as exit 1 on every write. Verified by
+// mutation: dropping the filter turns both of these red with exit 1.
+{
+  const r = runHook({
+    conventions: {
+      version: 3,
+      settings: [
+        null,
+        { name: "bogus", kbRoot: 42, homebrewRoot: "homebrew/bogus", rules: twoSettingRule(["Person"]) },
+        { name: "valid", kbRoot: "settings/valid", rules: twoSettingRule(["Person"]) },
+      ],
+    },
+    files: { "settings/valid/Bad.md": "---\ntype: Nope\n---\n\nbody\n" },
+    targetRel: "settings/valid/Bad.md",
+  });
+  check("a valid entry still resolves alongside malformed ones, and blocks", r.code, 2);
+}
+
+{
+  const r = runHook({
+    conventions: {
+      version: 3,
+      settings: [null, { name: "bogus", kbRoot: 42, rules: twoSettingRule(["Person"]) }],
+    },
+    files: { "settings/valid/Bad.md": "---\ntype: Nope\n---\n\nbody\n" },
+    targetRel: "settings/valid/Bad.md",
+  });
+  check("a settings array of only malformed entries exits 0 without crashing", r.code, 0);
+}
+
 report();
