@@ -55,7 +55,7 @@ export function runHook({ conventions, files, targetRel }) {
   });
 
   try {
-    const out = execFileSync("node", [HOOK], { input: payload, encoding: "utf8" });
+    const out = execFileSync("node", [HOOK], { input: payload, encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] });
     return { code: 0, out: out.trim(), err: "" };
   } catch (e) {
     return { code: e.status, out: (e.stdout || "").trim(), err: (e.stderr || "").trim() };
