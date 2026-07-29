@@ -54,7 +54,7 @@ Check for `.professor-orb/conventions.json` first (it is the authoritative machi
 
 If `.professor-orb/conventions.json` is missing, fall back to the project's `CLAUDE.md` (or equivalent instructions file) and existing KB articles, and state in your output that you used the fallback. Extract the same categories of rule from prose: frontmatter schema, filename conventions, cross-reference or wikilink format, index structure and ownership, and any mechanically checkable style rules.
 
-Either way, note the `enforcement` level of each rule where conventions.json is available (`block`, `warn`, `off`). Carry this level into your report (Step 5) so each violation names its rule's enforcement, but check every rule regardless of its enforcement level: a rule set to `off` at write time is still worth surfacing in a broad audit.
+Either way, note the `enforcement` level of each rule where conventions.json is available (`block`, `warn`, `off`). Carry this level into your report (Step 5) so each violation names its rule's enforcement, but skip any rule whose enforcement is `off` entirely: produce no finding for it, matching the sweep. `off` is the DM's deliberate choice to stop checking that rule, not a hint to check it anyway.
 
 ### Step 2: Determine scope
 

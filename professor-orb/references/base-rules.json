@@ -14,7 +14,7 @@
       "provenance": "professor-orb",
       "category": "structural",
       "check": "singleOwnership",
-      "enforcement": "off",
+      "enforcement": "warn",
       "scope": "kb",
       "description": "An article's wikilink appears in exactly one index. Checked by the validation sweep, not at write time.",
       "params": {}

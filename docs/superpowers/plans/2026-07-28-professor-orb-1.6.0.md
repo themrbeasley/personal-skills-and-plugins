@@ -207,7 +207,7 @@ Write to `professor-orb/references/base-rules.json`. Values come from the phase 
       "provenance": "professor-orb",
       "category": "structural",
       "check": "singleOwnership",
-      "enforcement": "off",
+      "enforcement": "warn",
       "scope": "kb",
       "description": "An article's wikilink appears in exactly one index. Checked by the validation sweep, not at write time.",
       "params": {}
@@ -327,7 +327,7 @@ Write to `professor-orb/references/base-rules.json`. Values come from the phase 
 }
 ```
 
-Note the deliberate omissions, each required by the phase 1 spec: no `publish` **default** rule (nothing in the plugin ever inserts or changes a `publish` value), no `autofix` string on either filename rule (the sweep's fix workers cannot rename a file), and `singleOwnership` at `off` because it is sweep scope.
+Note the deliberate omissions, each required by the phase 1 spec: no `publish` **default** rule (nothing in the plugin ever inserts or changes a `publish` value), no `autofix` string on either filename rule (the sweep's fix workers cannot rename a file), and `singleOwnership` at `warn` rather than `off`. Its check function returns `null` unconditionally at write time, since only the validation sweep has enough context to run it, so the hook is silent on this rule by function, not by enforcement level. That leaves `off` free to mean checked by nothing at all, and recording a sweep-scope rule as `off` would now silence it everywhere, including in the sweep that is supposed to catch it.
 
 `frontmatterPublishPresence` is not an exception to the first omission. It reports at `warn` when the field is absent and stops there; it never supplies a value. Those are two different things and the spec asks for both: `canonical-schema-design.md:218` carries `publish` should be present and explicit at `warn`, never auto-inserted. That is also why the spec's frontmatter table becomes three rules rather than one: `frontmatterRequiredSubset` blocks, while `frontmatterFieldOrder` and `frontmatterPublishPresence` only warn, and a single rule cannot hold two enforcement levels.
 
@@ -385,7 +385,10 @@ references/base-rules.json, which setup writes out, the hook reads, and every
 fallback path can point at. Three deliberate omissions: no publish default rule,
 because nothing in the plugin ever inserts or changes a publish value, no autofix
 on the filename rules because the sweep's workers cannot rename a file, and
-singleOwnership at off because it is sweep scope.
+singleOwnership at warn rather than off. Its check function returns null
+unconditionally at write time, so the hook is silent on it by function, not by
+enforcement level. That leaves off free to mean checked by nothing at all, and
+recording a sweep-scope rule as off would now silence it everywhere.
 
 frontmatterPublishPresence is not a fourth exception to the first of those. It
 reports at warn when publish is absent and supplies nothing, which is exactly
