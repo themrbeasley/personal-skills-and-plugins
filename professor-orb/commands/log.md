@@ -35,7 +35,7 @@ Read `.professor-orb/conventions.json`. **A lane is never resolved from a bare `
 
 With the `settings` array in hand:
 
-- **Resolve the setting.** With one setting, no question. With more than one, use the one the DM named; otherwise infer from context or check which one has outstanding work.
+- **Resolve the setting.** With one setting, no question. With more than one, use the one the DM named; otherwise infer from context or check which one has outstanding work, and if more than one setting has outstanding work, ask which to commit rather than guessing, the same resolution the campaign case below already uses. Never silently pick one: this command does not fan out across settings the way `/scribe` does, so a wrong guess here commits into the wrong world's history.
 - **Resolve the campaign.** Enumerate the filesystem under that setting's `sessionReportsRoot` for the authoritative list of campaigns (Principle 12); the `campaigns` array in `conventions.json` is a cache that only disambiguates and orders, so a campaign folder created since the last setup run is still visible here. With one campaign, no question. With more than one, use the one the DM named in the invocation; otherwise check which campaign has outstanding work, and if more than one does, ask which to commit rather than guessing. Unlike `/scribe`, which fans out to one commit per setting automatically, `/log` commits one resolved campaign per invocation.
 
 ## Step 3: Resolve the lane path
@@ -50,7 +50,7 @@ Before touching anything, run `git diff --cached --name-only` and check every pa
 
 ## Step 5: Inspect uncommitted changes within the lane
 
-Run `git status` scoped to the campaign folder to see what is new, modified, or deleted inside it. If there is nothing outstanding, say so plainly and do not create an empty commit. This is different from Step 2's "lane root could not be resolved": here the path is known and simply has nothing to commit right now.
+Run `git status -- ":(literal)<sessionReportsRoot>/<campaign>"` scoped to the campaign folder to see what is new, modified, or deleted inside it, using the same literal pathspec form Step 7 uses and for the same reason: a setting or campaign name containing `*`, `?`, or `[` must not cause this scoping to widen or miss paths. If there is nothing outstanding, say so plainly and do not create an empty commit. This is different from Step 2's "lane root could not be resolved": here the path is known and simply has nothing to commit right now.
 
 **Note uncommitted work in the other two lanes, without acting on it.** While looking at the repository's state, also check whether `kbRoot` or `homebrewRoot` have uncommitted work. If they do, name it in the final report and name the command that owns it (`/scribe` for the KB, `/catalog` for homebrew). Never stage or commit anything in those lanes yourself. The same applies to any other campaign folder under this setting's `sessionReportsRoot` that also has outstanding work: name it and note that `/log` can commit it too, in a separate invocation.
 
@@ -60,23 +60,28 @@ Before staging, look over what Step 5 found inside the lane for anything that lo
 
 **The unfinished-report guard matters most in this lane.** A session report is often written across more than one sitting, so "outstanding" and "ready" genuinely diverge here in a way the other two lanes rarely see. Check every session report file inside the lane that Step 5 found outstanding: if it is missing required frontmatter fields, or carries an empty section where the project's report structure expects content, treat it as unfinished. Set it aside by name rather than folding it into the general guard's stop-and-ask: an unfinished report is expected, ordinary, and not an error to interrupt over. Commit the rest of the lane normally (Step 7) and name the set-aside report in the final report (Step 8) so the DM knows it is still pending.
 
-For anything else that trips the general guard (large binary, Foundry export, credential-shaped file, schema mismatch), **stop and ask about that specific item**, never the whole batch. The DM can say to include it, exclude it, or fix it first.
+For anything else that trips the general guard (large binary, Foundry export, credential-shaped file, schema mismatch), **stop and ask about that specific item**, never the whole batch. The DM has three options, each with its own mechanism:
+
+- **Include it.** Continue as normal; it is staged and committed with the rest of the lane.
+- **Exclude it, just for now.** The same technique as the unfinished-report guard above: list the lane's cleared paths explicitly in Step 7's pathspec instead of the whole campaign folder, each with its own `:(literal)` prefix, so the flagged item is never staged while everything else commits normally.
+- **Exclude it permanently.** Adjust `.gitignore`. That answers a different question than "just for now": it stops the item from tripping the guard on every future run, rather than setting it aside for this one commit.
 
 ## Step 7: Stage the lane, then commit
 
-**The staging mechanism is specified, not left to the implementer, because both obvious approaches are wrong, in opposite directions:**
+**The staging mechanism is specified, not left to the implementer, because obvious approaches are wrong, in different directions:**
 
 - `git commit --only -- <lane>` with no prior `git add` **silently omits new files**. Measured against real git: in a lane holding one new and one modified article, it committed only the modified one, with no error and exit 0. A freshly written session report or recap is exactly this kind of new file, so this fails at precisely the common case, and it fails quietly.
 - `git add -- <lane>` followed by a **bare `git commit`** (no pathspec) commits the **entire index**, including anything the DM staged from another lane, or another campaign. The lane guarantee this command exists to provide would be silently false the moment the DM has staged something themselves.
+- **A bare pathspec is not a literal path.** `--` stops option parsing, but git still reads `*`, `?`, and `[` inside the pathspec that follows as wildcards, not as literal text. Measured against real git: with a campaign folder named `settings/zi[st]` sitting next to an unrelated file `settings/zis`, running `git add -- settings/zi[st]` staged `settings/zis` too, and that unrelated file rode along into the commit. A setting or campaign name is DM-chosen and can plausibly contain any of those characters. `:(literal)` disables wildcard interpretation for that pathspec element; `--` and `:(literal)` fix different halves of the same line, and neither substitutes for the other.
 
-The verified mechanism is both steps, in order, with the identical pathspec, and it excludes whatever Step 6 set aside from the pathspec entirely (stage and commit only the files that cleared the guard):
+The verified mechanism is both steps, in order, with the identical, literal pathspec, and it excludes whatever Step 6 set aside from the pathspec entirely (stage and commit only the files that cleared the guard):
 
 ```
-git add -- <sessionReportsRoot>/<campaign>
-git commit --only -- <sessionReportsRoot>/<campaign>
+git add -- ":(literal)<sessionReportsRoot>/<campaign>"
+git commit --only -- ":(literal)<sessionReportsRoot>/<campaign>"
 ```
 
-If Step 6 set aside an unfinished report, list the cleared paths explicitly in the pathspec instead of the whole campaign folder, so the set-aside file is never staged or committed alongside the rest. Never substitute `-A`, `.`, or `-a` for the explicit lane pathspec.
+If Step 6 set aside an unfinished report, or anything the general guard set aside for temporary exclusion, list the cleared paths explicitly in the pathspec instead of the whole campaign folder, each with its own `:(literal)` prefix, so the set-aside file is never staged or committed alongside the rest. Never substitute `-A`, `.`, or `-a` for the explicit lane pathspec, and never drop the `:(literal)` prefix, even for a name that looks safe: the guarantee should not depend on inspecting the name first.
 
 **Commit message**, written from what actually changed: `session(<setting>/<campaign>): <summary>`, for example `session(rolara/ashes): add 2026-07-24 report`.
 
@@ -98,6 +103,7 @@ Tell the DM in one short block:
 - **Never stage or commit a path outside the resolved campaign folder.** Not the DM's own foreign-staged path, not another lane, not another campaign.
 - **Never commit a report the unfinished-report guard set aside.** Exclude it from the pathspec entirely; do not stage it and then decline to mention it.
 - **Never run a bare `git commit` after staging the lane**, and **never run `git commit --only` without first running `git add` on the identical pathspec.** Both are measured failure modes, not style preferences.
+- **Never drop the `:(literal)` prefix from a lane pathspec, and never drop the `--` separator either.** They fix different problems (wildcard interpretation vs. option parsing); a setting or campaign name with a glob character can otherwise pull in an unrelated file lying next to the lane.
 - **Never resolve a lane from a bare `kbRoot` on a v1 or v2 conventions file.** Refuse and point at setup instead.
 - **Never invent a changelog entry.** In `changelog` mode there is nothing for this command to do; say so.
 - **Never create an empty commit.** If nothing is outstanding in the lane, say so and stop.
@@ -115,6 +121,7 @@ Tell the DM in one short block:
 - **Repository state blocks committing** (a merge in progress, a detached HEAD). Report and stop.
 - **A lane path does not exist yet.** Nothing outstanding, not an error.
 - **A session report looks unfinished.** Set it aside by name, commit the rest of the lane (Step 6).
+- **More than one setting has outstanding work.** Ask which to commit, or commit the one the DM named; do not silently pick one.
 - **More than one campaign has outstanding work.** Ask which to commit, or commit the one the DM named; do not silently pick one or fan out across all of them the way `/scribe` fans out across settings.
 - **A file moved between this lane and another prong.** Each command sees only its own lane, so the move lands in two separate commits, one from each command. Acceptable: the alternative is reaching outside the lane.
 

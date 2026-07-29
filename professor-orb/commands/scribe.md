@@ -50,7 +50,7 @@ Before touching anything, run `git diff --cached --name-only` and check every pa
 
 ## Step 5: Inspect uncommitted changes within the lane
 
-Run `git status` scoped to the lane path to see what is new, modified, or deleted inside `kbRoot`. If there is nothing outstanding, say so plainly for that setting and do not create an empty commit. This is different from Step 2's "lane root could not be resolved": here the path is known and simply has nothing to commit right now.
+Run `git status -- ":(literal)<kbRoot>"` scoped to the lane path to see what is new, modified, or deleted inside `kbRoot`, using the same literal pathspec form Step 7 uses and for the same reason: a setting name containing `*`, `?`, or `[` must not cause this scoping to widen or miss paths. If there is nothing outstanding, say so plainly for that setting and do not create an empty commit. This is different from Step 2's "lane root could not be resolved": here the path is known and simply has nothing to commit right now.
 
 **Note uncommitted work in the other two lanes, without acting on it.** While you are looking at the repository's state, also check whether `homebrewRoot` or `sessionReportsRoot` (for any campaign) have uncommitted work. If they do, name it in the final report and name the command that owns it (`/catalog` for homebrew, `/log` for session reports). Never stage or commit anything in those lanes yourself.
 
@@ -58,23 +58,32 @@ Run `git status` scoped to the lane path to see what is new, modified, or delete
 
 Before staging, look over what Step 5 found inside the lane for anything that looks like it does not belong in version control: a large binary, a Foundry export, a file that looks credential-shaped, or a file inside the lane that does not match the KB's frontmatter schema. `.obsidian/` is exempt: it is expected inside a setting KB and never trips the guard.
 
-If something trips it, **stop and ask about that specific item**, never the whole batch. The DM can say to include it, exclude it (adjust `.gitignore` if it should stay out permanently), or fix it first. Once resolved, continue with the rest of the lane; do not re-run the whole guard over items already cleared.
+If something trips it, **stop and ask about that specific item**, never the whole batch. The DM has three options, each with its own mechanism:
+
+- **Include it.** Continue as normal; it is staged and committed with the rest of the lane.
+- **Exclude it, just for now.** Commit the rest of the lane without it: list the lane's cleared paths explicitly in Step 7's pathspec instead of the whole `kbRoot`, each with its own `:(literal)` prefix, so the flagged item is never staged or committed while everything else goes through.
+- **Exclude it permanently.** Adjust `.gitignore`. That answers a different question than "just for now": it stops the item from ever tripping the guard again, rather than setting it aside for this one commit.
+
+Once resolved, continue with the rest of the lane; do not re-run the whole guard over items already cleared.
 
 ## Step 7: Stage the lane, then commit
 
-**The staging mechanism is specified, not left to the implementer, because both obvious approaches are wrong, in opposite directions:**
+**The staging mechanism is specified, not left to the implementer, because obvious approaches are wrong, in different directions:**
 
 - `git commit --only -- <lane>` with no prior `git add` **silently omits new files**. Measured against real git: in a lane holding one new and one modified article, it committed only the modified one, with no error and exit 0. New articles are the primary artifact of every `chronicler` and `timeline` run, so this fails at precisely the common case, and it fails quietly.
 - `git add -- <lane>` followed by a **bare `git commit`** (no pathspec) commits the **entire index**, including anything the DM staged from another lane. The lane guarantee this command exists to provide would be silently false the moment the DM has staged something themselves.
+- **A bare pathspec is not a literal path.** `--` stops option parsing, but git still reads `*`, `?`, and `[` inside the pathspec that follows as wildcards, not as literal text. Measured against real git: with a lane directory named `settings/zi[st]` sitting next to an unrelated file `settings/zis`, running `git add -- settings/zi[st]` staged `settings/zis` too, and that unrelated file rode along into the commit. A setting name is DM-chosen and can plausibly contain any of those characters. `:(literal)` disables wildcard interpretation for that pathspec element; `--` and `:(literal)` fix different halves of the same line, and neither substitutes for the other.
 
-The verified mechanism is both steps, in order, with the identical pathspec:
+The verified mechanism is both steps, in order, with the identical, literal pathspec:
 
 ```
-git add -- <kbRoot>
-git commit --only -- <kbRoot>
+git add -- ":(literal)<kbRoot>"
+git commit --only -- ":(literal)<kbRoot>"
 ```
 
-Run this once per setting resolved in Step 2. Never substitute `-A`, `.`, or `-a` for the explicit lane pathspec.
+Run this once per setting resolved in Step 2. Never substitute `-A`, `.`, or `-a` for the explicit lane pathspec, and never drop the `:(literal)` prefix, even for a setting name that looks safe: the guarantee should not depend on inspecting the name first.
+
+If Step 6 set aside an item for temporary exclusion, list the lane's cleared paths explicitly in the pathspec instead of the whole `kbRoot`, each with its own `:(literal)` prefix, so the excluded item is never staged or committed alongside the rest.
 
 **Commit message**, written from what actually changed: `kb(<setting>): <summary>`, for example `kb(rolara): add Thoric article, update Person-INDEX`.
 
@@ -96,6 +105,7 @@ If more than one setting was committed, name each one and its commit hash; do no
 
 - **Never stage or commit a path outside the resolved `kbRoot`.** Not the DM's own foreign-staged path, not another lane, not the project root.
 - **Never run a bare `git commit` after staging the lane**, and **never run `git commit --only` without first running `git add` on the identical pathspec.** Both are measured failure modes, not style preferences.
+- **Never drop the `:(literal)` prefix from a lane pathspec, and never drop the `--` separator either.** They fix different problems (wildcard interpretation vs. option parsing); a setting name with a glob character can otherwise pull in an unrelated file lying next to the lane.
 - **Never resolve a lane from a bare `kbRoot` on a v1 or v2 conventions file.** Refuse and point at setup instead.
 - **Never invent a changelog entry for the KB.** In `changelog` mode there is nothing for this command to do; say so.
 - **Never create an empty commit.** If nothing is outstanding in the lane, say so and stop.

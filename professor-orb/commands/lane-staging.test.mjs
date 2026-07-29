@@ -21,12 +21,26 @@
 //   git add -- <lane paths>
 //   git commit --only -- <lane paths>
 //
+// A third failure mode lives one level down, inside the pathspec itself: a
+// bare pathspec is not a literal path. `--` stops OPTION parsing, but git
+// still reads `*`, `?`, and `[` inside the pathspec that follows as
+// wildcards. Measured against real git (case 3 below): a lane directory
+// named `settings/zi[st]` sitting next to an unrelated file `settings/zis`
+// causes a bare `git add -- settings/zi[st]` to stage `settings/zis` too,
+// and that unrelated file rides along into the commit. A setting or
+// campaign name is DM-chosen and can plausibly contain any of those
+// characters. Wrapping the pathspec in git's literal pathspec magic,
+// `:(literal)`, closes this: `--` and `:(literal)` fix different halves of
+// the same line, so both stay in the mechanism.
+//
 // This file proves that mechanism against a disposable repo built with
 // uncommitted work in all three lanes, a modified file at the repo root,
 // and an out-of-lane path already staged before the command runs, plus a
-// second fixture where the lane holds only new files. Node built-ins only,
-// no test framework, no writes anywhere near this checkout: every fixture
-// lives under os.tmpdir() and is removed after its case runs.
+// second fixture where the lane holds only new files, plus a third fixture
+// with a glob-charactered lane name next to a sibling the glob would
+// otherwise match. Node built-ins only, no test framework, no writes
+// anywhere near this checkout: every fixture lives under os.tmpdir() and is
+// removed after its case runs.
 //
 // Run: node professor-orb/commands/lane-staging.test.mjs
 
@@ -122,10 +136,15 @@ function statusLines(dir) {
 }
 
 // The mechanism under test, isolated in one place so a mutation pass can
-// swap it for a wrong candidate without editing every call site.
+// swap it for a wrong candidate without editing every call site. The
+// pathspec carries git's literal pathspec magic, :(literal), so a setting
+// or campaign name containing *, ?, or [ is never wildcard-interpreted (see
+// case 3). Plain lane names (cases 1 and 2) are unaffected by the wrapper:
+// :(literal) only changes behavior when the name contains a glob character.
 function stageAndCommitLane(dir, lanePath, message) {
-  git(dir, ["add", "--", lanePath]);
-  return git(dir, ["commit", "-q", "-m", message, "--only", "--", lanePath], true);
+  const literalPathspec = `:(literal)${lanePath}`;
+  git(dir, ["add", "--", literalPathspec]);
+  return git(dir, ["commit", "-q", "-m", message, "--only", "--", literalPathspec], true);
 }
 
 console.log(
@@ -215,6 +234,94 @@ console.log("\n=== case 2: the lane holds only new files ===");
   check("a real commit results: HEAD actually advances", after !== before, true);
   check("the commit contains exactly the new file", filesInHead(dir), ["settings/rolara/BrandNew.md"]);
   check("nothing is left dirty or staged after committing a clean new-files-only lane", statusLines(dir), []);
+}
+
+console.log(
+  "\n=== case 3: a lane name with glob characters must not escape into a sibling ==="
+);
+{
+  // `[st]` is git pathspec magic for "one character from the set s, t"
+  // unless the pathspec carries :(literal). Windows forbids literal * and ?
+  // in filenames, so this fixture exercises the bracket character only; see
+  // the task report for which characters could and could not be built as
+  // real directory/file names on this filesystem. The fix itself (wrapping
+  // the whole pathspec in :(literal)) disables wildcard interpretation
+  // uniformly, not per-character, so proving it neutralizes bracket
+  // matching is evidence it neutralizes the same code path for * and ? too.
+  const dir = freshRepo("glob-escape");
+  const LANE = "settings/zi[st]";
+  // SIBLING is deliberately a plain FILE, not a directory, sitting beside
+  // the lane. Verified against real git: a sibling that is itself a
+  // directory (e.g. settings/zis/Sibling.md) does NOT reproduce the escape
+  // on this git version for a bare, non-glob-suffixed directory pathspec
+  // like the commands use; a sibling file at exactly the matched path does.
+  const SIBLING = "settings/zis";
+
+  write(dir, `${LANE}/Existing.md`, "old\n");
+  write(dir, SIBLING, "sibling old\n");
+  git(dir, ["add", "-A"]);
+  git(dir, ["commit", "-qm", "baseline"]);
+
+  const before = git(dir, ["rev-parse", "HEAD"]);
+
+  function dirtyTheFixture() {
+    write(dir, `${LANE}/Existing.md`, "modified\n");
+    write(dir, `${LANE}/NewArticle.md`, "new\n");
+    write(dir, SIBLING, "sibling modified - must stay out of the lane commit\n");
+  }
+
+  dirtyTheFixture();
+
+  // Control: the rejected candidate, the exact mechanism the commands used
+  // before the :(literal) fix. Proves the case can fail: a bare pathspec
+  // built from a bracketed lane name sweeps the sibling file in. Inlined
+  // (rather than a one-shot helper like stageAndCommitLane) so the staged
+  // set can be inspected between the add and the commit --only: by the time
+  // both steps finish, the index is clean again either way.
+  git(dir, ["add", "--", LANE]);
+  check(
+    "control: bare (non-literal) `git add -- <lane>` stages the sibling file too",
+    stagedPaths(dir).includes(SIBLING),
+    true,
+    "reproduces the escape: git add -- settings/zi[st] (no :(literal)) also matched settings/zis"
+  );
+  const trapResult = git(
+    dir,
+    ["commit", "-q", "-m", "kb(zi[st]): bare pathspec control, expected to leak", "--only", "--", LANE],
+    true
+  );
+  check(
+    "control: the resulting commit contains the sibling file, not just the lane, this is the red case",
+    filesInHead(dir).includes(SIBLING),
+    true,
+    trapResult && trapResult.failed ? `unexpected failure: ${trapResult.stderr}` : "goes red exactly as expected"
+  );
+
+  // Roll the control commit and its worktree churn back, then rebuild the
+  // identical dirty state for the verified mechanism below.
+  git(dir, ["reset", "-q", "--hard", before]);
+  git(dir, ["clean", "-qfd"]);
+  dirtyTheFixture();
+
+  const result = stageAndCommitLane(dir, LANE, "kb(zi[st]): add NewArticle, update Existing");
+  check(
+    "git add -- :(literal)<lane> then git commit --only -- :(literal)<lane> succeeds",
+    !(result && result.failed),
+    true,
+    result && result.failed ? result.stderr : undefined
+  );
+
+  check(
+    "commits exactly the lane's files, nothing from the sibling the bare glob would otherwise match",
+    filesInHead(dir),
+    [`${LANE}/Existing.md`, `${LANE}/NewArticle.md`].sort()
+  );
+
+  check(
+    "the sibling file is left dirty and untouched: not staged, not committed",
+    statusLines(dir),
+    [` M ${SIBLING}`]
+  );
 }
 
 console.log(`\n${passed}/${passed + failures.length} expectations met.`);
