@@ -31,6 +31,7 @@ import {
   gitMove,
   assertLinkIntegrity,
   rewriteWikilinks,
+  runPrechecks,
 } from "./migrate.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -828,7 +829,12 @@ withRepo(
   {
     ".gitignore": "settings/rolara/editor-state/\n",
     "settings/rolara/editor-state/scratch.md": article("publish: false\ntype: Concept", "Scratch."),
-    "settings/rolara/Ashfall.md": article("publish: false\ntype: Organization", "A compact."),
+    // Carries a wikilink that survives both renames, so this fixture exercises
+    // the skip and ONLY the skip. Without one, the walk ends with zero links
+    // checked, which the rail now reports as a coverage failure, and this case
+    // would be quietly riding a blocked rail while appearing to test skipping.
+    "settings/rolara/Ashfall.md": article("publish: false\ntype: Organization", "A compact with [[Concord]]."),
+    "settings/rolara/Concord.md": article("publish: false\ntype: Organization", "A pact."),
   },
   (root) => {
     const r = apply(root, [
@@ -923,6 +929,12 @@ withRepo(
       { cwd: root, settings: SETTINGS, baseRules: BASE_RULES, commit: true }
     );
     check("a healthy run passes the assertion", links(r).ok, true);
+    // linksChecked, not just ok. ok and an empty dead list are BOTH satisfied by
+    // a rail that walked nothing at all, so on their own they cannot tell a
+    // clean pass from a disarmed assertion. This is the number that can.
+    check("and the pass is a real one: it checked the link that could have died",
+      links(r).linksChecked, 1);
+    check("over the files that could have carried it", links(r).filesChecked, 2);
     check("and commits", r.committed, true);
     check("the migration commit is a new commit", r.migration !== before, true);
     check("the snapshot hash recorded is the pre-run HEAD", r.snapshot, before);
@@ -952,6 +964,8 @@ withRepo(
       good.ok, true);
     check("report-to-report and report-to-article links are both walked",
       good.filesChecked, 5);
+    check("and every one of their links was actually resolved, not merely walked past",
+      good.linksChecked, 6);
   }
 );
 
@@ -968,6 +982,367 @@ withRepo(
     check("a wikilink inside a code span is not asserted", r.ok, true);
     check("and neither is one inside a fenced block, an attachment, or a bare anchor",
       r.dead, []);
+    // Same reason as above: ok plus an empty dead list would hold just as well
+    // if extraction returned nothing. Exactly one of the five bracketed things
+    // in this fixture is a link, and this is the assertion that says so.
+    check("the real link IS counted, so quoting is skipped rather than everything being skipped",
+      r.linksChecked, 1);
+  }
+);
+
+// ---------------------------------------------------------------------------
+// The rail's own scope
+// ---------------------------------------------------------------------------
+
+console.log("\nA relocated prong does not disarm the rail");
+
+// The settings the apply phase is handed are the conventions.json that was on
+// disk when the run started, so kbRoot is the PRE-migration path. This is the
+// reference consumer's own first-run shape, not a contrived one.
+const PRE_MIGRATION_SETTINGS = [
+  {
+    name: "rolara",
+    kbRoot: "kb",
+    homebrewRoot: "homebrew/rolara",
+    sessionReportsRoot: "session-reports/rolara",
+    rules: {},
+    tagRegistryPath: ".professor-orb/tag-registry.rolara.json",
+  },
+];
+
+withRepo(
+  {
+    "kb/items/Sword.md": article("publish: false\ntype: Item", "A blade."),
+    "kb/items/Items-INDEX.md": article("publish: false\ntype: Index", "- [[Sword]]"),
+    // One prong that does NOT move and carries no wikilinks. It is what used to
+    // keep the rail alive-looking: the declared kbRoot vanished from disk the
+    // moment the relocation landed and was silently dropped, and because the
+    // zero-coverage fallback only fires when EVERY root vanishes, the rail
+    // shrank to this one file and reported a clean run.
+    "session-reports/rolara/S1-REPORT.md": article("publish: false\ntype: Session Report", "No links here."),
+  },
+  (root) => {
+    const before = head(root);
+    const r = applyPlan(
+      {
+        operations: [
+          { op: "relocate-prong", from: "kb", to: "settings/rolara", reason: "canonical layout" },
+          {
+            op: "rename-with-link-rewrite",
+            from: "settings/rolara/items/Sword.md",
+            to: "settings/rolara/items/Sword-ITEM.md",
+            reason: "suffix",
+          },
+        ],
+      },
+      { cwd: root, settings: PRE_MIGRATION_SETTINGS, baseRules: BASE_RULES, commit: true }
+    );
+
+    check("both operations apply", r.applied.length, 2);
+    check("the rail walks the relocated prong at its POST-migration path",
+      links(r).roots, ["settings/rolara", "session-reports/rolara"]);
+    check("so it checked a real link rather than nothing", links(r).linksChecked, 1);
+    check("across every file the run left behind", links(r).filesChecked, 3);
+    check("the dropped rewrite is caught", links(r).dead.map((d) => `${d.file} -> ${d.target}`),
+      ["settings/rolara/items/Items-INDEX.md -> Sword"]);
+    check("the migration is NOT committed", r.committed, false);
+    check("and HEAD is still the snapshot", head(root), before);
+  }
+);
+
+withRepo(
+  {
+    "kb/items/Sword.md": article("publish: false\ntype: Item", "A blade."),
+    "kb/items/Items-INDEX.md": article("publish: false\ntype: Index", "- [[Sword]]"),
+  },
+  (root) => {
+    // The mapping proposes, existsSync disposes. A relocation that was skipped
+    // for a git-ignored source, or that failed outright, leaves the prong where
+    // it was declared, and the walk has to find it there rather than at the path
+    // the plan intended.
+    const r = assertLinkIntegrity({
+      cwd: root,
+      settings: PRE_MIGRATION_SETTINGS,
+      relocations: [{ from: "kb", to: "settings/rolara" }],
+      expectLinks: true,
+    });
+    check("a relocation that did not happen leaves the walk at the declared root", r.roots, ["kb"]);
+    check("and the rail still checks its links", r.linksChecked, 1);
+    check("with nothing dead", r.ok, true);
+  }
+);
+
+console.log("\nAn assertion that checks zero links is a failure, not a pass");
+
+withRepo(
+  {
+    "settings/rolara/items/Sword.md": article("publish: false\ntype: Item", "A blade."),
+  },
+  (root) => {
+    const before = head(root);
+    // Nothing in this project links to anything. A rename can orphan a wikilink,
+    // so a walk that finds none of them is either pointed at the wrong tree or
+    // has nothing to protect, and the module's own principle is that an
+    // assertion which silently checks nothing is not an assertion.
+    const r = applyPlan(
+      {
+        operations: [
+          {
+            op: "rename-with-link-rewrite",
+            from: "settings/rolara/items/Sword.md",
+            to: "settings/rolara/items/Sword-ITEM.md",
+            reason: "suffix",
+          },
+        ],
+      },
+      { cwd: root, settings: SETTINGS, baseRules: BASE_RULES, commit: true }
+    );
+    check("zero links checked after a rename is reported as a coverage failure",
+      [links(r).ok, links(r).coverage, links(r).linksChecked], [false, "no-links-checked", 0]);
+    check("with no dead link to blame it on", links(r).dead, []);
+    check("nothing is committed on it", r.committed, false);
+    check("HEAD is still the snapshot", head(root), before);
+    check("and the message says which roots were walked, so the DM can tell the two causes apart",
+      /walked, in \["settings\/rolara"\]/.test(r.messages.join(" ")), true);
+  }
+);
+
+withRepo(
+  {
+    "settings/rolara/locations/Tavern.md": "---\ntype: Location\npublish: false\n---\n\nA tavern.\n",
+  },
+  (root) => {
+    // The converse. A plan carrying no operation that can orphan a wikilink is
+    // not held to the same standard: relocations are basename-safe and an
+    // in-place frontmatter edit moves nothing, so zero links here means zero
+    // links, not a rail pointed somewhere wrong.
+    const r = applyPlan(
+      {
+        operations: [
+          {
+            op: "repair-frontmatter",
+            from: "settings/rolara/locations/Tavern.md",
+            insert: [],
+            reorder: true,
+            reason: "canonical order",
+          },
+        ],
+      },
+      { cwd: root, settings: SETTINGS, baseRules: BASE_RULES, commit: true }
+    );
+    check("a plan that cannot orphan a wikilink passes on zero links",
+      [links(r).ok, links(r).coverage, links(r).linksChecked], [true, "ok", 0]);
+    check("and commits", r.committed, true);
+  }
+);
+
+console.log("\nResolution is scoped to the roots being walked");
+
+withRepo(
+  {
+    "settings/rolara/items/Sword.md": article("publish: false\ntype: Item", "A blade."),
+    "settings/rolara/items/Items-INDEX.md": article("publish: false\ntype: Index", "- [[Sword]]"),
+    // A different file that happens to share the basename, sitting under no
+    // prong root of any setting. Resolving project-wide let it stand in for the
+    // renamed article and the run committed a dead wikilink.
+    "archive/old/Sword.md": article("publish: false\ntype: Item", "An older, unrelated draft."),
+  },
+  (root) => {
+    const before = head(root);
+    const r = applyPlan(
+      {
+        operations: [
+          {
+            op: "rename-with-link-rewrite",
+            from: "settings/rolara/items/Sword.md",
+            to: "settings/rolara/items/Sword-ITEM.md",
+            reason: "suffix",
+          },
+        ],
+      },
+      { cwd: root, settings: SETTINGS, baseRules: BASE_RULES, commit: true }
+    );
+    check("an unrelated file outside every prong root cannot satisfy the orphaned link",
+      links(r).dead.map((d) => d.target), ["Sword"]);
+    check("the walk scope and the resolution scope are the same roots",
+      links(r).roots, ["settings/rolara"]);
+    check("the run does not commit", r.committed, false);
+    check("HEAD is still the snapshot", head(root), before);
+    check("and the archive copy is left exactly where it was", has(root, "archive/old/Sword.md"), true);
+  }
+);
+
+withRepo(
+  {
+    "settings/rolara/items/Blade.md": article("publish: false\ntype: Item", "Twin of [[Karsk-Relic]]."),
+    "settings/karsk/Karsk-Relic.md": article("publish: false\ntype: Item", "x"),
+  },
+  (root) => {
+    // Scoping must not break the legitimate case it is often confused with: a
+    // link into ANOTHER setting's prong root. Every setting's roots are walked,
+    // so that link resolves.
+    const r = assertLinkIntegrity({
+      cwd: root,
+      settings: [SETTINGS[0], { name: "karsk", kbRoot: "settings/karsk", rules: {} }],
+      expectLinks: true,
+    });
+    check("a link into another setting's prong root still resolves", r.ok, true);
+    check("because every setting's roots are walked", r.roots.slice().sort(),
+      ["settings/karsk", "settings/rolara"]);
+    check("and it was actually checked", r.linksChecked, 1);
+  }
+);
+
+console.log("\nThe rewriter and the rail agree about quoted wikilinks");
+
+{
+  const doc = "Real: [[Sword]].\n\n```\n- [[Sword]]\n```\n\nInline `[[Sword]]` too.\n";
+  const out = rewriteWikilinks(doc, "Sword", "Sword-ITEM");
+  check("only the real wikilink is rewritten", out.count, 1);
+  check("the fenced example is left exactly as the DM wrote it", out.text.includes("\n- [[Sword]]\n"), true);
+  check("and so is the one inside a code span", out.text.includes("`[[Sword]]` too"), true);
+  check("the real one did change", out.text.startsWith("Real: [[Sword-ITEM]]."), true);
+}
+
+withRepo(
+  {
+    "settings/rolara/items/Sword.md": article("publish: false\ntype: Item", "A blade."),
+    "settings/rolara/docs/Style.md": article(
+      "publish: false\ntype: Concept",
+      "How we write links:\n\n```\n- [[Sword]]\n```\n"
+    ),
+    "settings/rolara/lore/Alpha.md": article("publish: false\ntype: Concept", "See [[Beta]]."),
+    "settings/rolara/lore/Beta.md": article("publish: false\ntype: Concept", "x"),
+  },
+  (root) => {
+    const styleBefore = read(root, "settings/rolara/docs/Style.md");
+    const r = apply(root, [
+      {
+        op: "rename-with-link-rewrite",
+        from: "settings/rolara/items/Sword.md",
+        to: "settings/rolara/items/Sword-ITEM.md",
+        links: ["settings/rolara/docs/Style.md"],
+        reason: "suffix",
+      },
+    ]);
+    check("a plan naming a file whose only wikilink is quoted reports the drop",
+      [r.applied.length, r.failed.length], [0, 1]);
+    check("and the DM's documentation is left byte-identical",
+      read(root, "settings/rolara/docs/Style.md"), styleBefore);
+    check("the rail does not flag that quoted example either, which is the agreement",
+      links(r).dead, []);
+    check("and it was not an empty walk", links(r).linksChecked, 1);
+  }
+);
+
+console.log("\nThe documented recovery actually recovers");
+
+const BLOCKED_OPERATIONS = [
+  {
+    op: "rename-with-link-rewrite",
+    from: "settings/rolara/items/Sword.md",
+    to: "settings/rolara/items/Sword-ITEM.md",
+    reason: "suffix",
+  },
+  { op: "create-index", to: "settings/rolara/npcs/Npcs-INDEX.md", reason: "folder holds content but no index" },
+];
+
+withRepo(
+  {
+    "settings/rolara/items/Sword.md": article("publish: false\ntype: Item", "A blade."),
+    "settings/rolara/items/Items-INDEX.md": article("publish: false\ntype: Index", "- [[Sword]]"),
+    "settings/rolara/npcs/Guard.md": article("publish: false\ntype: NPC", "A guard."),
+  },
+  (root) => {
+    const r = applyPlan(
+      { operations: BLOCKED_OPERATIONS },
+      { cwd: root, settings: SETTINGS, baseRules: BASE_RULES, commit: true }
+    );
+    check("the run is blocked before the commit", [links(r).ok, r.committed], [false, false]);
+
+    const instruction = r.messages.find((m) => /Restore the tracked files/.test(m)) || "";
+    check("the instruction names the untracked file reset --hard will leave behind",
+      instruction.includes("settings/rolara/npcs/Npcs-INDEX.md"), true);
+    check("and names the second command that removes it", /clean -fd/.test(instruction), true);
+
+    // Followed exactly as printed, in order, and nothing else.
+    git(root, ["reset", "--hard", "-q", r.snapshot]);
+    check("reset --hard alone does NOT finish the job: it never staged what the run created",
+      has(root, "settings/rolara/npcs/Npcs-INDEX.md"), true);
+    git(root, ["clean", "-fd", "-q"]);
+    check("the created index is gone once the whole instruction is followed",
+      has(root, "settings/rolara/npcs/Npcs-INDEX.md"), false);
+    check("the renamed article is back at its original path",
+      [has(root, "settings/rolara/items/Sword.md"), has(root, "settings/rolara/items/Sword-ITEM.md")],
+      [true, false]);
+    check("the working tree is clean", porcelain(root), []);
+
+    const pre = runPrechecks({ operations: BLOCKED_OPERATIONS, projectRoot: root });
+    check("and the rerun's prechecks pass instead of aborting on the leftover",
+      [pre.ok, pre.collisions.length], [true, 0]);
+  }
+);
+
+console.log("\nWhat the snapshot will not undo is disclosed");
+
+withRepo(
+  {
+    ".gitignore": "kb/editor-state/\n",
+    "kb/items/Sword.md": article("publish: false\ntype: Item", "A blade."),
+    "kb/items/Items-INDEX.md": article("publish: false\ntype: Index", "- [[Sword]]"),
+    "kb/editor-state/scratch.md": "Untracked DM scratch.\n",
+  },
+  (root) => {
+    // The skip rule tests the operation's SOURCE. kb/ is tracked, so the
+    // relocation runs, and git mv carries the ignored directory inside it along
+    // for the ride. That is not skipped and not refused; it is reported.
+    const settings = [{ name: "rolara", kbRoot: "kb", rules: {} }];
+    const operations = [{ op: "relocate-prong", from: "kb", to: "settings/rolara", reason: "canonical layout" }];
+
+    const pre = runPrechecks({ operations, projectRoot: root });
+    check("the prong root itself is not ignored, so nothing is skipped", pre.ignored, []);
+    check("but the ignored paths beneath it are named",
+      pre.ignoredBeneath.map((e) => e.entries.join(",")), ["kb/editor-state/"]);
+
+    const r = apply(root, operations, { settings });
+    check("the relocation still applies", [r.applied.length, r.skipped.length], [1, 0]);
+    check("git mv carried the ignored file to the new path",
+      has(root, "settings/rolara/editor-state/scratch.md"), true);
+    check("the run reports the move, because restoring the snapshot will not put it back",
+      r.ignoredMoved.map((e) => `${e.from} -> ${e.to}`), ["kb -> settings/rolara"]);
+    check("in a message the DM will see", r.messages.some((m) => /editor-state/.test(m)), true);
+  }
+);
+
+withRepo(
+  {
+    ".gitignore": "drafts/\n",
+    "settings/rolara/items/Sword.md": article("publish: false\ntype: Item", "A blade."),
+    "settings/rolara/items/Items-INDEX.md": article("publish: false\ntype: Index", "- [[Sword]]"),
+    "drafts/Secret.md": "See [[Sword]].\n",
+  },
+  (root) => {
+    // A git-ignored REFERRING file is edited rather than skipped, because the
+    // rename breaks its wikilink either way and a repaired ignored file beats a
+    // broken one. What makes that defensible is that the run says so.
+    const r = apply(root, [
+      {
+        op: "rename-with-link-rewrite",
+        from: "settings/rolara/items/Sword.md",
+        to: "settings/rolara/items/Sword-ITEM.md",
+        links: ["settings/rolara/items/Items-INDEX.md", "drafts/Secret.md"],
+        reason: "suffix",
+      },
+    ]);
+    check("the rename and both rewrites are one applied unit",
+      [r.applied.length, r.failed.length, r.skipped.length], [1, 0, 0]);
+    check("the ignored referring file is repaired rather than left holding a dead link",
+      read(root, "drafts/Secret.md"), "See [[Sword-ITEM]].\n");
+    check("the run names it, because git reset --hard will not undo that edit",
+      r.ignoredEdits.map((e) => e.referrer), ["drafts/Secret.md"]);
+    check("in a message the DM will see", r.messages.some((m) => /drafts\/Secret\.md/.test(m)), true);
+    check("a tracked referrer is not reported as one of them",
+      r.ignoredEdits.some((e) => /Items-INDEX/.test(e.referrer)), false);
   }
 );
 

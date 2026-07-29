@@ -67,17 +67,34 @@ export function buildPlan({ projectRoot, settings, baseRules, discovered }) {
 }
 
 /**
- * `ignored` is Array OR null. null means the question could not be answered;
- * see findIgnoredSources. An empty array and null are not interchangeable.
+ * THREE ignore-related fields, each Array OR null, and null always means the
+ * question could not be answered rather than that the answer was "none":
  *
- * @returns {{ok: boolean, collisions: Array, caseRenames: Array, ignored: Array|null}}
+ *   ignored           operations whose own SOURCE is git-ignored. The apply
+ *                     phase skips these. See findIgnoredSources.
+ *   ignoredBeneath    directory moves that carry git-ignored files along with
+ *                     them. Applied, reported, not skipped. See
+ *                     findIgnoredWithinSources.
+ *   ignoredReferrers  git-ignored files the plan names as referrers, whose
+ *                     wikilinks are rewritten in place. See
+ *                     findIgnoredReferrers.
+ *
+ * Only `ignored` drives skipping. The other two exist so the apply phase can
+ * disclose the edits and moves that the snapshot will not undo.
+ *
+ * @returns {{ok: boolean, collisions: Array, caseRenames: Array,
+ *            ignored: Array|null, ignoredBeneath: Array|null,
+ *            ignoredReferrers: Array|null}}
  */
 export function runPrechecks({ operations, projectRoot }) {
+  const oracle = ignoreOracle(projectRoot);
   // ignored has to be computed FIRST. findDestinationCollisions needs to know
   // which operations the apply phase will skip, because a skipped operation
   // does not vacate its source; see the vacated comment inside that function
   // for what goes wrong when the order is the other way around.
-  const ignored = findIgnoredSources(operations, projectRoot);
+  const ignored = findIgnoredSources(operations, oracle);
+  const ignoredBeneath = findIgnoredWithinSources(operations, oracle, projectRoot);
+  const ignoredReferrers = findIgnoredReferrers(operations, oracle);
   const collisions = findDestinationCollisions(operations, projectRoot, ignored);
   const caseRenames = list(operations).filter(
     (o) => o.from && o.to && o.from.toLowerCase() === o.to.toLowerCase() && o.from !== o.to
@@ -86,7 +103,7 @@ export function runPrechecks({ operations, projectRoot }) {
   // so it must not fail the run: one ignored file inside a prong would otherwise
   // stop the whole migration. ignored still rides along because the after-action
   // report has to name every file the run declined to touch.
-  return { ok: collisions.length === 0, collisions, caseRenames, ignored };
+  return { ok: collisions.length === 0, collisions, caseRenames, ignored, ignoredBeneath, ignoredReferrers };
 }
 
 // Operation kinds whose destination is SUPPOSED to be there already, so finding
@@ -651,27 +668,16 @@ function frontmatterHasPublish(file) {
 // Ignored sources
 // ---------------------------------------------------------------------------
 
-// An ignored file is not in the snapshot, so moving it would be unrecoverable.
-// Every operation whose source is ignored is reported here and skipped by the
-// apply phase. It does not fail the run: see runPrechecks.
+// Asks git, once, which paths it ignores, and hands back the predicates the
+// three finders below are built from. Built once per prechecks run so that
+// answering three questions still costs one pair of git calls.
 //
-// THREE states, not two, and a consumer using this as a skip list has to tell
-// them apart:
-//
-//   []    determined, and nothing in the plan has an ignored source.
-//   [...] determined, and these are the operations to skip.
-//   null  NOT DETERMINED. No projectRoot (re-running the prechecks against a
-//         bare plan object, which carries no root), a projectRoot that is not
-//         there, a project that is not a git repository, or a git call that
-//         failed for any reason including outrunning maxBuffer.
-//
-// null and [] are not interchangeable, which is why null rather than a flag
-// beside an empty array: a consumer that iterates it without handling the third
-// state fails loudly instead of quietly reading "unknown" as "nothing to skip".
-// The non-repo case is the sharp one. No repository means no snapshot either,
-// so it is not that nothing is ignored, it is that EVERY source is outside the
-// snapshot, and returning [] there would say the opposite.
-function findIgnoredSources(operations, projectRoot) {
+// Returns null when the question cannot be answered at all: no projectRoot
+// (re-running the prechecks against a bare plan object, which carries no root),
+// a projectRoot that is not there, a project that is not a git repository, or a
+// git call that failed for any reason including outrunning maxBuffer. Every
+// finder propagates that null rather than inventing an empty answer.
+function ignoreOracle(projectRoot) {
   if (!projectRoot || !existsSync(projectRoot)) return null;
 
   const git = (argv) => {
@@ -721,20 +727,70 @@ function findIgnoredSources(operations, projectRoot) {
     if (p.endsWith("/")) ignoredDirs.push(p);
     else ignoredFiles.add(p);
   }
-  if (ignoredFiles.size === 0 && ignoredDirs.length === 0) return [];
 
-  const isIgnored = (source) => {
-    const rel = toPosix(path.relative(repoRoot, path.resolve(projectRoot, source)));
-    if (rel === "" || rel.startsWith("../")) return false;
-    if (ignoredFiles.has(rel)) return true;
-    return ignoredDirs.some((d) => rel === d.slice(0, -1) || rel.startsWith(d));
+  const repoRelative = (p) => {
+    const rel = toPosix(path.relative(repoRoot, path.resolve(projectRoot, p)));
+    return rel === "" || rel.startsWith("../") ? null : rel;
   };
 
+  return {
+    isIgnored(p) {
+      const rel = repoRelative(p);
+      if (rel == null) return false;
+      if (ignoredFiles.has(rel)) return true;
+      return ignoredDirs.some((d) => rel === d.slice(0, -1) || rel.startsWith(d));
+    },
+    // Everything git reports ignored that lives BENEATH a path, which is a
+    // different question from whether that path is itself ignored.
+    ignoredBeneath(p) {
+      const rel = repoRelative(p);
+      if (rel == null) return [];
+      const prefix = `${rel}/`;
+      const out = [];
+      for (const f of ignoredFiles) if (f.startsWith(prefix)) out.push(f);
+      for (const d of ignoredDirs) if (d.startsWith(prefix)) out.push(d);
+      return out.sort();
+    },
+  };
+}
+
+// An ignored file is not in the snapshot, so moving it would be unrecoverable.
+// Every operation whose SOURCE is ignored is reported here and skipped by the
+// apply phase. It does not fail the run: see runPrechecks.
+//
+// The test is per OPERATION SOURCE, and it is NOT a test of each file beneath
+// that source. An operation whose source is a directory, which is every
+// relocate-prong and every vault move, is skipped only when git ignores the
+// DIRECTORY ITSELF; when the directory is tracked but holds ignored files, the
+// operation runs and `git mv` carries those ignored files along with everything
+// else. Measured: with oldprong/editor-state/ ignored, `git mv oldprong
+// newprong` moves its contents too, and a later `git reset --hard` does not
+// bring them back, so for those files the snapshot no longer restores the
+// pre-migration state. Nothing is lost and the files arguably belong at the new
+// path, but the claim this module makes about its snapshot is narrower than it
+// reads, so findIgnoredWithinSources reports exactly that set and the apply
+// phase names it in the run's messages.
+//
+// THREE states, not two, and a consumer using this as a skip list has to tell
+// them apart:
+//
+//   []    determined, and nothing in the plan has an ignored source.
+//   [...] determined, and these are the operations to skip.
+//   null  NOT DETERMINED; see ignoreOracle for the four ways that happens.
+//
+// null and [] are not interchangeable, which is why null rather than a flag
+// beside an empty array: a consumer that iterates it without handling the third
+// state fails loudly instead of quietly reading "unknown" as "nothing to skip".
+// The non-repo case is the sharp one. No repository means no snapshot either,
+// so it is not that nothing is ignored, it is that EVERY source is outside the
+// snapshot, and returning [] there would say the opposite.
+function findIgnoredSources(operations, oracle) {
+  if (oracle === null) return null;
   const out = [];
   for (const o of list(operations)) {
     if (!o || typeof o !== "object") continue;
     for (const source of [o.from, ...list(o.sources)]) {
-      if (!source || !isIgnored(source)) continue;
+      if (!source || !oracle.isIgnored(source)) continue;
       out.push({
         op: o.op,
         source: toPosix(source),
@@ -742,6 +798,93 @@ function findIgnoredSources(operations, projectRoot) {
         to: o.to,
         reason:
           "Source is git-ignored, so the pre-migration snapshot does not contain it. Reported and left where it is; moving it would be unrecoverable.",
+      });
+    }
+  }
+  return out;
+}
+
+// The ignored files a directory move carries along with it. Reported, never
+// skipped: the operation itself is legitimate, its source is tracked, and
+// refusing to relocate a whole prong because one editor-state file sits inside
+// it would abort the migration this release exists to perform. What the report
+// buys is that the DM learns which files `git reset --hard` will not put back.
+//
+// Array OR null, on the same terms as findIgnoredSources.
+function findIgnoredWithinSources(operations, oracle, projectRoot) {
+  if (oracle === null) return null;
+  const out = [];
+  for (const o of list(operations)) {
+    if (!o || typeof o !== "object" || !o.from || !o.to) continue;
+    let st;
+    try {
+      st = statSync(path.resolve(projectRoot, o.from));
+    } catch {
+      continue;
+    }
+    if (!st.isDirectory()) continue;
+    const entries = oracle.ignoredBeneath(o.from);
+    if (entries.length === 0) continue;
+    out.push({
+      op: o.op,
+      from: toPosix(o.from),
+      to: toPosix(o.to),
+      entries,
+      reason:
+        "These git-ignored paths live inside a directory this operation moves, so git mv carries them to the new path. They are outside the snapshot, so restoring it does not put them back.",
+    });
+  }
+  return out;
+}
+
+// The git-ignored files a plan names as REFERRERS, whose wikilinks the rewrite
+// half edits in place.
+//
+// Decided deliberately, because the module's stated reason for skipping an
+// ignored SOURCE ("outside the snapshot, so moving it would be unrecoverable")
+// applies word for word to editing one. Chosen: EDIT the ignored referrer, and
+// report it here so the DM can find out. The reasoning is that the rename breaks
+// that file's wikilink whether or not the rewrite runs. Skipping does not leave
+// the ignored file untouched, it leaves it holding a dead link, and a dead
+// wikilink is valid markdown that fails silently in Obsidian. So the real choice
+// is between an ignored file that is repaired and an ignored file that is
+// broken, with neither outcome recoverable from the snapshot. Repair wins.
+//
+// The two things that keep that defensible are the same two limits the rename
+// path already lives under: only the files the plan NAMES are touched, and only
+// the wikilink TARGET is changed, leaving display text, anchors, path prefixes,
+// and every other byte alone. The third is this report, which is what turns an
+// unrecoverable edit into a disclosed one.
+//
+// Skipping was the alternative, and it was rejected on more than the dead link
+// it leaves: a rename whose referrer set includes an ignored file would then
+// report applied false under the one-unit-of-work rule, so a single ignored
+// drafts/ file linking to a renamed article would block the whole migration with
+// no way through except deleting the DM's draft.
+//
+// Array OR null, on the same terms as findIgnoredSources.
+function findIgnoredReferrers(operations, oracle) {
+  if (oracle === null) return null;
+  const out = [];
+  const seen = new Set();
+  for (const o of list(operations)) {
+    if (!o || typeof o !== "object") continue;
+    const pairs = list(o.links).map((ref) => ({ source: toPosix(o.from || ""), referrer: toPosix(ref) }));
+    const named = o.sourceLinks && typeof o.sourceLinks === "object" ? o.sourceLinks : {};
+    for (const key of Object.keys(named)) {
+      for (const ref of list(named[key])) pairs.push({ source: toPosix(key), referrer: toPosix(ref) });
+    }
+    for (const pair of pairs) {
+      if (!pair.referrer || !oracle.isIgnored(pair.referrer)) continue;
+      const key = `${o.op}::${pair.source}::${pair.referrer}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push({
+        op: o.op,
+        source: pair.source,
+        referrer: pair.referrer,
+        reason:
+          "This referring file is git-ignored, so it is outside the snapshot. Its wikilink IS rewritten, because the rename would otherwise leave it holding a dead link, but restoring the snapshot will not undo that edit.",
       });
     }
   }
@@ -818,6 +961,21 @@ function defaultIndexStem(folder) {
 //      ignored-source operation with vacating its destination precisely because
 //      this phase will not run it. Applying them anyway would break the
 //      assumption the collision check was corrected to make.
+//
+//      READ THAT NARROWLY. The test is on the operation's own SOURCE, and it is
+//      not a test of every file beneath that source, so the property is weaker
+//      than "this run never touches anything outside the snapshot". Two shapes
+//      fall outside it, both measured, and both are DISCLOSED in the run's
+//      messages rather than silently allowed:
+//
+//        A directory move carries the ignored files inside it. `git mv oldprong
+//        newprong` moves ignored contents too, and a later `git reset --hard`
+//        does not bring them back. Reported as result.ignoredMoved.
+//
+//        A git-ignored REFERRING file named by the plan has its wikilink
+//        rewritten in place. Reported as result.ignoredEdits. That is a
+//        deliberate choice rather than an oversight; findIgnoredReferrers
+//        carries the reasoning and the alternative that was rejected.
 //
 //   3. A RENAME AND ITS LINK REWRITE ARE ONE UNIT OF WORK with one applied
 //      true/false entry. Not two batched passes. A dead wikilink is valid
@@ -994,18 +1152,91 @@ function dissectTarget(target) {
   return { prefix, stem, ext, anchor };
 }
 
+// Code spans and fenced blocks are not link-bearing text. A wikilink quoted
+// inside documentation prose is an EXAMPLE of a link rather than a link the DM
+// expects to resolve, and blocking a migration commit on one would be a false
+// alarm on the loudest rail in the system.
+//
+// ONE definition of "quoted", shared by BOTH halves. The extraction half used to
+// strip fences while the rewrite half did not, so a fenced example wikilink in a
+// file the plan named in `op.links` was rewritten as if it were real: the
+// rewriter silently edited the DM's documentation, and the rail, which never saw
+// that link, had nothing to say about it. Measured, on a doc carrying one real
+// link plus a fenced example plus an inline code span, the rewriter reported
+// three rewrites. Both halves now derive their regions from protectedRanges, so
+// a span either is link-bearing for both or for neither, by construction rather
+// than by two regexes agreeing.
+//
+// Fences first, then code spans OUTSIDE them, which is the order the strip form
+// used: a backtick pair inside a fenced block is fence content, not a span.
+const FENCE = /^[ \t]*(`{3,}|~{3,})[\s\S]*?^[ \t]*\1[ \t]*$/gm;
+const CODE_SPAN = /`[^`\n]*`/g;
+
+function protectedRanges(text) {
+  const ranges = [];
+  let m;
+  FENCE.lastIndex = 0;
+  while ((m = FENCE.exec(text)) !== null) ranges.push([m.index, m.index + m[0].length]);
+  const fences = ranges.length;
+  CODE_SPAN.lastIndex = 0;
+  while ((m = CODE_SPAN.exec(text)) !== null) {
+    let inFence = false;
+    for (let i = 0; i < fences; i++) {
+      if (m.index >= ranges[i][0] && m.index < ranges[i][1]) {
+        inFence = true;
+        break;
+      }
+    }
+    if (!inFence) ranges.push([m.index, m.index + m[0].length]);
+  }
+  return ranges;
+}
+
+function withinProtected(ranges, offset) {
+  for (const [start, end] of ranges) {
+    if (offset >= start && offset < end) return true;
+  }
+  return false;
+}
+
+// Blanked rather than deleted, so every offset in the returned string is the
+// offset it had in the original. That is what lets the rewrite half test a match
+// position against the same ranges this one erases.
+function linkBearingText(text) {
+  const source = String(text);
+  const ranges = protectedRanges(source);
+  if (ranges.length === 0) return source;
+  const chars = source.split("");
+  for (const [start, end] of ranges) {
+    for (let i = start; i < end; i++) {
+      if (chars[i] !== "\n") chars[i] = " ";
+    }
+  }
+  return chars.join("");
+}
+
 /**
  * Rewrites every wikilink whose target FILENAME matches oldStem, preserving any
  * path prefix, extension, anchor, separator style, and display text. Matching is
  * case-insensitive, which is what lets a case-only rename take its referring
  * links with it.
  *
+ * A wikilink inside a code span or a fenced block is left alone, on the same
+ * terms the link-integrity assertion leaves it alone. A named file whose only
+ * occurrence is quoted therefore reports zero rewrites, which the rename and
+ * merge executors already treat as a drop: a plan naming a documentation file as
+ * a referrer is a stale plan, and saying so is better than editing prose that
+ * was never a link.
+ *
  * @returns {{text: string, count: number}}
  */
 export function rewriteWikilinks(text, oldStem, newStem) {
+  const source = String(text);
   const wanted = String(oldStem).trim().toLowerCase();
+  const quoted = protectedRanges(source);
   let count = 0;
-  const out = String(text).replace(WIKILINK, (whole, inner) => {
+  const out = source.replace(WIKILINK, (whole, inner, offset) => {
+    if (withinProtected(quoted, offset)) return whole;
     const { target, sep, display } = splitWikilink(inner);
     const { prefix, stem, ext, anchor } = dissectTarget(target);
     if (stem.trim().toLowerCase() !== wanted) return whole;
@@ -1014,16 +1245,6 @@ export function rewriteWikilinks(text, oldStem, newStem) {
     return `${bang}[[${prefix}${newStem}${ext}${anchor}${sep}${display}]]`;
   });
   return { text: out, count };
-}
-
-// Code spans and fenced blocks are stripped before extraction. A wikilink quoted
-// inside documentation prose is not a link the DM expects to resolve, and
-// blocking a migration commit on one would be a false alarm on the loudest rail
-// in the system.
-function linkBearingText(text) {
-  return String(text)
-    .replace(/^[ \t]*(`{3,}|~{3,})[\s\S]*?^[ \t]*\1[ \t]*$/gm, "")
-    .replace(/`[^`\n]*`/g, "");
 }
 
 function wikilinkTargetsIn(text) {
@@ -1035,6 +1256,43 @@ function wikilinkTargetsIn(text) {
   return out;
 }
 
+// The paths a DECLARED prong root can actually be at once the plan has run.
+//
+// The settings the apply phase is handed are the conventions.json that was on
+// disk when the run started, so every root in them is a PRE-migration path, and
+// relocating those roots to the canonical layout is precisely what this release
+// exists to do. relocate-prong is operation #1, so by the time the assertion
+// runs the declared root is already gone. Filtering the declared roots on
+// existsSync alone therefore dropped the relocated prong silently, and because
+// the zero-coverage fallback only fires when EVERY root vanishes, one surviving
+// prong was enough to shrink the rail to that prong and let a dead wikilink
+// through. Measured: filesChecked 1, linksChecked 0, ok true, committed.
+//
+// So a declared root is resolved THROUGH the plan's own relocate-prong
+// operations, which already carry `from` and `to`. Every intermediate is kept as
+// a candidate and existsSync decides which of them to walk, rather than the
+// mapping deciding: a relocation that was skipped for a git-ignored source, or
+// that failed, leaves the root exactly where it was declared and the walk has to
+// find it there; a chain (A to B, then B to C) leaves it at the end of the
+// chain; a half-applied run can leave content at both. Keeping both ends covers
+// all three without the assertion needing to know each operation's outcome.
+function scopeCandidates(root, relocations) {
+  const out = [toPosix(root)];
+  let current = out[0];
+  for (const move of list(relocations)) {
+    if (!move || !move.from || !move.to) continue;
+    const from = toPosix(move.from);
+    const to = toPosix(move.to);
+    let next = null;
+    if (current === from) next = to;
+    else if (current.startsWith(`${from}/`)) next = to + current.slice(from.length);
+    if (next == null || next === current) continue;
+    current = next;
+    if (!out.includes(current)) out.push(current);
+  }
+  return out;
+}
+
 /**
  * The post-migration link-integrity assertion. It runs after every rename and
  * every link rewrite has been applied and BEFORE the migration commit, because
@@ -1042,59 +1300,98 @@ function wikilinkTargetsIn(text) {
  * already carry the dead links, and reporting a problem after committing it is
  * not a safety rail.
  *
- * Extraction walks every markdown file under every prong root of every setting.
+ * Extraction walks every markdown file under every prong root of every setting,
+ * each root resolved through the plan's relocations first; see scopeCandidates.
+ *
  * Resolution is FILENAME-based rather than path-based, because Obsidian
- * wikilinks are filename-based, and it resolves against every markdown file in
- * the project rather than only the prong roots: a link out to a file the
- * settings do not enumerate is legitimate, while a target that exists nowhere is
- * the dropped rewrite this rail is looking for.
+ * wikilinks are filename-based. It resolves against the markdown files IN THE
+ * WALKED ROOTS, not against every markdown file in the project. Project-wide
+ * resolution was the wider claim and it was wrong in a way that defeated the
+ * rail: measured, with an unrelated archive/old/Sword.md sitting outside every
+ * prong root, a dropped rewrite left [[Sword]] behind, the renamed file was
+ * indeed gone from every path, and a DIFFERENT file with the same basename
+ * satisfied the link, so the run committed clean. Filename resolution is
+ * plan-mandated; resolving it against files the settings do not enumerate was
+ * not, and that is the half that gave a stranger's basename standing.
+ *
+ * The limitation this trades for, stated plainly: a wikilink from inside a prong
+ * root out to a file that lives under no prong root of any setting now reads as
+ * dead. That is a refusal to commit, with the work intact in the working tree
+ * and the snapshot intact behind it, which is recoverable. A dead link committed
+ * because an unrelated file happened to share a basename is not.
+ *
+ * `expectLinks` says the plan carried operations that can orphan a wikilink. In
+ * that case an assertion that checked ZERO links is reported as a failure rather
+ * than a pass, because the module's own principle is that an assertion which
+ * silently checks nothing is not an assertion, and zero links after a rename or
+ * a merge is far likelier to mean the walk scope missed the content than to mean
+ * the knowledge base has no wikilinks in it. The residual false alarm is a
+ * knowledge base that genuinely carries no wikilink anywhere under any prong
+ * root; `roots` and `filesChecked` are returned so that a caller reporting the
+ * refusal can say which of the two it was.
  *
  * @returns {{ok: boolean, dead: Array<{file: string, target: string}>,
- *            filesChecked: number, linksChecked: number}}
+ *            filesChecked: number, linksChecked: number,
+ *            coverage: "ok"|"no-links-checked", roots: Array<string>}}
  */
-export function assertLinkIntegrity({ cwd, settings }) {
+export function assertLinkIntegrity({ cwd, settings, relocations, expectLinks }) {
   const roots = [];
   for (const setting of list(settings)) {
-    for (const root of prongRootsOf(setting)) {
-      const abs = path.resolve(cwd, root);
-      if (existsSync(abs) && !roots.includes(abs)) roots.push(abs);
+    for (const declared of prongRootsOf(setting)) {
+      for (const candidate of scopeCandidates(declared, relocations)) {
+        const abs = path.resolve(cwd, candidate);
+        if (existsSync(abs) && !roots.includes(abs)) roots.push(abs);
+      }
     }
   }
   // No settings resolved: assert over the whole project rather than over
   // nothing. An assertion that silently checks zero files is not an assertion.
   if (roots.length === 0) roots.push(path.resolve(cwd));
 
-  const known = new Set();
-  for (const file of walkMarkdown(path.resolve(cwd))) {
-    known.add(path.basename(file).slice(0, -3).toLowerCase());
-  }
-
-  const dead = [];
+  // Walked once. Both the file list and the resolvable-basename set come from
+  // this same pass, so the scope being checked and the scope being resolved
+  // against cannot drift apart.
+  const files = [];
   const seenFiles = new Set();
-  let linksChecked = 0;
   for (const root of roots) {
     for (const file of walkMarkdown(root)) {
       const rel = toPosix(path.relative(cwd, file));
       if (seenFiles.has(rel)) continue;
       seenFiles.add(rel);
-      let text;
-      try {
-        text = readFileSync(file, "utf8");
-      } catch {
-        continue;
-      }
-      for (const target of wikilinkTargetsIn(text)) {
-        const { stem, ext } = dissectTarget(target);
-        const trimmed = stem.trim();
-        if (trimmed === "") continue; // [[#Heading]], a link into this same file.
-        if (ext !== "" && ext.toLowerCase() !== ".md") continue; // An attachment, not an article.
-        linksChecked++;
-        if (known.has(trimmed.toLowerCase())) continue;
-        dead.push({ file: rel, target });
-      }
+      files.push({ abs: file, rel });
     }
   }
-  return { ok: dead.length === 0, dead, filesChecked: seenFiles.size, linksChecked };
+  const known = new Set(files.map((f) => path.basename(f.abs).slice(0, -3).toLowerCase()));
+
+  const dead = [];
+  let linksChecked = 0;
+  for (const { abs, rel } of files) {
+    let text;
+    try {
+      text = readFileSync(abs, "utf8");
+    } catch {
+      continue;
+    }
+    for (const target of wikilinkTargetsIn(text)) {
+      const { stem, ext } = dissectTarget(target);
+      const trimmed = stem.trim();
+      if (trimmed === "") continue; // [[#Heading]], a link into this same file.
+      if (ext !== "" && ext.toLowerCase() !== ".md") continue; // An attachment, not an article.
+      linksChecked++;
+      if (known.has(trimmed.toLowerCase())) continue;
+      dead.push({ file: rel, target });
+    }
+  }
+
+  const coverage = expectLinks === true && linksChecked === 0 ? "no-links-checked" : "ok";
+  return {
+    ok: dead.length === 0 && coverage === "ok",
+    dead,
+    filesChecked: seenFiles.size,
+    linksChecked,
+    coverage,
+    roots: roots.map((r) => toPosix(path.relative(cwd, r)) || "."),
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -1898,6 +2195,56 @@ export function applyOperation(op, ctx) {
 // applyPlan
 // ---------------------------------------------------------------------------
 
+// The operation kinds that can orphan a wikilink, which is what makes a
+// zero-link assertion suspicious rather than merely quiet. A rename changes a
+// target's filename and a merge removes its sources outright. relocate-prong is
+// deliberately not one of them: Obsidian resolves wikilinks by basename, so a
+// folder move leaves every basename exactly where it was.
+const LINK_BEARING_OPERATIONS = new Set(["rename-with-link-rewrite", "merge-index"]);
+
+// The recovery instruction, whole rather than half of one.
+//
+// `git reset --hard <snapshot>` restores every TRACKED path, and the files this
+// run CREATED were never staged, so it leaves them behind: a created index, a
+// vault's app.json, a tag registry written to a path that was not tracked
+// before. Measured, on a blocked run that created one index: the DM follows the
+// printed line, the created index is still on disk as an untracked file, and the
+// rerun then aborts in the prechecks on an on-disk collision with that very
+// file. So the printed instruction sent the DM to a state where the migration
+// refuses to start.
+//
+// Chosen: the message names what else is needed. The alternative was for the
+// blocked path to remove what the run created, and it was rejected twice over.
+// This module deliberately imports no delete primitive (no rmSync, no
+// unlinkSync, no renameSync) precisely so that no code path can quietly destroy
+// a file, and the blocked path is the one where something has ALREADY gone
+// wrong, which is the worst available moment to start deleting unattended.
+//
+// The leftovers are READ BACK from git rather than inferred from the plan, so
+// the list is what `git clean -fd` will actually remove and the DM can check it
+// before running anything. Ignored paths are in neither list: `--porcelain`
+// without `--ignored` does not report them and `clean -fd` without `-x` does not
+// remove them, which is the right pairing, since an ignored file was never in
+// the snapshot to be restored to in the first place.
+function restoreInstruction(git, cwd, snapshot) {
+  const base = `Restore the tracked files with: git -C ${cwd} reset --hard ${snapshot}.`;
+  const status = git(["status", "--porcelain"]);
+  if (!status.ok) {
+    return `${base} That may not be the whole recovery: any file this run CREATED is untracked, and reset --hard leaves untracked files behind. Check git status afterward.`;
+  }
+  const created = status.stdout
+    .split("\n")
+    .filter((line) => line.startsWith("?? "))
+    .map((line) => line.slice(3).trim())
+    .filter(Boolean);
+  if (created.length === 0) return base;
+  return (
+    `${base} That is NOT the whole recovery: this run created ${created.length} untracked path(s) that reset --hard ` +
+    `leaves behind, and a rerun aborts on them in the prechecks as on-disk collisions. They are: ${created.join(", ")}. ` +
+    `Remove them after the reset with: git -C ${cwd} clean -fd.`
+  );
+}
+
 /**
  * Applies a plan. Every refusal happens BEFORE any mutation, and every refusal
  * leaves the project byte-identical.
@@ -1908,7 +2255,13 @@ export function applyOperation(op, ctx) {
  * @returns {{ok: boolean, refused: object|null, snapshot: string|null,
  *            migration: string|null, committed: boolean,
  *            applied: Array, failed: Array, dropped: Array, skipped: Array,
+ *            ignoredEdits: Array, ignoredMoved: Array,
  *            linkIntegrity: object|null, messages: Array<string>}}
+ *
+ * `settings` are the conventions that were on disk when the run started, so
+ * their prong roots are PRE-migration paths. That is the ordinary shape and it
+ * is handled: the link-integrity assertion resolves each declared root through
+ * this plan's own relocate-prong operations before walking it.
  */
 export function applyPlan(plan, options = {}) {
   const cwd = options.cwd;
@@ -1931,6 +2284,8 @@ export function applyPlan(plan, options = {}) {
     failed: [],
     dropped: [],
     skipped: [],
+    ignoredEdits: [],
+    ignoredMoved: [],
     linkIntegrity: null,
     messages: [],
   };
@@ -2095,15 +2450,62 @@ export function applyPlan(plan, options = {}) {
   }
 
   // ------------------------------------------------------------------
+  // What the snapshot will not undo, disclosed rather than left silent
+  // ------------------------------------------------------------------
+  //
+  // Both lists are filtered to operations that actually RAN: an operation
+  // skipped for a git-ignored source moved nothing and rewrote nothing, so
+  // reporting its ignored contents or referrers would be reporting an edit that
+  // never happened.
+  result.ignoredEdits = list(prechecks.ignoredReferrers).filter((r) => !ignoredSources.has(r.source));
+  result.ignoredMoved = list(prechecks.ignoredBeneath).filter((r) => !ignoredSources.has(r.from));
+  if (result.ignoredEdits.length > 0) {
+    result.messages.push(
+      `Note: ${result.ignoredEdits.length} git-ignored referring file(s) were named by the plan and had their wikilinks ` +
+        `rewritten in place rather than skipped: ${result.ignoredEdits.map((r) => r.referrer).join(", ")}. ` +
+        "Only the wikilink target changed; display text, anchors, and every other byte were left alone. The rename would " +
+        "otherwise have left each of them holding a dead link. These files are outside the snapshot, so restoring it will " +
+        "NOT undo these edits. Each operation's own entry reports whether its rewrites landed."
+    );
+  }
+  if (result.ignoredMoved.length > 0) {
+    const named = result.ignoredMoved.map((r) => `${r.from} -> ${r.to}: ${r.entries.join(", ")}`);
+    result.messages.push(
+      `Note: ${result.ignoredMoved.length} directory move(s) carried git-ignored files to the new path, because git mv moves ` +
+        `a directory's whole contents and the skip rule tests the operation's source, not each file beneath it: ${named.join("; ")}. ` +
+        "Nothing was lost and the files now sit at the new path, but they are outside the snapshot, so restoring it will not put them back."
+    );
+  }
+
+  // ------------------------------------------------------------------
   // The link-integrity assertion, BEFORE the commit
   // ------------------------------------------------------------------
-  result.linkIntegrity = assertLinkIntegrity({ cwd, settings });
+  //
+  // The relocations are handed over because the settings above carry
+  // PRE-migration prong roots, and relocate-prong has already moved them; see
+  // scopeCandidates. expectLinks is handed over because a rename or a merge that
+  // ends with zero links checked is a rail reporting on nothing.
+  result.linkIntegrity = assertLinkIntegrity({
+    cwd,
+    settings,
+    relocations: operations.filter((o) => o.op === "relocate-prong" && o.from && o.to),
+    expectLinks: operations.some((o) => LINK_BEARING_OPERATIONS.has(o.op)),
+  });
   if (!result.linkIntegrity.ok) {
     result.messages.push(
-      `Link integrity failed: ${result.linkIntegrity.dead.length} wikilink(s) resolve to nothing after the run. ` +
+      (result.linkIntegrity.coverage === "no-links-checked"
+        ? "Link integrity could NOT be asserted: this plan carries operations that can orphan a wikilink, but the " +
+          `assertion found zero wikilinks across the ${result.linkIntegrity.filesChecked} file(s) it walked, in ` +
+          `${JSON.stringify(result.linkIntegrity.roots)}. An assertion that checks nothing is not an assertion, so this is a ` +
+          "failure rather than a pass. Either those roots are not where this run put the content, or the knowledge base " +
+          "genuinely carries no wikilinks; the walked roots above say which. "
+        : `Link integrity failed: ${result.linkIntegrity.dead.length} wikilink(s) resolve to nothing after the run. `) +
         "The migration was NOT committed. A dead wikilink is valid markdown that fails silently in Obsidian, " +
-        `so this is checked before the commit rather than reported after it. Restore with: git -C <project> reset --hard ${result.snapshot}. ` +
-        `Dead links: ${JSON.stringify(result.linkIntegrity.dead)}`
+        "so this is checked before the commit rather than reported after it. " +
+        restoreInstruction(git, cwd, result.snapshot) +
+        (result.linkIntegrity.dead.length > 0
+          ? ` Dead links: ${JSON.stringify(result.linkIntegrity.dead)}`
+          : "")
     );
     return result;
   }
@@ -2118,7 +2520,9 @@ export function applyPlan(plan, options = {}) {
   }
   const staged = git(["add", "-A"]);
   if (!staged.ok) {
-    result.messages.push(`Could not stage the migration: ${firstLine(staged.stderr)}. Not committed.`);
+    result.messages.push(
+      `Could not stage the migration: ${firstLine(staged.stderr)}. Not committed. ${restoreInstruction(git, cwd, result.snapshot)}`
+    );
     return result;
   }
   const pending = git(["status", "--porcelain"]);
@@ -2129,7 +2533,13 @@ export function applyPlan(plan, options = {}) {
   }
   const committed = git(["commit", "-q", "-m", commitMessage]);
   if (!committed.ok) {
-    result.messages.push(`The migration commit failed: ${firstLine(committed.stderr)}. The snapshot is intact at ${result.snapshot}.`);
+    // Everything is staged by this point, and `reset --hard` DOES remove a
+    // staged-but-uncommitted addition, so here the reset usually is the whole
+    // recovery. restoreInstruction reads the state back rather than assuming
+    // that, so it says so only when it is true.
+    result.messages.push(
+      `The migration commit failed: ${firstLine(committed.stderr)}. The snapshot is intact at ${result.snapshot}. ${restoreInstruction(git, cwd, result.snapshot)}`
+    );
     return result;
   }
   const after = git(["rev-parse", "HEAD"]);

@@ -511,6 +511,57 @@ try {
     check("and still turns on collisions alone", pre.ok, true);
   }
 
+  console.log("\nThe two ignore shapes the skip rule does NOT cover");
+
+  {
+    // The skip rule tests the operation's own SOURCE. settings/rolara is
+    // tracked, so a move of it is not skipped, and git mv carries every ignored
+    // path inside it along to the new location, where the snapshot can no longer
+    // restore them. Not an abort and not a skip: reported, so the apply phase
+    // can disclose it.
+    const pre = runPrechecks({
+      operations: [{ op: "relocate-prong", from: "settings/rolara", to: "worlds/rolara" }],
+      projectRoot: repo,
+    });
+    check("a directory move whose own source is tracked is not skipped", pre.ignored, []);
+    check("but every git-ignored path beneath it is reported",
+      pre.ignoredBeneath.map((e) => e.entries).flat(),
+      [
+        "settings/rolara/Café/",
+        "settings/rolara/editor-state/",
+        "settings/rolara/two words.md",
+        "settings/rolara/éclair-notes.md",
+      ]);
+    check("against the operation that carries them",
+      pre.ignoredBeneath.map((e) => `${e.op} ${e.from} -> ${e.to}`),
+      ["relocate-prong settings/rolara -> worlds/rolara"]);
+    check("and it still does not abort the run", pre.ok, true);
+  }
+
+  {
+    // A git-ignored file named as a REFERRER is not skipped either: its wikilink
+    // is rewritten in place, because the rename breaks that link whether or not
+    // the rewrite runs, and a repaired ignored file beats a broken one. Reported
+    // so the apply phase can disclose an edit the snapshot will not undo.
+    const pre = runPrechecks({
+      operations: [
+        {
+          op: "rename-with-link-rewrite",
+          from: "settings/rolara/Ashfall-Compact.md",
+          to: "settings/rolara/Ashfall-Compact-ORG.md",
+          links: ["settings/rolara/editor-state/scratch.md", "settings/rolara/Vault-Of-Secrets.md"],
+        },
+      ],
+      projectRoot: repo,
+    });
+    check("the operation's own source is tracked, so nothing is skipped", pre.ignored, []);
+    check("the git-ignored referring file is reported",
+      pre.ignoredReferrers.map((r) => r.referrer), ["settings/rolara/editor-state/scratch.md"]);
+    check("a tracked referring file is not",
+      pre.ignoredReferrers.some((r) => /Vault-Of-Secrets/.test(r.referrer)), false);
+    check("and neither shape aborts the run", pre.ok, true);
+  }
+
   console.log("\nIgnored paths git would quote");
 
   {
@@ -823,6 +874,11 @@ try {
     });
     check("runPrechecks with no projectRoot reports ignored undetermined, not empty", pre.ignored, null);
     check("and undetermined ignored does not by itself abort", pre.ok, true);
+    // The two later fields answer the same git question, so they carry the same
+    // third state. An empty array on either would claim there is nothing to
+    // disclose, which is not what "could not ask git" means.
+    check("and the two disclosure fields are undetermined with it, not empty",
+      [pre.ignoredBeneath, pre.ignoredReferrers], [null, null]);
   }
 
   {
@@ -851,6 +907,8 @@ try {
         projectRoot: bare,
       });
       check("a project that is not a git repository reports ignored undetermined", pre.ignored, null);
+      check("and reports the disclosure fields undetermined too",
+        [pre.ignoredBeneath, pre.ignoredReferrers], [null, null]);
     } finally {
       try {
         rmSync(bare, { recursive: true, force: true, maxRetries: 5 });
