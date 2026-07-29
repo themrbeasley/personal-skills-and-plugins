@@ -1,6 +1,6 @@
 # Professor Orb
 
-A Claude Code plugin for D&D Dungeon Masters managing a campaign knowledge base. It covers the post session workflow loop: turning a played session into a structured report, planning the next one, writing player facing content, updating the lore, keeping a chronology, and designing homebrew, all against whichever knowledge base structure the DM already uses.
+A Claude Code plugin for D&D Dungeon Masters managing a campaign knowledge base. It covers the post session workflow loop: turning a played session into a structured report, planning the next one, writing player facing content, updating the lore, keeping a chronology, and designing homebrew.
 
 ## Architecture overview
 
@@ -8,10 +8,10 @@ Professor Orb ships as a standard Claude Code plugin: skills, agents, one comman
 
 Two facts govern everything else in this plugin:
 
-1. **The plugin is configuration; the consumer project is the source of truth.** No skill hardcodes a folder layout, a frontmatter schema, or a filename convention. Every skill that touches the knowledge base starts by learning the consumer project's actual conventions rather than assuming a shape.
-2. **Machine readable conventions live in `.professor-orb/conventions.json`.** The `setup` skill generates this file (and the rest of `.professor-orb/`) by deriving rules from the consumer project during onboarding. Every other skill and hook reads `conventions.json` first because it is a precise, checkable derivation. When it is missing (setup has not run yet, or the install predates it), skills fall back to reading the consumer project's `CLAUDE.md` directly.
+1. **Professor-orb brings the structural schema; the consumer project is the source of truth for campaign facts and content.** Folder layout, index rules, frontmatter schema, filename conventions, and wikilink format are professor-orb's own, applied from `references/base-rules.json`. Every skill that touches the knowledge base still learns the consumer project's campaign facts, writing style, and content exclusions from `CLAUDE.md` rather than assuming those.
+2. **Machine readable conventions live in `.professor-orb/conventions.json`.** The `setup` skill generates this file (and the rest of `.professor-orb/`) by instantiating professor-orb's base rule set and layering in a project-specific extras layer discovered during onboarding. Every other skill and hook reads `conventions.json` first because it is a precise, checkable source, not a derivation of the consumer's prose. When it is missing (setup has not run yet, or the install predates it), skills fall back to professor-orb's base schema directly and say that setup has not run.
 
-Setup also produces the rest of `.professor-orb/`: `pipeline-state.json` (a breadcrumb of the last completed pipeline step), `tag-registry.json` (a tag inventory for drift tracking), and a `proposals/` directory the chronicler skill writes lore-update proposals into. If the project already has a human-readable conventions document, setup can offer to retire it with a pointer paragraph in `CLAUDE.md`; setup never drafts a new one. Setup also copies `workflows/validation-sweep.mjs` into the consumer project's `.claude/workflows/`, since a plugin cannot ship a workflow file directly into a consumer's workflow folder.
+Setup also produces the rest of `.professor-orb/`: `pipeline-state.json` (a breadcrumb of the last completed pipeline step), `tag-registry.json` (a tag inventory for drift tracking), and a `proposals/` directory the chronicler skill writes lore-update proposals into. If the project already has a human-readable conventions document, setup folds it into the extras layer of `conventions.json` and can offer to retire the source document with a pointer paragraph in `CLAUDE.md`. Setup also copies `workflows/validation-sweep.mjs` into the consumer project's `.claude/workflows/`, since a plugin cannot ship a workflow file directly into a consumer's workflow folder.
 
 ## Components
 
@@ -54,9 +54,9 @@ Each pipeline skill's last act is writing `.professor-orb/pipeline-state.json` w
 
 ## Design philosophy
 
-**The consumer project owns its conventions.** The plugin discovers them rather than imposing a schema. `conventions.json` is checked first because it is machine-checkable; `CLAUDE.md` is the fallback when it is missing. No skill hardcodes a path, a folder name, or a frontmatter field.
+**Professor-orb brings the structural schema; the consumer project owns its content.** `conventions.json` is checked first because it is machine-checkable; `CLAUDE.md` is the fallback for campaign facts and content, never for structure. No skill hardcodes a path.
 
-**Approval before mutation.** All three agents (`lore`, `historian`, `kb-validator`) are read-only: they analyze and propose, never write. Of the skills and commands, only `chronicler` and `/catalog` write to the knowledge base, and only after explicit DM approval, chronicler through a written proposal the DM reviews before execution, and `/catalog` through the DM's own act of invoking it on homebrew already finalized and confirmed, which stands in as that approval. The `validation-sweep` workflow honors the same covenant with its own two-phase design: a scan phase that mutates nothing and returns a report split into mechanically fixable and needs-judgment violations, followed by a fix phase that applies only the fixes the DM approved for that specific run.
+**Approval before mutation.** All three agents (`lore`, `historian`, `kb-validator`) are read-only: they analyze and propose, never write. `debrief`, `prep`, `content`, `chronicler`, `timeline`, and `/catalog` write to the knowledge base, each only after DM approval: `debrief`, `prep`, `content`, and `timeline` present a draft for DM review before writing it, `chronicler` and `timeline`'s hand-offs for corrections and declarations route through a written proposal the DM reviews before execution, and `/catalog` treats the DM's own act of invoking it on homebrew already finalized and confirmed as that approval. The `validation-sweep` workflow honors the same covenant with its own two-phase design: a scan phase that mutates nothing and returns a report split into mechanically fixable and needs-judgment violations, followed by a fix phase that applies only the fixes the DM approved for that specific run.
 
 **Structured input goes through AskUserQuestion.** When a skill needs a real decision from the DM (a go or no-go on a proposal, an ambiguous field, an enforcement level), it asks with AskUserQuestion rather than a plain-text question. Open-ended discussion, brainstorming, and explaining how something works stay free-form chat.
 
@@ -67,5 +67,5 @@ Each pipeline skill's last act is writing `.professor-orb/pipeline-state.json` w
 ## Getting started
 
 1. Install the plugin.
-2. In your campaign project, run the `setup` skill. It will read (or ask about) your knowledge base's conventions and produce `.professor-orb/conventions.json` plus the rest of `.professor-orb/`.
+2. In your campaign project, run the `setup` skill. It will apply professor-orb's base schema, discover your project's extras (or ask about them), produce `.professor-orb/conventions.json` plus the rest of `.professor-orb/`, and propose a folder-index parity migration if your existing KB needs one.
 3. Run `/orb` to see everything the plugin can do and what it recommends running next.

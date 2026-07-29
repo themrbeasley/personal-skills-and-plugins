@@ -1,6 +1,6 @@
 ---
 name: timeline
-description: "Interactive workflow for building and maintaining campaign chronology documents in the knowledge base, with a temporal triage flow for resolving inconsistencies the historian agent flags. Use this skill whenever the user says \"build a timeline,\" \"update the chronology,\" \"when did X happen,\" \"show me the timeline,\" \"what's the chronological order of,\" \"campaign timeline,\" \"create a chronology,\" \"history of [entity/era/region],\" or asks any temporal question about the campaign. Standalone skill that sits outside the debrief, prep, content/chronicler, kb-validator session pipeline and runs on demand at any point; it does not write pipeline state. Spawns the historian agent for temporal analysis. When the historian flags a possible temporal inconsistency, this skill walks the DM through triage (request deeper research, supply context, confirm a genuine error, or identify time travel) and, for time travel, has the DM pick an interpretation (loop, branch, rewrite, or unresolved) and records it as a per-phenomenon declaration. All KB writes, including declarations and corrections, route through the chronicler skill; timeline never writes KB articles itself. Produces DM-reference chronology documents; for player-facing timeline visualizations, use the content skill instead."
+description: "Interactive workflow for building and maintaining campaign chronology documents in the knowledge base, with a temporal triage flow for resolving inconsistencies the historian agent flags. Use this skill whenever the user says \"build a timeline,\" \"update the chronology,\" \"when did X happen,\" \"show me the timeline,\" \"what's the chronological order of,\" \"campaign timeline,\" \"create a chronology,\" \"history of [entity/era/region],\" or asks any temporal question about the campaign. Standalone skill that sits outside the debrief, prep, content/chronicler, kb-validator session pipeline and runs on demand at any point; it does not write pipeline state. Spawns the historian agent for temporal analysis. When the historian flags a possible temporal inconsistency, this skill walks the DM through triage (request deeper research, supply context, confirm a genuine error, or identify time travel) and, for time travel, has the DM pick an interpretation (loop, branch, rewrite, or unresolved) and records it as a per-phenomenon declaration. Declarations and corrections route through the chronicler skill; timeline itself writes the chronology document and its indexes after DM approval. Produces DM-reference chronology documents; for player-facing timeline visualizations, use the content skill instead."
 ---
 
 > **Before you begin:** read `../SHARED-PRINCIPLES.md` and apply its rules throughout this workflow.
@@ -27,7 +27,7 @@ Either way, then **discover calendar articles** in the KB. Read them to understa
 
 ## The workflow: propose, then execute
 
-Like `chronicler`, this skill does not write or edit files until the DM approves the draft, and it never writes a KB article itself even after approval: chronicler is always the writer. Phase 5 is the hard gate for the chronology document; Phase 3 has its own approval points for each triage decision.
+Like `chronicler`, this skill does not write or edit files until the DM approves the draft. Once approved, timeline itself writes the chronology document and updates its indexes (Phase 6); corrections and declarations that touch other KB articles are drafted here and handed to `chronicler`, which is always the writer for those. Phase 5 is the hard gate for the chronology document; Phase 3 has its own approval points for each triage decision.
 
 ### Phase 1: Scope the work
 
@@ -121,7 +121,7 @@ Using the historian's output (with any Phase 3 corrections or declarations alrea
 
 ```
 ---
-type: chronology
+type: Chronology
 title: <title>
 scope: <campaign / entity / era / theme>
 primary_calendar: <calendar name>
@@ -184,7 +184,7 @@ Because this skill sits outside the session pipeline, it does not write `.profes
 - **Never resolve temporal contradictions silently.** Every flag goes through Phase 3 triage as a question, never a default assumption of error.
 - **Never pick an interpretation for the DM.** Loop, branch, rewrite, and unresolved are the DM's call in Step 3b; this skill records the choice, it does not make it.
 - **Never treat a declaration as campaign-wide.** Each one covers exactly one named phenomenon, stored on that phenomenon's own article.
-- **Never write KB articles itself**, including declarations and corrections. Draft the text, hand it to `chronicler`.
+- **Never write a KB article other than the chronology document itself.** Declarations and corrections to other articles are drafted here and handed to `chronicler`, which writes them.
 - **Never assume a calendar system.** Discover from KB articles.
 - **Never write files without approval.** Propose-then-execute. (SHARED-PRINCIPLES.md Principle 2.)
 - **Never write `.professor-orb/pipeline-state.json`.** This skill is outside the session pipeline.
@@ -194,7 +194,7 @@ Because this skill sits outside the session pipeline, it does not write `.profes
 ## How this skill connects to the others
 
 - **Spawns:** The `historian` agent for temporal analysis, potentially more than once per run if Phase 3 triage requests deeper research.
-- **Hands off to `chronicler`:** Every KB write this skill's workflow produces, corrections confirmed as genuine errors and declarations from time-travel triage, is drafted here and written by `chronicler`. Timeline never writes KB articles itself.
+- **Hands off to `chronicler`:** Corrections confirmed as genuine errors and declarations from time-travel triage are drafted here and written by `chronicler`. Timeline writes only the chronology document and its indexes itself.
 - **Inputs:** Session reports (event sources), KB articles (entity histories, established dates, existing declarations), calendar articles (date systems).
 - **Outputs:** Chronology documents in the KB, plus index updates per project conventions. No `pipeline-state.json` writes.
 - **Orthogonal to `chronicler`:** Chronicler updates entity, location, and faction articles (and, via this skill's hand-offs, phenomenon declarations). Timeline builds chronological reference documents and runs the triage conversation. They can run in sequence: chronicler canonizes events, timeline records their temporal position, and either can trigger the other through a triage hand-off.
