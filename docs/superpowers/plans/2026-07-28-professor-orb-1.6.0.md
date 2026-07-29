@@ -827,7 +827,9 @@ At `setup/SKILL.md:12`, delete "This skill discovers and derives; it never impos
 
 At `:33`, `:37`, `:38`, `:39`: the three tiers stop being three ways to derive a rule set. Rewrite the tier intro as: "Every project starts from the same base rule set. The tiers differ only in where the project-specific extras come from: an existing conventions document is the richest source, scattered prose is next, and an interview is the fallback when nothing is written down."
 
-At `:43`, keep the enforcement-scope classification and add: "A base rule may be whole-KB scope; `structuralSingleOwnership` ships that way, recorded with `enforcement: \"off\"` for the write-time hook and checked by the sweep."
+At `:43`, keep the enforcement-scope classification and add: "A base rule may be whole-KB scope; `structuralSingleOwnership` ships that way, carrying `enforcement: \"warn\"` and a check function that returns not applicable at write time. The hook is therefore silent on it by function rather than by level, and the validation sweep is what actually checks it."
+
+Do not write `enforcement: "off"` here. A sweep-scope rule recorded as `off` is skipped by the sweep too, which would leave it checked by nothing at all. Task 4 made `off` mean exactly that, deliberately, because `off` is the DM's only lever over a rule professor-orb ships rather than one they wrote.
 
 At `:47`, change "present the full derived rule set" to "present the full rule set, base and extras". Keep the single-markup-pass mechanics and the DM-wins rule for content, and delete "you never argue that the DM's structure is wrong".
 
