@@ -21,7 +21,19 @@ import path from "node:path";
 
 const STALE_MS = 2 * 60 * 60 * 1000; // 2 hours
 
+// Both maps below are built with a null prototype (the "__proto__: null"
+// object-literal key sets the object's own [[Prototype]] to null; it does
+// not create an own "__proto__" property). This is structural, not a guard:
+// a plain object literal inherits from Object.prototype, so a corrupted or
+// crafted lastStep such as "__proto__", "toString", "constructor", or
+// "hasOwnProperty" would resolve to a truthy inherited value (an object or a
+// native function) on an ordinary "{}"-style map, defeating the truthiness
+// checks below and printing that inherited value's string coercion instead
+// of staying silent. With no prototype chain to inherit from, a lookup by
+// any name that is not one of this map's own keys returns undefined, no
+// matter what Object.prototype happens to expose.
 const NEXT_STEP_MESSAGES = {
+  __proto__: null,
   debrief:
     "Next: /prep can build a session brief, or /chronicler can update the KB from the session report.",
   prep: "Next: /content can write recaps and handouts, or /chronicler can update the KB.",
@@ -35,15 +47,16 @@ const NEXT_STEP_MESSAGES = {
 
 // Appended to the base message above only when a versioning marker exists and
 // its mode is "git" or "github". Never appended on its own; a lastStep with
-// no NEXT_STEP_MESSAGES entry stays silent regardless of this map, which is
-// why "timeline" carries an entry here that this hook can never emit today
-// (timeline never writes pipeline-state.json). The wording is settled and
-// must stay byte-identical to skills/timeline/SKILL.md's handoff line.
+// no NEXT_STEP_MESSAGES entry stays silent regardless of this map. There is
+// no "timeline" entry: timeline never writes pipeline-state.json, so
+// NEXT_STEP_MESSAGES has no "timeline" key and this hook can never reach
+// this map with that lastStep in the first place. The chronology-document
+// lane wording belongs to timeline/SKILL.md's own handoff line, not here.
 const LANE_CLAUSES = {
+  __proto__: null,
   debrief: " /log can commit the session report.",
   content: " /log can commit the recap and handouts.",
   chronicler: " /scribe can commit the KB changes.",
-  timeline: " /scribe can commit the chronology document.",
 };
 
 // Reads the versioning decision, fail-silent. Tries versioning.json first;
@@ -77,7 +90,7 @@ function readVersioningMode(cwd) {
     return null;
   }
 
-  if (!marker || typeof marker !== "object") {
+  if (!marker || typeof marker !== "object" || Array.isArray(marker)) {
     return null;
   }
 

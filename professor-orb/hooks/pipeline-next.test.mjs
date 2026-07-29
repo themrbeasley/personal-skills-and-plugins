@@ -15,7 +15,7 @@
 // Run: node professor-orb/hooks/pipeline-next.test.mjs
 
 import { execFileSync } from "node:child_process";
-import { mkdirSync, writeFileSync, rmSync, readFileSync } from "node:fs";
+import { mkdirSync, writeFileSync, rmSync } from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import { fileURLToPath } from "node:url";
@@ -252,10 +252,11 @@ console.log("\n=== silence cases: the hook must not speak wrongly ===");
 }
 
 {
-  // lastStep "timeline": LANE_CLAUSES carries an entry for parity with
-  // Task 19's SKILL.md wording, but NEXT_STEP_MESSAGES has no "timeline"
-  // entry (timeline never writes pipeline-state.json), so the whole hook
-  // must stay silent regardless of the versioning marker.
+  // lastStep "timeline": NEXT_STEP_MESSAGES has no "timeline" entry (timeline
+  // never writes pipeline-state.json), so the whole hook must stay silent
+  // regardless of the versioning marker. LANE_CLAUSES has no "timeline"
+  // entry either; that wording belongs to timeline/SKILL.md's own handoff
+  // line, not to this hook.
   const r = runHook("timeline-laststep-git-mode", {
     pipelineState: freshState("timeline"),
     versioning: { mode: "git", decided: "2026-01-01" },
@@ -272,23 +273,25 @@ console.log("\n=== silence cases: the hook must not speak wrongly ===");
   check("unrecognized lastStep: silent", r.out, "");
 }
 
-console.log("\n=== static check: the timeline clause cannot be exercised through the CLI ===");
+console.log("\n=== prototype pollution: a crafted or corrupted lastStep must not leak Object.prototype ===");
 
-{
-  // LANE_CLAUSES.timeline can never fire through this hook: NEXT_STEP_MESSAGES
-  // has no "timeline" entry, because timeline never writes pipeline-state.json
-  // (see silence case above). That means no execution-based case in this file
-  // can catch a wording typo in that one entry. Task 19 applies the identical
-  // wording to timeline/SKILL.md, and the plan is explicit the two must not
-  // drift, so pin the source text directly instead of relying on behavior no
-  // test can observe.
-  const src = readFileSync(HOOK, "utf8");
-  checkContains(
-    "LANE_CLAUSES.timeline is byte-identical to the settled wording",
-    src,
-    'timeline: " /scribe can commit the chronology document."',
-    true
-  );
+// A lastStep equal to an inherited Object.prototype property name is a
+// different failure class from the "unrecognized lastStep" case above: on a
+// plain object literal, bracket access for these names resolves to a truthy
+// inherited value (an object or a native function), not undefined, which
+// would defeat the "if (!message)" / "if (clause)" truthiness guards and
+// print that inherited value's string coercion instead of staying silent.
+// NEXT_STEP_MESSAGES and LANE_CLAUSES are both built with a null prototype
+// specifically so none of these names resolve to anything. Every case here
+// must produce total silence and exit 0, exactly like any other
+// unrecognized lastStep.
+for (const pollutedStep of ["__proto__", "toString", "constructor", "hasOwnProperty"]) {
+  const r = runHook(`polluted-laststep-${pollutedStep}`, {
+    pipelineState: freshState(pollutedStep),
+    versioning: { mode: "git", decided: "2026-01-01" },
+  });
+  check(`lastStep "${pollutedStep}": silent, no inherited Object.prototype value leaks`, r.out, "");
+  check(`lastStep "${pollutedStep}": exits 0`, r.code, 0);
 }
 
 report();
