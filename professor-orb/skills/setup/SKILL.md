@@ -17,7 +17,7 @@ The DM is the source of truth throughout. Project documents are records of past 
 
 ## The run order
 
-The order of the steps below is the safety design, not a suggested sequence. Run them in the order they are numbered. Three orderings carry the whole design: the clean-tree gate precedes anything that writes a file, the snapshot commit precedes every mutation, and the migration's own commit comes last so that everything Steps 12 through 14 change is captured by it. A resync runs Steps 1 through 14 in full, including the snapshot, the aside, the mapping confirmation, the manifest, and the prechecks. It is not a lighter path.
+The order of the steps below is the safety design, not a suggested sequence. Run them in the order they are numbered. Three orderings carry the whole design: the clean-tree gate precedes anything that writes a file, the snapshot commit precedes every mutation of the DM's material, and the migration's own commit comes last so that everything Steps 12 through 14 change is captured by it. A resync runs Steps 1 through 14 in full, including the snapshot, the aside, the mapping confirmation, the manifest, and the prechecks. It is not a lighter path.
 
 ## Step 1: detect what is already here
 
@@ -25,7 +25,7 @@ This step writes nothing. Gather all four findings below; the run does not conti
 
 **An existing install.** Check whether `.professor-orb/` already exists at the consumer project root. If it does not, this is a first-time setup. If it does, do not clobber it: tell the DM what you found (existing conventions, when they were generated, whether the KB looks like it has drifted since) and offer a menu: review the current conventions, resync, or leave it alone. Say plainly what a resync does before they choose it: it re-imposes professor-orb's schema, it relocates the project to the canonical layout at Step 10, it takes a snapshot commit first, and it can be undone with `git reset --hard <snapshot hash>`, which Step 5 prints. Only proceed past this point with the DM's direction. A resync sets `generatedBy` to `"resync"` instead of `"setup"`.
 
-**A predecessor install.** Look at the project root for signs of the old Cowork edition (`dnd-campaign-toolkit`), such as a `dnd-campaign-toolkit.plugin` file or directory, and for any installed-plugin manifest that references it. This check runs on a resync too, not only on first-time setup, because the migration runs on both. Explain the overlap in plain terms: professor-orb supersedes it, running both risks duplicate or conflicting behavior, and its own `Write|Edit` hook fires throughout the migration no matter what professor-orb does with its own conventions file. That makes removal a mutation-safety matter rather than tidiness. Offer to remove the predecessor's install artifacts and wait for explicit approval, per Step 13. If the DM declines, proceed and state in the report that its hook will have produced noise during the migration.
+**A predecessor install.** Look at the project root for signs of the old Cowork edition (`dnd-campaign-toolkit`), such as a `dnd-campaign-toolkit.plugin` file or directory, and for any installed-plugin manifest that references it. This check runs on a resync too, not only on first-time setup, because the migration runs on both. Explain the overlap in plain terms: professor-orb supersedes it, running both risks duplicate or conflicting behavior, and its own `Write|Edit` hook fires throughout the migration no matter what professor-orb does with its own conventions file. That makes removal a mutation-safety matter rather than tidiness, and the removal has to actually happen before the migration for that rationale to hold anything up. Offer to remove the predecessor's install artifacts and wait for explicit approval. If approved, the removal executes at Step 5, right after the snapshot commit and well before the migration at Step 10; it is not deferred to Step 13, because deferring it would let the predecessor's hook fire through the entire migration regardless, which is precisely the outcome removal exists to prevent. If the DM declines, proceed and state in the report that its hook will have produced noise during the migration.
 
 **Repository state.** Enumerate every remote (`git remote -v`) rather than testing whether one exists. Four cases:
 
@@ -78,6 +78,8 @@ Commit everything as it stands, with the message `chore: pre-migration snapshot 
 
 Print the hash and the undo command now, in conversation, not only in the closing report. `git init` alone provides zero revertibility, because an untracked working tree has no restore point; this commit is the restore point, and it is the thing that stands between an unattended restructure and unrecoverable loss.
 
+If the DM approved predecessor removal at Step 1, remove the predecessor's install artifacts now, immediately after this commit and before Step 6 writes anything. Removing it here, rather than at the end of the migration, is what actually keeps its `Write|Edit` hook from firing while Steps 6 through 10 write and move files; deferring the removal would let the hook fire through the whole migration regardless of when the artifacts eventually go. This is not its own commit: it rides in Step 9's preparation commit alongside the aside, the copied workflows, and the manifest. Step 13 handles only retiring a source conventions document; predecessor removal does not wait that long.
+
 ## Step 6: move any existing conventions.json aside
 
 Read its rules, its extras layer, and its per-rule enforcement levels into memory **first**. Then move the file to `.professor-orb/conventions.json.pre-migration`, which the snapshot has already captured.
@@ -108,13 +110,15 @@ Split and absorb are **reported, never executed** on this run. Crossing a thresh
 
 **A migration is never asserted inside `conventions.json`.** The manifest is a run artifact; the migration itself is never recorded in `conventions.json` as "approved," "planned," or "deferred," whether as a rule of its own or folded into a description. That file records confirmed rules, not intentions.
 
-Finish this step by committing what it and Steps 6 and 8 have written (the aside, the copied workflows, the manifest) under a plain message such as `chore: professor-orb setup preparation`, so that the working tree is clean. The executor refuses to start on a dirty tree, and correctly: a tree with uncommitted work has no coherent state to restore to. The snapshot from Step 5 remains the restore point, since resetting to it discards this preparation commit too.
+Finish this step by committing what it, Step 6, and Step 8 have written, together with Step 5's predecessor removal if the DM approved one (the aside, the copied workflows, the manifest, and the removal), under a plain message such as `chore: professor-orb setup preparation`, so that the working tree is clean. The executor refuses to start on a dirty tree, and correctly: a tree with uncommitted work has no coherent state to restore to. The snapshot from Step 5 remains the restore point, since resetting to it discards this preparation commit too.
 
 ## Step 10: execute the migration
 
 Run `migrate.mjs`'s apply phase against the plan from Step 9, with its own commit step disabled (`"commit": false` in its arguments), because the single migration commit happens at Step 15 and has to carry what Steps 12 through 14 produce as well.
 
-What the executor guarantees, and what you must carry into the report rather than restate as your own: every relocation goes through `git mv`; any operation whose source is git-ignored is skipped and reported, never moved, because the snapshot does not contain it; per-file applied true or false accounting means a dropped worker is never counted as done; and link integrity is asserted across every prong root before anything is committed. It also reports `ignoredEdits` and `ignoredMoved`, the edits and moves the snapshot cannot undo. If the link-integrity assertion fails, do not commit at Step 15: report the dead links with their containing files and point at the snapshot.
+What the executor guarantees, and what you must carry into the report rather than restate as your own: every relocation goes through `git mv`; any operation whose source is git-ignored is skipped and reported, never moved, because the snapshot does not contain it; per-file applied true or false accounting means a dropped worker is never counted as done; and link integrity is asserted across every prong root before anything is committed. It also reports `ignoredEdits` and `ignoredMoved`, the edits and moves the snapshot cannot undo. If the link-integrity assertion fails, do not commit at Step 15: report the dead links with their containing files, and point at Step 5's snapshot hash, not the executor's.
+
+**Two different commits are both called "the snapshot"; do not confuse them.** The executor's own `result.snapshot` field, and the restore instruction it prints, both name `git rev-parse HEAD` taken at the moment the executor runs, which by now is Step 9's preparation commit, because Steps 6, 8, and 9 all wrote to the tree after Step 5. That hash is not the restore point the DM wants: resetting to the preparation commit lands after Step 6 already moved `conventions.json` aside, so the DM's own conventions file is not sitting at its expected path there. Whatever the executor prints or returns as `snapshot`, do not copy it into the report; the report at Step 16 always uses the hash Step 5 captured.
 
 The migration applies the base rules at their **default** enforcement levels, because the DM confirms levels at Step 11, after this. The levels they choose take effect from the next write onward. This run's authority comes from the snapshot commit and the after-action report, not from a level confirmed at setup.
 
@@ -155,10 +159,9 @@ Then delete `.professor-orb/conventions.json.pre-migration` and, if Step 4 conve
 
 ## Step 13: handle the remaining deletions
 
-Both of these keep their approval gates, and both wait for explicit approval before anything is removed.
+Predecessor install artifacts are not handled here. If Step 1 found a predecessor and the DM approved removing it, that removal already happened at Step 5, right after the snapshot and well before the migration; if the DM declined, or wanted it kept installed alongside, Step 1 already covers noting the coexistence in the report. What is left here keeps its own approval gate and waits for explicit approval before anything is removed.
 
-- **Predecessor install artifacts**, if Step 1 found any and the DM approved removal. If they declined, or want it kept installed alongside, note the coexistence in the report so the DM remembers it later.
-- **Retiring a source conventions document** (tier 1 only), together with a short pointer paragraph in the consumer's CLAUDE.md noting that `.professor-orb/conventions.json` is the single source of conventions. Offer both; do not do either unasked.
+- **Retiring a source conventions document** (tier 1 only), together with a short pointer paragraph in the consumer's CLAUDE.md noting that `.professor-orb/conventions.json` is the single source of conventions. Offer it; do not do it unasked.
 
 ## Step 14: ask the large-and-sensitive-material question
 
@@ -205,15 +208,17 @@ references in CLAUDE.md or elsewhere.
 [file and error, or "None"]
 
 ### Git
-**Snapshot:** [hash]
-**Migration:** [hash]
-**Undo:** git -C [project] reset --hard [snapshot hash]
+**Snapshot:** [the hash Step 5 captured, never the executor's `result.snapshot` field]
+**Migration:** [Step 15's commit hash]
+**Undo:** git -C [project] reset --hard [Step 5's snapshot hash, never the executor's printed restore line]
 
 ### Summary
 [One paragraph: what changed, what still needs the DM, and the recommended next step.]
 ```
 
 The **Edited** section is not optional. Two of the migration's operations change what is inside articles rather than where they sit, and a report that enumerates only location changes leaves them out entirely: the DM would have approved a mapping and received an accounting of everything except what was rewritten inside their own articles.
+
+**The Git section's Snapshot and Undo lines are never filled from what the executor printed or returned.** They always take the hash Step 5 captured and printed, the one asserted clean before any mutation of the DM's material. The executor's own `result.snapshot` field and its own printed restore instruction name Step 9's preparation commit instead, because that is what `HEAD` is at the moment the executor runs; copying either of those in here points the DM's undo command at the preparation commit, where `.professor-orb/conventions.json` is not at its expected path (Step 6 moved it aside). Migration takes Step 15's commit hash.
 
 On the no-version-control path, replace the **Undo** line with a plain statement that the restructure cannot be reversed automatically.
 

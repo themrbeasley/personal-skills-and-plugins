@@ -20,7 +20,7 @@ No pipeline skill writes, edits, or creates files without the DM's explicit appr
 
 The DM reviews the product before it becomes a file. This is a hard gate, not a suggestion.
 
-**One exception, and it does not generalize.** The schema migration the `setup` skill runs, and only that one operation, in that one skill, is exempt. What replaces the gate there is a verified snapshot commit taken before any mutation, one confirmation of the prong mapping before any file moves, and an after-action report naming every change and the command that undoes them. The exemption is conditional on that snapshot: with no version control, or if the snapshot assertion fails, there is no verified hash and therefore no gate to replace, so setup presents its migration manifest as a proposal and waits for approval like everything else. Every pipeline skill remains gated with no exception of any kind, and so does every other mutation setup makes.
+**One exception, and it does not generalize.** The schema migration the `setup` skill runs, and only that one operation, in that one skill, is exempt. What replaces the gate there is a verified snapshot commit taken before any mutation of the DM's material, one confirmation of the prong mapping before any file moves, and an after-action report naming every change and the command that undoes them. The exemption is conditional on that snapshot: with no version control, or if the snapshot assertion fails, there is no verified hash and therefore no gate to replace, so setup presents its migration manifest as a proposal and waits for approval like everything else. Every pipeline skill remains gated with no exception of any kind, and so does every other mutation setup makes.
 
 ## 3. Ask, listen, trust
 
