@@ -41,6 +41,45 @@ export const OPERATION_ORDER = [
 // /migrate once the DM has scoped it.
 export const DEFERRED_OPERATIONS = ["split", "absorb"];
 
+// The single dependency order EVERY plan is ranked against, setup's and
+// /migrate's alike. OPERATION_ORDER above stays the setup subset, because
+// buildPlan loops over it to decide which planners to run and a scoped-only
+// kind has no setup planner to call. This constant is a superset of it that
+// preserves its relative order, and migrate.plan.test.mjs pins that property:
+// reordering the setup kinds here would make every setup plan refuse as out of
+// order, and no setup-side test would notice.
+//
+// Placement reasoning for the six kinds this release adds:
+//   relocate-path   beside relocate-prong: same mechanics, different meaning.
+//   absorb-folder   before every index kind, because it changes which folder a
+//   split-folder    file lives in, and an index built first would list the old
+//                   membership.
+//   rename-entity   beside rename-with-link-rewrite, and after normalize-type
+//                   for the same reason that one is: a required suffix derives
+//                   from a type, so renaming first computes it from a stale
+//                   value.
+//   rebuild-index   after create-index and merge-index, because it reads a
+//                   folder's actual contents and both of those change them.
+//   update-prose-paths last of the content kinds: it rewrites references TO
+//                   paths, so every path it names has to have reached its
+//                   destination first.
+export const APPLY_ORDER = [
+  "relocate-prong",
+  "relocate-path",
+  "absorb-folder",
+  "split-folder",
+  "normalize-type",
+  "rename-with-link-rewrite",
+  "rename-entity",
+  "create-index",
+  "merge-index",
+  "rebuild-index",
+  "repair-frontmatter",
+  "update-prose-paths",
+  "vault",
+  "tag-registry",
+];
+
 /**
  * @param {{projectRoot: string, settings: Array, baseRules: object, discovered: object}} input
  * @returns {{operations: Array<{op: string, from?: string, to?: string, reason: string}>,
@@ -662,6 +701,83 @@ function frontmatterHasPublish(file) {
     if (/^publish\s*:/.test(lines[i])) return true;
   }
   return false;
+}
+
+// ---------------------------------------------------------------------------
+// Scope-derived plans (/migrate)
+// ---------------------------------------------------------------------------
+//
+// buildPlan surveys the project against professor-orb's own schema, which is
+// known and derivable, so its plan is not news to anyone. buildScopedPlan takes
+// a scope the DM negotiated with the command and turns it into the same
+// operation list. The difference that matters is the gate, not the machinery:
+// the schema-derived plan runs unattended at setup, and this one is written to a
+// proposal file the DM reads, may edit, and approves before anything runs.
+//
+// Every planner here is pure and read-only, exactly like the setup planners.
+
+// Scope keys, in APPLY_ORDER's order. Each entry names the scope key the DM's
+// negotiated scope carries and the planner that turns it into operations.
+const SCOPED_PLANNERS = [
+  ["pathMoves", planPathMoves],
+];
+
+/**
+ * @param {{projectRoot: string, settings: Array, baseRules: object, scope: object}} input
+ * @returns {{operations: Array, declined: Array, prechecks: object}}
+ */
+export function buildScopedPlan({ projectRoot, settings, baseRules, scope }) {
+  const operations = [];
+  const declined = [];
+  const ctx = { projectRoot, settings: list(settings), baseRules, scope: scope || {} };
+
+  for (const [key, planner] of SCOPED_PLANNERS) {
+    const items = list(ctx.scope[key]);
+    if (items.length === 0) continue;
+    const out = planner(items, ctx);
+    operations.push(...list(out.operations));
+    declined.push(...list(out.declined));
+  }
+
+  // The result is sorted into APPLY_ORDER rather than trusted to arrive that
+  // way, because SCOPED_PLANNERS is edited by hand and a planner added in the
+  // wrong slot would produce a plan applyPlan refuses, with a message about
+  // dependency order that would read as a bug in the DM's scope.
+  operations.sort((a, b) => APPLY_ORDER.indexOf(a.op) - APPLY_ORDER.indexOf(b.op));
+
+  return { operations, declined, prechecks: runPrechecks({ operations, projectRoot }) };
+}
+
+function planPathMoves(items, ctx) {
+  const operations = [];
+  const declined = [];
+  for (const item of items) {
+    const from = toPosix(item && item.from);
+    const to = toPosix(item && item.to);
+    if (!from || !to) {
+      declined.push({
+        op: "relocate-path",
+        target: from || to || "(unnamed)",
+        reason: "The scope entry is missing a source or a destination, so there is nothing to move.",
+      });
+      continue;
+    }
+    if (from === to) {
+      declined.push({
+        op: "relocate-path",
+        target: from,
+        reason: "Source and destination are the same path.",
+      });
+      continue;
+    }
+    operations.push({
+      op: "relocate-path",
+      from,
+      to,
+      reason: String((item && item.reason) || "Moved by a DM-approved /migrate scope."),
+    });
+  }
+  return { operations, declined };
 }
 
 // ---------------------------------------------------------------------------
@@ -2192,6 +2308,11 @@ function frontmatterTags(text) {
 
 const EXECUTORS = {
   "relocate-prong": applyRelocateProng,
+  // Same implementation, deliberately a distinct kind. A prong root move is
+  // "your whole knowledge base moved"; a path move is "these 40 articles moved".
+  // The accounting and the DM-facing report have to be able to tell those apart,
+  // and a shared kind would flatten them into one line.
+  "relocate-path": applyRelocateProng,
   "normalize-type": applyNormalizeType,
   "rename-with-link-rewrite": applyRenameWithLinkRewrite,
   "create-index": applyCreateIndex,
@@ -2615,7 +2736,7 @@ function findOutOfOrder(operations) {
   let highest = -1;
   let highestOp = null;
   for (let i = 0; i < operations.length; i++) {
-    const rank = OPERATION_ORDER.indexOf(operations[i].op);
+    const rank = APPLY_ORDER.indexOf(operations[i].op);
     if (rank < highest) return { index: i, op: operations[i].op, after: highestOp };
     if (rank > highest) {
       highest = rank;

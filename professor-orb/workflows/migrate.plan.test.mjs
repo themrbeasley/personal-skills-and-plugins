@@ -15,7 +15,7 @@ import path from "node:path";
 import os from "node:os";
 import { fileURLToPath } from "node:url";
 
-import { buildPlan, runPrechecks, OPERATION_ORDER, DEFERRED_OPERATIONS } from "./migrate.mjs";
+import { buildPlan, runPrechecks, OPERATION_ORDER, DEFERRED_OPERATIONS, buildScopedPlan, APPLY_ORDER } from "./migrate.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const BASE_RULES = JSON.parse(readFileSync(path.join(HERE, "..", "references", "base-rules.json"), "utf8"));
@@ -925,6 +925,57 @@ try {
       /* Windows keeps handles on .git objects; a leftover temp dir is not a failure. */
     }
   }
+}
+
+console.log("\n=== scoped plans: order and the generic move ===");
+
+const scoped = (scope, projectRoot) =>
+  buildScopedPlan({ projectRoot, settings: SETTINGS, baseRules: BASE_RULES, scope });
+
+{
+  // APPLY_ORDER is the one order findOutOfOrder ranks against, so it has to be
+  // a superset of OPERATION_ORDER that preserves its relative order. A future
+  // insertion that reorders the setup kinds would make every shipped setup plan
+  // refuse as out of order, which no setup test would catch.
+  const ranks = OPERATION_ORDER.map((k) => APPLY_ORDER.indexOf(k));
+  check("every setup kind has a rank in APPLY_ORDER", ranks.every((r) => r >= 0), true);
+  check("APPLY_ORDER preserves the setup order",
+    ranks.slice().sort((a, b) => a - b), ranks);
+}
+
+{
+  const r = scoped({
+    pathMoves: [
+      { from: "settings/rolara/misc/Old-Note.md", to: "settings/rolara/notes/Old-Note.md", reason: "DM scope" },
+    ],
+  });
+  check("a path move plans one relocate-path", kindsOf(r.operations), ["relocate-path"]);
+  check("it carries from and to verbatim",
+    [r.operations[0].from, r.operations[0].to],
+    ["settings/rolara/misc/Old-Note.md", "settings/rolara/notes/Old-Note.md"]);
+}
+
+{
+  const r = scoped({});
+  check("an empty scope plans nothing and declines nothing",
+    [r.operations.length, r.declined.length], [0, 0]);
+  check("an empty scope still returns prechecks", typeof r.prechecks, "object");
+}
+
+{
+  // The read-only contract covers this entry point too, not only buildPlan.
+  const root = mkdtempSync(path.join(os.tmpdir(), "orb-scoped-ro-"));
+  mkdirSync(path.join(root, "settings", "rolara"), { recursive: true });
+  writeFileSync(path.join(root, "settings", "rolara", "A.md"), "---\ntype: Person\n---\n\nBody.\n");
+  // snapshotTree shells out to `git status`, so the fixture needs a repository
+  // under it, the same way every other snapshotTree caller in this file (via
+  // makeRepo) provides one. No commit is needed: status reports untracked files
+  // against an empty history just as well as against a populated one.
+  execFileSync("git", ["init", "-q"], { cwd: root });
+  const before = snapshotTree(root);
+  scoped({ pathMoves: [{ from: "settings/rolara/A.md", to: "settings/rolara/people/A.md", reason: "x" }] }, root);
+  check("buildScopedPlan mutates nothing", snapshotTree(root), before);
+  rmSync(root, { recursive: true, force: true });
 }
 
 console.log(`\n${passed} passed, ${failures.length} failed`);

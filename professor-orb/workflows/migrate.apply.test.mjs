@@ -1912,6 +1912,43 @@ console.log("\nWikilink rewriting in isolation");
     rewriteWikilinks("[[Items-Index]]", "items-index", "items-INDEX").text, "[[items-INDEX]]");
 }
 
+console.log("\n=== relocate-path ===");
+
+withRepo(
+  {
+    "settings/rolara/misc/Old-Note.md": article("type: Concept", "Body."),
+    "settings/rolara/notes/Keep-INDEX.md": article("type: Index", "- [[Old-Note]]"),
+  },
+  (root) => {
+    const r = apply(root, [
+      { op: "relocate-path", from: "settings/rolara/misc/Old-Note.md", to: "settings/rolara/notes/Old-Note.md", reason: "scope" },
+    ]);
+    check("relocate-path applies", [r.ok, first(r.applied).applied], [true, true]);
+    check("the file is at its destination", has(root, "settings/rolara/notes/Old-Note.md"), true);
+    check("and gone from its source", has(root, "settings/rolara/misc/Old-Note.md"), false);
+    // Obsidian resolves a wikilink by stem, so moving a file inside one vault
+    // does not break a link to it. This asserts the link was left ALONE, which
+    // is the correct behavior and easy to regress into a needless rewrite.
+    check("a wikilink to it is untouched",
+      read(root, "settings/rolara/notes/Keep-INDEX.md").includes("[[Old-Note]]"), true);
+    check("git recorded a rename, not a delete plus an untracked file",
+      porcelain(root).some((l) => l.startsWith("R")), true);
+  }
+);
+
+withRepo({ "settings/rolara/A.md": article("type: Person", "Body.") }, (root) => {
+  const r = apply(root, [
+    { op: "relocate-path", from: "settings/rolara/A.md", to: "settings/rolara/A.md", reason: "x" },
+  ]);
+  // r.applied is [] when the move is declined, and [] is truthy, so
+  // `r.applied || r.failed` would never fall through to r.failed. Chained off
+  // .applied instead, the same way line 872 chains .detail across both
+  // buckets: first({}).applied is undefined, which || correctly passes through
+  // to first(r.failed).applied.
+  check("a no-op move is reported, not applied",
+    first(r.applied).applied || first(r.failed).applied, false);
+});
+
 console.log(`\n${passed} passed, ${failures.length} failed`);
 if (failures.length > 0) {
   for (const f of failures) console.log(`  FAILED: ${f}`);
