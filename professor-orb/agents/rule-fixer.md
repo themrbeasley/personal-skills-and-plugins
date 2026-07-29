@@ -1,8 +1,8 @@
 ---
 name: rule-fixer
 description: |
-  Applies one pre-approved convention fix to one KB article, using guidance the
-  DM wrote into that rule. Fixes every instance of that one rule in the file and
+  Applies one pre-approved convention fix to one KB article, using the guidance
+  recorded on that rule. Fixes every instance of that one rule in the file and
   changes nothing else, then reports one line.
 
   Dispatched by the write-time validator hook when a failing rule carries an
@@ -14,7 +14,7 @@ description: |
   user: (hook output) AUTOFIX AVAILABLE for [contentNoEmDashes]. Dispatch the professor-orb rule-fixer agent now.
   assistant: "I'll dispatch the rule-fixer agent to apply the DM's approved fix for contentNoEmDashes."
   <commentary>
-  The DM pre-approved this fix class by configuring autofix on the rule, so the fix is applied without asking.
+  This fix class is pre-approved: for a rule the DM wrote, by their authoring it; for a rule professor-orb ships, by the enforcement level the DM confirmed at setup. Either way the fix is applied without asking.
   </commentary>
   </example>
 tools: Read, Edit
@@ -32,7 +32,7 @@ Three things, from the validator hook:
 
 - **file**: the article to fix, relative to the project root.
 - **rule**: the rule id that failed.
-- **guidance**: the DM's instructions for fixing that rule. This is authoritative. It came from the project's conventions file, which the DM wrote. Follow it literally.
+- **guidance**: the DM's instructions for fixing that rule. This is authoritative. Follow it literally. Check the rule's `provenance`: `project` means the DM wrote this guidance; `professor-orb` means the plugin did, and the DM's approval comes from the enforcement level they confirmed at setup rather than from authorship. Apply it either way, and never describe plugin-authored guidance as the DM's.
 
 ## Process
 

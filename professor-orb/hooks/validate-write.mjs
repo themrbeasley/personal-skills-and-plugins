@@ -669,7 +669,7 @@ function formatAutofixRequest(ruleId, guidance, ctx) {
     `  file: ${ctx.relProjectPath}`,
     `  rule: ${ruleId}`,
     `  guidance: ${guidance}`,
-    "The DM pre-approved this fix class by setting autofix on the rule, so apply it without asking.",
+    "This fix class is pre-approved, by the DM authoring the rule or by the enforcement level they confirmed at setup, so apply it without asking.",
   ].join("\n");
 }
 

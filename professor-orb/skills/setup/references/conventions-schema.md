@@ -283,8 +283,9 @@ defaults baked into the schema itself.
 ## Autofix
 
 A rule may carry an optional `autofix` string. It holds plain-English guidance a
-model can follow to correct a violation of that rule, and its presence is the
-DM's standing approval for that class of fix.
+model can follow to correct a violation of that rule, and its presence marks the
+fix class as pre-approved: by the DM's authorship for a `project` rule, and by
+the enforcement level they confirmed at setup for a `professor-orb` rule.
 
 When a rule with `autofix` fails, the hook appends a request naming the file, the
 rule, and the guidance verbatim, and the main session dispatches the `rule-fixer`
