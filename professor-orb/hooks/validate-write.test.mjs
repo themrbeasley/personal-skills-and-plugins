@@ -182,4 +182,106 @@ const EXTENDED_ENUM = {
   check("a value in neither list still blocks", r.code, 2);
 }
 
+console.log("\n=== v3 conventions shape ===");
+
+const V3 = {
+  version: 3,
+  settings: [
+    {
+      name: "rolara",
+      kbRoot: "settings/rolara",
+      homebrewRoot: "homebrew/rolara",
+      sessionReportsRoot: "session-reports/rolara",
+      rules: {
+        frontmatterTypeEnum: {
+          provenance: "professor-orb",
+          category: "frontmatter",
+          check: "enum",
+          enforcement: "block",
+          description: "type must be recognized.",
+          params: { field: "type", values: ["Person", "Location"] },
+        },
+      },
+    },
+  ],
+};
+
+{
+  const r = runHook({
+    conventions: V3,
+    files: { "settings/rolara/Bad.md": "---\ntype: Nope\n---\n\nbody\n" },
+    targetRel: "settings/rolara/Bad.md",
+  });
+  check("v3 file: hook still blocks a bad enum value", r.code, 2);
+}
+
+{
+  const r = runHook({
+    conventions: V3,
+    files: { "settings/rolara/Good.md": "---\ntype: Person\n---\n\nbody\n" },
+    targetRel: "settings/rolara/Good.md",
+  });
+  check("v3 file: a valid article passes", r.code, 0);
+}
+
+console.log("\n=== scope gate against a real prongKind ===");
+
+// Until this task, ctx.prongKind did not exist, so the gate
+// `rule.scope === "kb" && ctx.prongKind && ctx.prongKind !== "kb"` always
+// short-circuited on the falsy prongKind and could not be exercised. These
+// three cases pin both sides of it plus a control.
+function scopedV3(scope) {
+  const rule = {
+    provenance: "professor-orb",
+    category: "frontmatter",
+    check: "enum",
+    enforcement: "block",
+    description: "type must be recognized.",
+    params: { field: "type", values: ["Person", "Location"] },
+  };
+  if (scope) rule.scope = scope;
+  return {
+    version: 3,
+    settings: [
+      {
+        name: "rolara",
+        kbRoot: "settings/rolara",
+        homebrewRoot: "homebrew/rolara",
+        sessionReportsRoot: "session-reports/rolara",
+        rules: { frontmatterTypeEnum: rule },
+      },
+    ],
+  };
+}
+
+{
+  const r = runHook({
+    conventions: scopedV3("kb"),
+    files: { "homebrew/rolara/ScopedOut.md": "---\ntype: Nope\n---\n\nbody\n" },
+    targetRel: "homebrew/rolara/ScopedOut.md",
+  });
+  check('scope "kb" rule is skipped for a file in the homebrew prong', r.code, 0);
+}
+
+{
+  // Control for the case above: the same homebrew file, same bad value, rule
+  // carrying no scope. Without this, the exit 0 above would also be produced by
+  // the homebrew prong never being recognized as owned at all.
+  const r = runHook({
+    conventions: scopedV3(null),
+    files: { "homebrew/rolara/Unscoped.md": "---\ntype: Nope\n---\n\nbody\n" },
+    targetRel: "homebrew/rolara/Unscoped.md",
+  });
+  check("an unscoped rule does run against that same homebrew file", r.code, 2);
+}
+
+{
+  const r = runHook({
+    conventions: scopedV3("kb"),
+    files: { "settings/rolara/ScopedIn.md": "---\ntype: Nope\n---\n\nbody\n" },
+    targetRel: "settings/rolara/ScopedIn.md",
+  });
+  check('scope "kb" rule does run for a file in the kb prong', r.code, 2);
+}
+
 report();

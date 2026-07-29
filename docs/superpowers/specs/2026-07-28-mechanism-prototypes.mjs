@@ -7,10 +7,12 @@
 // expectation encodes OBSERVED behavior, so a passing run means the specs'
 // mechanism claims still hold on this platform.
 //
-// Two expectations deliberately encode known defects rather than desired
-// behavior, and are labelled DEFECT. When the underlying bug is fixed, those
-// expectations flip and must be updated, which is the point: the fix cannot
-// land silently.
+// One expectation deliberately encoded a known defect rather than desired
+// behavior, labelled DEFECT: the hook's silence under a v3 conventions.json.
+// Phase 2 fixed that defect, so the expectation has been flipped to the
+// corrected behavior. That is exactly the point of encoding it, because the fix
+// could not then land silently. The TRAP case in section 1 differs in kind: it
+// pins real git behavior that surprises, not a bug awaiting a fix.
 //
 //   1. lane-scoped commit that includes NEW files and excludes pre-staged foreign paths
 //   2. .gitignore pattern anchoring for vaults nested under settings/<setting>/
@@ -362,13 +364,13 @@ console.log("\n=== 4. real hook vs v3 conventions.json ===");
     );
     const v3 = runHook();
     check(
-      "v3 file (settings array, no top-level kbRoot): hook is SILENT (DEFECT, must be fixed)",
+      "v3 file (settings array, no top-level kbRoot): hook emits a violation",
       v3.code !== 0 || (v3.out + v3.err).length > 0,
-      false,
+      true,
       `exit ${v3.code}, output ${JSON.stringify((v3.out + v3.err).slice(0, 60))}. ` +
-        "validate-write.mjs:717 requires a top-level kbRoot and exits 0 when it is absent, " +
-        "so the v3 shape disables ALL write-time validation with no error. Phase 2 must " +
-        "change that guard. When it does, flip this expectation to true."
+        "validate-write.mjs:717 formerly required a top-level kbRoot and exited 0 when it " +
+        "was absent, so the v3 shape disabled ALL write-time validation with no error. " +
+        "Phase 2 replaced that guard with a settings resolver accepting v1, v2, and v3."
     );
   }
 }

@@ -486,7 +486,7 @@ function checkTagVocabulary(params, ctx) {
 
   const registryPath = path.resolve(
     ctx.projectRoot,
-    ctx.conventions.tagRegistryPath || path.join(".professor-orb", "tag-registry.json")
+    ctx.tagRegistryPath || path.join(".professor-orb", "tag-registry.json")
   );
 
   if (!existsSync(registryPath)) return null;
@@ -674,6 +674,50 @@ function formatAutofixRequest(ruleId, guidance, ctx) {
 }
 
 // ---------------------------------------------------------------------------
+// Settings resolution
+// ---------------------------------------------------------------------------
+
+// Normalizes v1, v2, and v3 conventions files to one shape. A v1 or v2 file
+// has a bare kbRoot and a top-level rules object; it reads as a single unnamed
+// setting whose other prong roots are unknown. That is enough for validation
+// and deliberately not enough for lane resolution, which refuses this shape.
+function resolveSettings(conventions) {
+  if (Array.isArray(conventions.settings) && conventions.settings.length > 0) {
+    return conventions.settings.filter((s) => s && typeof s.kbRoot === "string");
+  }
+  if (typeof conventions.kbRoot === "string" && conventions.rules) {
+    return [
+      {
+        name: null,
+        kbRoot: conventions.kbRoot,
+        homebrewRoot: null,
+        sessionReportsRoot: null,
+        rules: conventions.rules,
+        tagRegistryPath: conventions.tagRegistryPath,
+      },
+    ];
+  }
+  return [];
+}
+
+// Which prong of a setting contains this path, if any. Returns "kb",
+// "homebrew", "session-reports", or null.
+function prongContaining(projectRoot, setting, absFilePath) {
+  const prongs = [
+    ["kb", setting.kbRoot],
+    ["homebrew", setting.homebrewRoot],
+    ["session-reports", setting.sessionReportsRoot],
+  ];
+  for (const [kind, root] of prongs) {
+    if (typeof root !== "string" || root.length === 0) continue;
+    const rootAbs = path.resolve(projectRoot, root);
+    const rel = path.relative(rootAbs, absFilePath);
+    if (rel !== "" && !rel.startsWith("..") && !path.isAbsolute(rel)) return kind;
+  }
+  return null;
+}
+
+// ---------------------------------------------------------------------------
 // Main
 // ---------------------------------------------------------------------------
 
@@ -719,19 +763,56 @@ function main() {
     process.exit(0);
   }
 
-  if (!conventions || typeof conventions !== "object" || !conventions.kbRoot || !conventions.rules) {
+  if (!conventions || typeof conventions !== "object") {
     process.exit(0);
   }
 
-  const kbRootAbs = path.resolve(projectRoot, conventions.kbRoot);
+  // v3 carries a settings array; v1 and v2 carry a bare kbRoot. Both shapes
+  // must resolve, because a consumer's file is only rewritten when setup next
+  // runs. A v3 file reaching the old guard exited 0 and silently disabled all
+  // validation, which is why this accepts either shape explicitly.
+  const settings = resolveSettings(conventions);
+  if (settings.length === 0) {
+    process.exit(0);
+  }
+
   const absFilePath = path.resolve(projectRoot, filePath);
 
-  const relToKb = path.relative(kbRootAbs, absFilePath);
-  const isInsideKb =
-    relToKb !== "" && !relToKb.startsWith("..") && !path.isAbsolute(relToKb);
-  if (!isInsideKb) {
+  // The owning setting is the one whose prong roots contain this file. Rules
+  // are per setting, so the wrong owner means the wrong rule set.
+  let owner = null;
+  let prongKind = null;
+  for (const s of settings) {
+    const kind = prongContaining(projectRoot, s, absFilePath);
+    if (kind) {
+      owner = s;
+      prongKind = kind;
+      break;
+    }
+  }
+  if (!owner || !owner.rules) {
     process.exit(0);
   }
+
+  const kbRootAbs = path.resolve(projectRoot, owner.kbRoot);
+
+  // The deleted block was the only definition of relToKb, and the ctx literal
+  // still reads it as relPath. It must be reintroduced here or main() throws an
+  // uncaught ReferenceError on every write: main() is invoked bare at the bottom
+  // of the file, and the only try/catch in the check loop wraps individual check
+  // functions, not this.
+  //
+  // Anchor it to the prong root that owns the file rather than to kbRoot.
+  // relPath feeds only the human-readable folder label in the three structural
+  // checks, and a homebrew or session-reports file measured from kbRoot would
+  // render as a "../" label.
+  const prongRoots = {
+    kb: owner.kbRoot,
+    homebrew: owner.homebrewRoot,
+    "session-reports": owner.sessionReportsRoot,
+  };
+  const prongRootAbs = path.resolve(projectRoot, prongRoots[prongKind] || owner.kbRoot);
+  const relToProng = path.relative(prongRootAbs, absFilePath);
 
   let fileContent;
   try {
@@ -748,14 +829,18 @@ function main() {
   const ctx = {
     projectRoot,
     toolName,
+    prongKind,
     kbRootAbs,
     absFilePath,
-    relPath: relToKb,
+    relPath: relToProng,
     relProjectPath: path.relative(projectRoot, absFilePath),
     fileName: path.basename(absFilePath),
     frontmatter: parsed.data,
     frontmatterOrder: parsed.order,
     body: parsed.body,
+    // A v3 setting carries its own tag vocabulary, so the owning setting's
+    // registry wins over any top-level one a v1 or v2 file supplied.
+    tagRegistryPath: owner.tagRegistryPath || conventions.tagRegistryPath,
     conventions,
   };
 
@@ -763,8 +848,8 @@ function main() {
   const warnings = [];
   const autofixRequests = [];
 
-  for (const ruleId of Object.keys(conventions.rules)) {
-    const rule = conventions.rules[ruleId];
+  for (const ruleId of Object.keys(owner.rules)) {
+    const rule = owner.rules[ruleId];
     if (!rule || rule.enforcement === "off") continue;
 
     const checkFn = CHECKS[rule.check];
@@ -789,8 +874,9 @@ function main() {
       }
     }
 
-    // scope "kb" restricts a rule to the setting knowledge base. Phase 2 gives
-    // ctx.prongKind a value; until then every path inside kbRoot reads as "kb".
+    // scope "kb" restricts a rule to the setting knowledge base. ctx.prongKind
+    // now carries the prong that owns the file, so a homebrew or
+    // session-reports write skips the rule instead of being measured by it.
     if (rule.scope === "kb" && ctx.prongKind && ctx.prongKind !== "kb") continue;
 
     let result;
