@@ -481,20 +481,20 @@ with:
 
 ```js
     // A base rule may be extended by the project: extra permitted enum values
-    // live in rule.extendedBy so the project never needs a second rule of the
-    // same check kind on the same field, which would fail every article
-    // against one of the two.
+    // live in rule.extendedBy, unioned into the rule's enum values only, so
+    // the project never needs a second rule of the same check kind on the
+    // same field, which would fail every article against one of the two.
+    // Mapping-based rules (suffixByType) are deliberately not extended here:
+    // params.mapping holds {type, suffix} objects, matched by
+    // mapping.find((m) => m.type === type), so splicing a bare string from
+    // extendedBy in would create an entry that can never match, silently
+    // disabling the rule for the extended type instead of enforcing it.
     let effectiveParams = rule.params || {};
     if (Array.isArray(rule.extendedBy) && rule.extendedBy.length > 0) {
       if (Array.isArray(effectiveParams.values)) {
         effectiveParams = {
           ...effectiveParams,
           values: [...effectiveParams.values, ...rule.extendedBy],
-        };
-      } else if (Array.isArray(effectiveParams.mapping)) {
-        effectiveParams = {
-          ...effectiveParams,
-          mapping: [...effectiveParams.mapping, ...rule.extendedBy],
         };
       }
     }
