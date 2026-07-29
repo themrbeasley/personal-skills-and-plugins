@@ -37,13 +37,20 @@ registry exists and where to find it; it does not embed the tag list.
 ## Design principles
 
 1. **One base set, extended rather than replaced.** Professor-orb owns the
-   structural layer and ships it at `references/base-rules.json`: folder and index
-   rules, frontmatter schema and field order, filename conventions, wikilink
-   format. Every consumer project gets the same base rules, at whatever
-   enforcement levels its DM confirmed. What differs between two consumers is the
-   extras layer: the article types that project actually uses, its tag
-   vocabulary, and any rule the base set does not cover. A project extends a base
-   rule through `extendedBy`; it does not restate, weaken, or replace one.
+   structural layer and ships it at `references/base-rules.json`: thirteen rules,
+   four structural (index parity, single ownership, and the split and absorb
+   thresholds), five frontmatter (a required-field subset, field order, publish
+   presence, the `type` enum, and the `tags` format), three filename (two
+   type-to-suffix mappings and a filename charset), and one content rule banning
+   em dashes. The base set ships **no wikilink rule and no tag-vocabulary rule**;
+   a project that wants either emits its own `provenance: "project"` rule using
+   the matching check kind from the catalog below. Read the artifact before
+   assuming a base rule exists. Every consumer project gets the same base rules,
+   at whatever enforcement levels its DM confirmed. What differs between two
+   consumers is the extras layer: the article types that project actually uses,
+   its tag vocabulary, and any rule the base set does not cover. A project
+   extends a base rule through `extendedBy`; it does not restate, weaken, or
+   replace one.
 2. **Per-rule enforcement, never global strictness.** There is no top-level
    "strict mode" toggle. Each rule carries its own `enforcement`. A DM can block
    on invalid `type` values while only warning on new tags, in the same file.
@@ -114,8 +121,10 @@ Every entry in `rules` follows the same shape, regardless of category:
   "<ruleId>": {
     // Required. Who authored this rule: "professor-orb" for one that came from
     // the base rule set, "project" for one setup derived from this consumer.
-    // A rule carrying no provenance at all reads as "project"; see
-    // "Reconciling a v1 file" below for how setup repairs such a file.
+    // A rule carrying no provenance at all is a v1 rule. Setup does NOT
+    // default it to "project": it reconciles it against the base rule set,
+    // which may fold it into a base rule, leave it as a project rule, or
+    // route it to the DM. See "Reconciling a v1 file" below.
     "provenance": "professor-orb",
 
     // One of: "frontmatter" | "filename" | "structural" | "content".
@@ -169,7 +178,9 @@ Every entry in `rules` follows the same shape, regardless of category:
 Rule IDs are free-form (camelCase is the convention setup uses when generating
 new files) but must be unique within the file. Nothing about a rule ID is
 semantically meaningful to the hook; it only reads `check`, `enforcement`,
-`extendedBy`, `scope`, and `params`. A base rule keeps the ID it carries in
+`extendedBy`, `scope`, `params`, `description` (as the fallback violation
+message when a check returns no message of its own), and `autofix` (to build
+the autofix request). A base rule keeps the ID it carries in
 `references/base-rules.json`, which is how setup, the sweep, and a later resync
 recognize it as the same rule.
 
@@ -178,9 +189,15 @@ accountable for the rule's content. A `professor-orb` rule came from the base
 set: the plugin authored it, and the DM's say over it is the `enforcement` level
 they confirmed at setup, including `off`. A `project` rule came from this
 consumer: the DM authored it, directly or through a document setup read. The
-distinction is load-bearing in the autofix path, where the two provenances
-answer differently the question of who pre-approved a fix; see the Autofix
-section below. A `project` rule may add a rule the base set does not cover. It
+distinction is load-bearing in the **reasoning** behind autofix pre-approval,
+which answers differently for the two provenances: a `project` rule's fix class
+is pre-approved by the DM having authored the rule, a `professor-orb` rule's by
+the enforcement level they confirmed at setup. It is not load-bearing at
+dispatch time, because **no executable component reads the field.** The hook
+branches on `enforcement` and `autofix` alone, and the request it builds carries
+neither `provenance` nor anything derived from it, so the `rule-fixer` agent
+never receives it and must never be told to check it. See the Autofix section
+below. A `project` rule may add a rule the base set does not cover. It
 may not restate, weaken, or remove a base rule; `enforcement` is the deliberate
 exception.
 
@@ -204,22 +221,6 @@ articles avoids being applied to material held elsewhere in the project. A rule
 with no `scope` applies wherever the component checking it looks. Several base
 rules ship with `scope: "kb"`.
 
-**Reconciling a v1 file, whose rules carry no `provenance` at all.** Every rule
-in a v1 `conventions.json` was derived from the consumer's own project, so
-reading them all as `provenance: "project"` would leave a second rule of the
-same check kind on the same field standing beside every base rule, which is
-exactly the breakage `extendedBy` exists to prevent. Setup and resync apply this
-reconciliation instead:
-
-- A provenance-less rule whose **check kind and target match a base rule's**
-  (the same field for a `frontmatter` check, the same param target for a
-  `filename` or `structural` one) is discarded as a rule of its own. Its
-  distinct values fold into that base rule's `extendedBy`, and its
-  `enforcement` level carries onto the base rule, so the DM's earlier choices
-  survive.
-- A provenance-less rule with **no base counterpart** survives, and setup writes
-  `provenance: "project"` onto it.
-
 **Note on `description`:** this field is a terse sentence, never narrative.
 It states what the rule checks, in one clean sentence, and nothing else.
 `description` is what a DM reads directly in conventions.json, and it is the
@@ -232,6 +233,127 @@ other statistics. A `description` that reads like a commit message or a
 status update is a sign it was written by summarizing a conversation instead
 of stating a check; rewrite it as the one-line fact that belongs in
 conventions.json.
+
+## Reconciling a v1 file, whose rules carry no `provenance` at all
+
+Every rule in a v1 `conventions.json` was derived from the consumer's own
+project, so reading them all as `provenance: "project"` would leave a second rule
+of the same check kind on the same field standing beside every base rule, which
+is exactly the breakage `extendedBy` exists to prevent. Reconciliation exists to
+stop that. It runs on setup and on resync, over every rule in the v1 file.
+
+**Reconciliation never writes into the draft.** It produces a *reconciliation
+report*: a list of proposed folds, proposed drops, proposed new project rules,
+proposed enforcement changes, and unresolved rules. The DM reads that report as
+an explicit before-and-after diff and approves it item by item; only approved
+items enter the starting draft. This matters because setup's resync path treats
+the DM's prior confirmed choices as the starting draft. If reconciliation edited
+that draft first, the confirmation walkthrough would present altered enforcement
+levels as though they were the DM's own prior state, and the DM would be
+approving a change they were never shown. **No enforcement level, on any rule,
+changes without appearing in the report first.**
+
+### Step 1: match each v1 rule to a base rule
+
+Matching never uses `category`, which the hook does not branch on either. Try in
+this order and stop at the first hit:
+
+1. **Exact rule ID match.** A base rule keeps the ID it carries in
+   `references/base-rules.json`, so an exact ID match is unambiguous and is
+   tried before anything else. `filenameCharset` in a v1 file is the base
+   `filenameCharset`.
+2. **Check kind plus the target param.** Otherwise compare the v1 rule's `check`
+   against the base rules, and where more than one base rule carries that check
+   kind, disambiguate with the target param named in the table below.
+3. **Ambiguous.** If two or more base rules still match, or the v1 rule carries
+   no value for the target param, **setup does not guess.** The rule goes into
+   the report as unresolved, naming every candidate base rule, and setup asks the
+   DM via `AskUserQuestion` which base rule it corresponds to (or whether it
+   should survive as its own project rule). Nothing folds and no enforcement
+   level moves until that answer comes back.
+4. **Unmatched.** If no base rule carries the check kind, or none whose target
+   param matches, the rule has no base counterpart. See Step 4.
+
+| check kind | base rules carrying it | target param |
+|---|---|---|
+| `requiredFields` | `frontmatterRequiredSubset`, `frontmatterFieldOrder`, `frontmatterPublishPresence` | **none exists.** `requiredFields` takes no `field` param, so check kind alone can never single one of the three out. Always ambiguous; always routed to the DM |
+| `enum` | `frontmatterTypeEnum` | `params.field`, which matches only the value `"type"` |
+| `default` | *(none)* | n/a; always unmatched |
+| `format` | `frontmatterTagsFormat` | `params.field`, which matches only the value `"tags"` |
+| `frontmatterImpliesFrontmatter` | *(none)* | n/a; always unmatched |
+| `suffixByType` | `filenameSuffixByType`, `filenameSuffixChronology` | the `type` keys inside `params.mapping`. A v1 mapping naming only `Chronology` matches the second; one naming only `Index`, `Session Report`, or `Session Prep` matches the first; one spanning both is ambiguous |
+| `charset` | `filenameCharset` | check kind alone singles it out; `params.pattern` is then compared, not matched on |
+| `indexParity` | `structuralIndexParity` | check kind alone; `params.indexSuffix` is compared, not matched on |
+| `singleOwnership` | `structuralSingleOwnership` | check kind alone; the check takes no params |
+| `splitThreshold` | `structuralSplitThreshold` | check kind alone; `params.minEntries` is compared, not matched on |
+| `absorbThreshold` | `structuralAbsorbThreshold` | check kind alone; `params.maxEntries` is compared, not matched on |
+| `wikilinkPolicy` | *(none)* | n/a; always unmatched |
+| `tagVocabulary` | *(none)* | n/a; always unmatched |
+| `prohibitedPattern` | `contentNoEmDashes` | check kind alone; `params.pattern` and `params.appliesTo` are compared, not matched on |
+| `bodyImpliesFrontmatter` | *(none)* | n/a; always unmatched |
+
+This table is derived from the base rule set as shipped. If
+`references/base-rules.json` changes, re-derive it from the artifact rather than
+trusting this copy.
+
+### Step 2: dispose of a matched rule's params
+
+A matched v1 rule is not kept as a rule of its own; the base rule takes its
+place, keeping the base rule's own `description`. Each of the matched rule's
+params then reaches exactly one of three outcomes, and **every outcome appears in
+the report**, including the drops:
+
+- **Folds into `extendedBy`.** Only `params.values` folds, and only the values
+  the base rule's `params.values` does not already carry. Of the thirteen base
+  rules only `frontmatterTypeEnum` carries a `values` array, so this is the only
+  fold that exists today; on any other base rule `extendedBy` has no effect (see
+  the note above), and setup never writes one there.
+- **Already covered.** A param whose value the base rule already carries
+  (the same `pattern`, the same `indexSuffix`, the same `{ type, suffix }` pair,
+  the same threshold) contributes nothing. It is dropped, and the report records
+  it as covered by the named base rule so the DM can see it was accounted for
+  rather than lost.
+- **Cannot fold.** Everything else, which is the common case: a `mapping` entry
+  the base rule does not carry, a different `pattern`, a different threshold,
+  `fields` or `orderMatters` on a `requiredFields` rule. `extendedBy` cannot
+  carry any of it and mapping extension is prohibited, so **setup never silently
+  discards it.** It goes in the report with the v1 value beside the base value
+  and a proposed disposition, and the DM picks:
+  - **Emit it as a new `provenance: "project"` rule** carrying only the leftover
+    params. Available when the leftover states something no base rule covers and
+    contradicts none: a `{ type, suffix }` pair for a type no base mapping names,
+    an additional prohibited pattern. Two rules of the same check kind coexist
+    safely when their params are disjoint, which is why the base set itself ships
+    `filenameSuffixByType` and `filenameSuffixChronology` side by side:
+    `suffixByType` passes any article whose `type` no mapping entry names.
+  - **Drop it.** The only option when the leftover contradicts a base rule (a
+    different suffix for a type the base mapping already names, a `charset`
+    pattern wider or narrower than the base one, a different threshold), because
+    a project rule may not restate or weaken a base rule. Where the disagreement
+    is really about strictness, `enforcement` is the lever that is offered
+    instead, and it goes through Step 3 like any other level change.
+
+### Step 3: propose, never carry, the enforcement level
+
+A matched v1 rule's `enforcement` is a **proposal** to change the base rule's
+level, never an assignment. Where the two differ, the report shows
+`<base rule ID>: <base level> to <v1 level>` and the DM confirms it in setup's
+Step 3 walkthrough. Where the two agree, nothing is proposed and nothing changes.
+
+Where a rule was left unresolved by Step 1, **no level is carried at all** until
+the DM resolves it. A level the DM once chose for one v1 rule is not evidence
+about which of several base rules they meant, and folding it onto the wrong one
+silently rewrites a choice they made. A v1 `requiredFields` rule set to `block`,
+for example, must never land on `frontmatterFieldOrder`, whose base level is
+`warn` and which the DM never asked to block.
+
+### Step 4: a rule with no base counterpart
+
+A v1 rule that matched nothing survives unchanged, and setup writes
+`provenance: "project"` onto it. It still appears in the report, as a kept rule,
+so the report is a full accounting of every rule in the v1 file rather than only
+the ones that moved. Its `enforcement` is its own and is not a change, so Step 3
+proposes nothing for it.
 
 ## Rule catalog
 
@@ -323,9 +445,23 @@ two are recorded in `conventions.json`; the third never is.
 | Whole-KB (the validation sweep) | The entire KB: every article, every folder, the full index graph | A legitimate convention, but not a write-time gate; the hook returns "not applicable" for it (`singleOwnership` is the example already in this schema). Recorded in `conventions.json` as a sweep-scope entry carrying a non-off `enforcement`, typically `warn`. The hook stays silent on it because its check function returns "not applicable", not because of the enforcement level; `off` is reserved for a rule the DM has deliberately turned off, and giving it to a sweep-scope rule by default would make the sweep skip it too. A base rule may be sweep scope: `structuralSingleOwnership` ships this way, carrying `provenance: "professor-orb"` and `enforcement: "warn"` |
 | Human judgment | No deterministic answer exists, for example which of two colliding filenames is "primary," or whether a prose cross-reference reads well | Never `conventions.json`. Setup routes it to the consumer project's CLAUDE.md, as guidance for a human, or a model exercising judgment, to read |
 
-Setup classifies each candidate convention by scope before proposing it to
-the DM. A base rule arrives already classified, carrying its own `scope`, and
-setup does not reclassify it. Judgment-only conventions go to CLAUDE.md, never
+Setup classifies each candidate convention by enforcement scope before proposing
+it to the DM.
+
+**This classification is not the `scope` field.** `scope` is the prong
+restriction described under "Note on `scope`" above: its only value is `"kb"`,
+the hook gates on `rule.scope === "kb"`, and it says nothing about whether a rule
+is checkable per write. The two are independent. All four structural base rules
+carry `scope: "kb"`, yet only one of them is whole-KB scope.
+
+A rule's enforcement scope is determined by **its check kind**, specifically by
+whether that check can reach a verdict from the file just written and the folder
+it lives in. Of the base set, `singleOwnership` is the only check that always
+returns not applicable at write time; `indexParity`, `splitThreshold`, and
+`absorbThreshold` each answer from the written file's own folder and are
+per-write rules despite being KB-scoped. So setup reads the check kind, and the
+catalog entry for it, to classify a base rule, and never infers sweep-only status
+from `scope: "kb"`. Judgment-only conventions go to CLAUDE.md, never
 into `conventions.json`. A migration, for example "the KB used to allow X, DMs
 should now write Y," is tracked only as a proposal during the setup
 conversation; it is never asserted as settled fact inside `conventions.json`,
