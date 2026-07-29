@@ -1,0 +1,134 @@
+{
+  "schemaVersion": 1,
+  "rules": {
+    "structuralIndexParity": {
+      "provenance": "professor-orb",
+      "category": "structural",
+      "check": "indexParity",
+      "enforcement": "warn",
+      "scope": "kb",
+      "description": "Every folder with content has exactly one owning -INDEX file.",
+      "params": { "indexSuffix": "-INDEX" }
+    },
+    "structuralSingleOwnership": {
+      "provenance": "professor-orb",
+      "category": "structural",
+      "check": "singleOwnership",
+      "enforcement": "off",
+      "scope": "kb",
+      "description": "An article's wikilink appears in exactly one index. Checked by the validation sweep, not at write time.",
+      "params": {}
+    },
+    "structuralSplitThreshold": {
+      "provenance": "professor-orb",
+      "category": "structural",
+      "check": "splitThreshold",
+      "enforcement": "warn",
+      "scope": "kb",
+      "description": "A folder holding six or more articles earns its own subfolder and index.",
+      "params": { "minEntries": 6, "indexSuffix": "-INDEX" }
+    },
+    "structuralAbsorbThreshold": {
+      "provenance": "professor-orb",
+      "category": "structural",
+      "check": "absorbThreshold",
+      "enforcement": "warn",
+      "scope": "kb",
+      "description": "A leaf folder holding fewer than four articles is absorbed into its parent.",
+      "params": { "maxEntries": 4, "indexSuffix": "-INDEX" }
+    },
+    "frontmatterRequiredSubset": {
+      "provenance": "professor-orb",
+      "category": "frontmatter",
+      "check": "requiredFields",
+      "enforcement": "block",
+      "description": "Frontmatter must include type.",
+      "params": {
+        "requiredSubset": ["type"]
+      }
+    },
+    "frontmatterFieldOrder": {
+      "provenance": "professor-orb",
+      "category": "frontmatter",
+      "check": "requiredFields",
+      "enforcement": "warn",
+      "description": "Frontmatter lists publish, type, tags in that order when present.",
+      "params": {
+        "fields": ["publish", "type", "tags"],
+        "orderMatters": true
+      }
+    },
+    "frontmatterPublishPresence": {
+      "provenance": "professor-orb",
+      "category": "frontmatter",
+      "check": "requiredFields",
+      "enforcement": "warn",
+      "description": "publish should be present and explicit.",
+      "params": {
+        "requiredSubset": ["publish"]
+      }
+    },
+    "frontmatterTypeEnum": {
+      "provenance": "professor-orb",
+      "category": "frontmatter",
+      "check": "enum",
+      "enforcement": "block",
+      "description": "type must be one of the recognized article types or homebrew artifact keys.",
+      "params": {
+        "field": "type",
+        "values": [
+          "Person", "Location", "Organization", "Item", "Creature", "Concept",
+          "Index", "Session Report", "Session Prep", "Chronology",
+          "spell", "magic-item", "feat", "feature", "monster", "npc",
+          "species", "subclass", "class", "other"
+        ]
+      }
+    },
+    "frontmatterTagsFormat": {
+      "provenance": "professor-orb",
+      "category": "frontmatter",
+      "check": "format",
+      "enforcement": "warn",
+      "description": "tags, when present, must be an array of strings.",
+      "params": { "field": "tags", "format": "string-array", "optional": true }
+    },
+    "filenameSuffixByType": {
+      "provenance": "professor-orb",
+      "category": "filename",
+      "check": "suffixByType",
+      "enforcement": "block",
+      "description": "Index, session report, and session prep articles carry a mandatory filename suffix.",
+      "params": {
+        "mapping": [
+          { "type": "Index", "suffix": "-INDEX" },
+          { "type": "Session Report", "suffix": "-REPORT" },
+          { "type": "Session Prep", "suffix": "-PREP" }
+        ]
+      }
+    },
+    "filenameSuffixChronology": {
+      "provenance": "professor-orb",
+      "category": "filename",
+      "check": "suffixByType",
+      "enforcement": "warn",
+      "description": "Chronology articles carry the -CHRONOLOGY suffix.",
+      "params": { "mapping": [{ "type": "Chronology", "suffix": "-CHRONOLOGY" }] }
+    },
+    "filenameCharset": {
+      "provenance": "professor-orb",
+      "category": "filename",
+      "check": "charset",
+      "enforcement": "warn",
+      "description": "Filenames use letters, digits, and hyphens only.",
+      "params": { "pattern": "^[A-Za-z0-9-]+$" }
+    },
+    "contentNoEmDashes": {
+      "provenance": "professor-orb",
+      "category": "content",
+      "check": "prohibitedPattern",
+      "enforcement": "warn",
+      "description": "Body prose does not use em dashes.",
+      "params": { "pattern": "\u2014", "appliesTo": "body" }
+    }
+  }
+}

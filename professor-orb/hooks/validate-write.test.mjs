@@ -109,4 +109,36 @@ console.log("=== baseline: today's behavior ===");
   check("v1 file, bad enum value: blocks with exit 2", r.code, 2);
 }
 
+console.log("\n=== base rules artifact ===");
+
+{
+  const { readFileSync } = await import("node:fs");
+  const raw = readFileSync(
+    new URL("../references/base-rules.json", import.meta.url),
+    "utf8"
+  );
+  const base = JSON.parse(raw);
+  const ids = Object.keys(base.rules);
+  check("base-rules.json parses and carries a schemaVersion", typeof base.schemaVersion, "number");
+  check("every base rule carries provenance professor-orb",
+    ids.every((id) => base.rules[id].provenance === "professor-orb"), true);
+  check("no base rule ships an autofix on a filename rule",
+    ids.filter((id) => base.rules[id].category === "filename")
+       .every((id) => base.rules[id].autofix === undefined), true);
+  check("publish is not in the blocking required subset",
+    base.rules.frontmatterRequiredSubset.params.requiredSubset, ["type"]);
+  // The three frontmatter required-fields rules exist separately because they
+  // sit at two different enforcement levels. Pin each one: a later edit that
+  // folds them back together would silently promote publish to blocking.
+  check("the required subset blocks",
+    base.rules.frontmatterRequiredSubset.enforcement, "block");
+  check("field order only warns",
+    base.rules.frontmatterFieldOrder.enforcement, "warn");
+  check("publish presence only warns",
+    base.rules.frontmatterPublishPresence.enforcement, "warn");
+  check("the type enum carries both groups",
+    base.rules.frontmatterTypeEnum.params.values.includes("Person") &&
+    base.rules.frontmatterTypeEnum.params.values.includes("magic-item"), true);
+}
+
 report();
