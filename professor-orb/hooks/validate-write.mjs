@@ -406,7 +406,7 @@ function checkSplitThreshold(params, ctx) {
   const count = countArticles(dir, entries, params);
   if (count >= minEntries) {
     const folderLabel = path.dirname(ctx.relPath) || ".";
-    return `Folder "${folderLabel}" has ${count} entries (at least ${minEntries}); consider splitting into a sub-index.`;
+    return `Folder "${folderLabel}" has ${count} articles (at least ${minEntries}); consider splitting into a sub-index.`;
   }
   return true;
 }
@@ -422,7 +422,7 @@ function checkAbsorbThreshold(params, ctx) {
   const count = countArticles(dir, entries, params);
   if (count < maxEntries) {
     const folderLabel = path.dirname(ctx.relPath) || ".";
-    return `Folder "${folderLabel}" has ${count} entries (fewer than ${maxEntries}); consider absorbing it into its parent.`;
+    return `Folder "${folderLabel}" has ${count} articles (fewer than ${maxEntries}); consider absorbing it into its parent.`;
   }
   return true;
 }
@@ -816,8 +816,6 @@ function main() {
     process.exit(0);
   }
 
-  const kbRootAbs = path.resolve(projectRoot, owner.kbRoot);
-
   // The deleted block was the only definition of relToKb, and the ctx literal
   // still reads it as relPath. It must be reintroduced here or main() throws an
   // uncaught ReferenceError on every write: main() is invoked bare at the bottom
@@ -860,7 +858,6 @@ function main() {
     projectRoot,
     toolName,
     prongKind,
-    kbRootAbs,
     searchRoots,
     absFilePath,
     relPath: relToProng,

@@ -540,4 +540,78 @@ function absorbConventions(maxEntries) {
   check("a folder holding one fewer than maxEntries articles still trips the absorb threshold", r.code, 2);
 }
 
+console.log("\n=== countArticles: index exclusion and isDirectory guard, in isolation ===");
+
+// The two absorb-threshold cases above prove the `<` vs `<=` operator fix, but
+// that proof only works BECAUSE index exclusion also happens to be correct: the
+// "exactly maxEntries" fixture holds 4 articles plus leaf-INDEX.md, so if index
+// exclusion silently broke, the raw count would read 5 instead of 4 and that
+// case would fail for an unrelated reason, not confirm the operator. Neither
+// existing case can fail from index exclusion alone, because removing it still
+// leaves both on the same side of their respective comparisons (verified by
+// mutation; see the task report). These two cases are built so each one flips
+// on exactly one mechanism.
+
+{
+  // Index exclusion, isolated from the operator fix entirely: this uses
+  // splitThreshold (>=), not absorbThreshold, so the mutation this proves is
+  // independent of the `<` vs `<=` fix above. 5 real articles plus the folder's
+  // own index is 6 raw ".md" directory entries; minEntries is 6. With the
+  // index excluded, the count is 5 and 5 >= 6 is false, so the rule stays
+  // silent. If the exclusion line in countArticles were deleted, the count
+  // would be 6 and 6 >= 6 would fire.
+  const conventions = {
+    version: 3,
+    settings: [{
+      name: "r",
+      kbRoot: "settings/r",
+      homebrewRoot: null,
+      sessionReportsRoot: null,
+      rules: {
+        structuralSplitThreshold: {
+          provenance: "professor-orb",
+          category: "structural",
+          check: "splitThreshold",
+          enforcement: "block",
+          scope: "kb",
+          description: "folder is over the split threshold.",
+          params: { minEntries: 6, indexSuffix: "-INDEX" },
+        },
+      },
+    }],
+  };
+  const files = {
+    "settings/r/idx/A.md": "---\ntype: Item\n---\n\nx\n",
+    "settings/r/idx/B.md": "---\ntype: Item\n---\n\nx\n",
+    "settings/r/idx/C.md": "---\ntype: Item\n---\n\nx\n",
+    "settings/r/idx/D.md": "---\ntype: Item\n---\n\nx\n",
+    "settings/r/idx/E.md": "---\ntype: Item\n---\n\nx\n",
+    "settings/r/idx/idx-INDEX.md": "---\ntype: Index\n---\n\nx\n",
+  };
+  const r = runHook({ conventions, files, targetRel: "settings/r/idx/E.md" });
+  check(
+    "5 articles plus the folder's own index do not trip a minEntries:6 split (index excluded from the count)",
+    r.code,
+    0
+  );
+}
+
+{
+  // isDirectory guard: no other fixture in this suite contains a directory
+  // whose name ends in ".md", so nothing else reaches this branch. "legacy.md"
+  // here is a real directory (it holds a placeholder file), not a markdown
+  // article. With the guard, it is excluded and the count stays 3; 3 < 4 is
+  // true and the absorb rule fires. If the guard were removed (directories
+  // always treated as files), the count would be 4 and 4 < 4 would be false,
+  // so the rule would wrongly stay silent.
+  const files = {
+    "settings/r/leafdir/A.md": "---\ntype: Item\n---\n\nx\n",
+    "settings/r/leafdir/B.md": "---\ntype: Item\n---\n\nx\n",
+    "settings/r/leafdir/C.md": "---\ntype: Item\n---\n\nx\n",
+    "settings/r/leafdir/legacy.md/placeholder.txt": "x",
+  };
+  const r = runHook({ conventions: absorbConventions(4), files, targetRel: "settings/r/leafdir/C.md" });
+  check("a subfolder named legacy.md is not counted as an article (isDirectory guard)", r.code, 2);
+}
+
 report();

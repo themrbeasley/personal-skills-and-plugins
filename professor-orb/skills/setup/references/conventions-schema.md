@@ -402,8 +402,20 @@ failing it.
 |---|---|---|
 | `indexParity` | `indexSuffix` (string, e.g. `-INDEX`) | The folder containing the written file has exactly one file ending in `indexSuffix` |
 | `singleOwnership` | *(none)* | The article's wikilink appears in exactly one owning index across the KB (KB-wide; sweep-scope in practice) |
-| `splitThreshold` | `minEntries` (integer) | A folder has reached the entry count at which it should earn its own sub-index |
-| `absorbThreshold` | `maxEntries` (integer) | A sub-index has dropped below the entry count at which it should be absorbed into its parent |
+| `splitThreshold` | `minEntries` (integer), `indexSuffix` (string, e.g. `-INDEX`; see note below) | A folder has reached the entry count at which it should earn its own sub-index |
+| `absorbThreshold` | `maxEntries` (integer), `indexSuffix` (string, e.g. `-INDEX`; see note below) | A sub-index has dropped below the entry count at which it should be absorbed into its parent |
+
+**Note on `splitThreshold` and `absorbThreshold`'s `indexSuffix`:** both checks count
+only markdown articles in the folder, excluding subfolders, dotfiles, and, when
+`indexSuffix` is set, the folder's own index file. Omitting `indexSuffix` is not
+cosmetic: the folder's own index then counts as an ordinary article, shifting both
+thresholds by one entry in opposite directions. A split rule fires one article early,
+because a folder of `minEntries - 1` articles plus its index reads as `minEntries`. An
+absorb rule fires one article late, or misses the boundary case entirely, because a
+folder of exactly `maxEntries` articles plus its index reads as `maxEntries + 1`,
+which no longer satisfies `count < maxEntries`. The base rules always ship
+`indexSuffix` on both threshold checks (see `references/base-rules.json`); a
+project-authored rule of either check kind should too.
 
 ### Content rules
 
@@ -640,7 +652,8 @@ project would have `"sourceConventionsDoc": null`.
       "enforcement": "warn",
       "description": "A folder earns its own sub-index at 6 or more entries.",
       "params": {
-        "minEntries": 6
+        "minEntries": 6,
+        "indexSuffix": "-INDEX"
       }
     },
     "structuralAbsorbThreshold": {
@@ -649,7 +662,8 @@ project would have `"sourceConventionsDoc": null`.
       "enforcement": "warn",
       "description": "A sub-index is absorbed into its parent below 4 entries.",
       "params": {
-        "maxEntries": 4
+        "maxEntries": 4,
+        "indexSuffix": "-INDEX"
       }
     },
     "contentWikilinkPolicy": {
