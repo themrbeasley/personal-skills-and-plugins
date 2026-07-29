@@ -17,7 +17,7 @@ Many projects never formalize content-file conventions in `conventions.json`, si
 
 For everything else, fall back to the project's `CLAUDE.md` (or equivalent instructions file) the same way debrief and prep do for everything `conventions.json` doesn't reach. Extract:
 
-- **Where content files live.** Look for a content subdirectory, naming convention, or file pattern. If not specified, default to a `content/` subdirectory inside the campaign's session-reports folder.
+- **Where content files live.** Resolve `sessionReportsRoot` per SHARED-PRINCIPLES Principle 12; look for a content subdirectory, naming convention, or file pattern within `<sessionReportsRoot>/<campaign>/`. If not specified, default to a `content/` subdirectory inside that campaign folder.
 - **Content filename conventions.** Look for prefix patterns (for example `RECAP-`, `HANDOUT-`). If not specified, default to `[TYPE]-YYYY-MM-DD-[Title].md` for markdown, with `-FRAGMENT.html`, `-PRINT.html`, and `-IMAGE-PROMPT.md` suffixes for the Foundry fragment, printable page, and prompt sidecar variants described below.
 - **Writing style rules.** Especially important for this skill, since any tone, phrasing, or formatting rules affect how content reads aloud. Check for prohibited patterns, required voice, cultural sensitivity notes.
 - **Cross-reference format.** Match the project's link conventions. Cross-references are optional in read-aloud content (it is meant to be spoken, not navigated) and pointless in HTML outputs bound for Foundry or print, but useful if a markdown file will be referenced from the KB.

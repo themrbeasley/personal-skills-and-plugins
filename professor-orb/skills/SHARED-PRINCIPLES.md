@@ -65,3 +65,9 @@ When `.professor-orb/conventions.json` is absent, apply professor-orb's base sch
 Structure means folder layout, index rules, frontmatter schema, filename conventions, and wikilink format. The project's `CLAUDE.md` remains authoritative for campaign facts and content, never for structure.
 
 The base schema does not answer every structural question. It defines frontmatter, filename, and threshold rules; it defines no folder layout, no article location, and no wikilink format. When you need one of those and the conventions file is absent, state plainly that the base schema does not answer it and that setup has not run, then ask the DM. Do not infer it from prose, and do not invent it.
+
+## 12. Resolving the setting and campaign
+
+Paths come from `conventions.json`'s `settings` array, never from a hardcoded default. With one setting there is no ambiguity. With several, the DM usually names it; otherwise infer from context and confirm with a single AskUserQuestion.
+
+`settings[].campaigns` is a cache for disambiguation and ordering. Enumerate the filesystem under `sessionReportsRoot` for the authoritative list, so a campaign created since the last setup run is still visible.

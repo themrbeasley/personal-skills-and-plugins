@@ -31,7 +31,7 @@ If content looks truncated, cut off mid-tag, or otherwise malformed, ask the DM 
 
 Check for `.professor-orb/conventions.json` first. If it exists, it is authoritative for:
 
-- Where the homebrew catalog lives (the `homebrew/` folder of the KB, or wherever conventions locates it)
+- Where the homebrew catalog lives: the resolved setting's `homebrewRoot`, per SHARED-PRINCIPLES Principle 12
 - Required frontmatter fields, their order, and any `type` enum values
 - Filename rules (charset, suffix by type)
 - Index conventions (owning index format, split thresholds for sub-indexes)

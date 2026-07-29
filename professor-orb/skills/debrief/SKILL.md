@@ -17,7 +17,7 @@ If it is missing, apply professor-orb's base schema per SHARED-PRINCIPLES Princi
 
 Either way, `conventions.json` only covers frontmatter, filename, and structural rules. For everything else, read `CLAUDE.md` and the project's existing files:
 
-- **Where session reports live.** Look for a session-reports directory or a documented pattern. If nothing is specified, default to `session-reports/[Campaign-Name]/` at the KB root and confirm with the user.
+- **Where session reports live.** Resolve `sessionReportsRoot` from `.professor-orb/conventions.json`'s `settings` array per SHARED-PRINCIPLES Principle 12, then save into `<sessionReportsRoot>/<campaign>/`. If `conventions.json` does not define a `sessionReportsRoot` for the resolved setting, default to the canonical `session-reports/<setting>/<campaign>/` layout and confirm with the user.
 - **Report body structure.** Check for a report template, or look at existing reports to learn the section headers already in use. If neither exists, build one with the user in Phase 1.
 - **Cross-reference format.** Wikilinks, markdown links, plain text: match whatever the project already uses.
 - **Writing style rules.** Tone, phrasing, or formatting rules beyond what `conventions.json` encodes (encyclopedia vs. narrative voice, tense, and so on).
@@ -74,9 +74,9 @@ Cross-reference aggressively using whatever link format the project uses. If uns
 
 **Determine the filename and frontmatter.** Follow `conventions.json` if it exists (the `type` value for session reports, its required frontmatter fields in order, and its filename suffix), otherwise the project's documented convention, otherwise `YYYY-MM-DD-[Session-Title]-REPORT.md`. Save to the campaign's session-reports folder, creating it if it does not exist. Writing the file goes through the project's write-time validator hook automatically; if it reports a block violation, fix the write and retry rather than working around it.
 
-**Update the campaign index.** If the project uses per-campaign indexes, update it. If this is a new campaign, create the index following the project's index conventions. If none exists, create a simple one and note it for the DM.
+**Update the campaign index.** Under folder-index parity, every campaign folder carries its own index; update it. If this is a new campaign, create the index following the project's index conventions.
 
-**Update the master index and log, if applicable.** If the project maintains a master session-reports index, update it following the project's ownership conventions. If it maintains a change log, append an entry following its format.
+**Update the master index and log.** Under folder-index parity, the session-reports root carries its own index; update it following the project's ownership conventions. If the project maintains a change log, append an entry following its format.
 
 Do not proceed to Phase 4 until the report file exists on disk.
 

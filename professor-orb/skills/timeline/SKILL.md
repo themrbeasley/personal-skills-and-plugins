@@ -19,7 +19,7 @@ If it is missing, apply professor-orb's base schema per SHARED-PRINCIPLES Princi
 
 Either way, `conventions.json` only covers frontmatter, filename, and structural rules. For everything else, read `CLAUDE.md` and the project's existing files:
 
-- **Where chronology documents live (if a convention exists).** Look for a `chronologies/`, `timelines/`, or `history/` folder, or a `type: chronology` value. If no convention exists, establish a minimal one with the DM in Phase 1.
+- **Where chronology documents live.** They live in the resolved setting's `kbRoot`, per SHARED-PRINCIPLES Principle 12. If the project's `CLAUDE.md` documents a specific subfolder (for example `chronologies/`, `timelines/`, or `history/`), follow it. An existing `type: chronology` value marks an article written before the migration to the canonical layout.
 - **Writing style rules.** Tone, prohibited patterns, voice. Apply them in the draft.
 - **Content exclusions.** Tags or categories marked off limits. Honor them when scoping.
 

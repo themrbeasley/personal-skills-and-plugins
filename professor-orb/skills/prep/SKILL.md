@@ -17,7 +17,7 @@ If it is missing, apply professor-orb's base schema per SHARED-PRINCIPLES Princi
 
 Either way, `conventions.json` only covers frontmatter, filename, and structural rules. For everything else, read `CLAUDE.md` and the project's existing files:
 
-- **Where session reports and prep files live.** Look for folder paths, naming conventions, suffix conventions.
+- **Where session reports and prep files live.** Resolve `sessionReportsRoot` from `.professor-orb/conventions.json`'s `settings` array per SHARED-PRINCIPLES Principle 12; the brief saves alongside the session report, in `<sessionReportsRoot>/<campaign>/`. For anything the conventions file does not cover, look at naming and suffix conventions in existing files.
 - **Report structure.** What sections does the session report use? You will draw from these sections when building the brief.
 - **VTT platform.** Does the user run a virtual tabletop? Which one? This informs the Work Review conversation but does not generate its own section.
 - **Writing style rules.** Match the project's conventions in your output.
