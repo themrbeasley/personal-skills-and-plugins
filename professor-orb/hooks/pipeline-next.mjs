@@ -5,6 +5,16 @@
 // and, if the last completed step is recent, prints a one-line suggestion for
 // what to run next. Purely mechanical: no model judgment, no conversation
 // parsing. Never blocks (always exits 0).
+//
+// A second, independent read of .professor-orb/versioning.json (or the legacy
+// .professor-orb/catalog-versioning.json, when versioning.json does not yet
+// exist) decides whether a lane-command clause is appended to that base
+// message. The base message always emits on its own; only the appended clause
+// is conditional on the versioning marker. Both reads share the same
+// fail-silent contract: a missing file, unreadable JSON, or unrecognized
+// shape is treated as "no clause," never as a crash and never as a reason to
+// suppress the base suggestion. This hook never writes or converts the
+// versioning marker; it only reads it.
 
 import { readFileSync } from "node:fs";
 import path from "node:path";
@@ -22,6 +32,57 @@ const NEXT_STEP_MESSAGES = {
   // "timeline" and any unrecognized lastStep intentionally have no entry;
   // absence means stay silent.
 };
+
+// Appended to the base message above only when a versioning marker exists and
+// its mode is "git" or "github". Never appended on its own; a lastStep with
+// no NEXT_STEP_MESSAGES entry stays silent regardless of this map, which is
+// why "timeline" carries an entry here that this hook can never emit today
+// (timeline never writes pipeline-state.json). The wording is settled and
+// must stay byte-identical to skills/timeline/SKILL.md's handoff line.
+const LANE_CLAUSES = {
+  debrief: " /log can commit the session report.",
+  content: " /log can commit the recap and handouts.",
+  chronicler: " /scribe can commit the KB changes.",
+  timeline: " /scribe can commit the chronology document.",
+};
+
+// Reads the versioning decision, fail-silent. Tries versioning.json first;
+// falls back to the legacy catalog-versioning.json only when versioning.json
+// itself is absent (ENOENT or similar). Never converts or writes either
+// file; that conversion belongs to setup and /catalog alone. Returns the
+// mode string on success, or null if no usable marker could be read.
+function readVersioningMode(cwd) {
+  const primaryPath = path.resolve(cwd, ".professor-orb", "versioning.json");
+  const legacyPath = path.resolve(
+    cwd,
+    ".professor-orb",
+    "catalog-versioning.json"
+  );
+
+  let raw;
+  try {
+    raw = readFileSync(primaryPath, "utf8");
+  } catch {
+    try {
+      raw = readFileSync(legacyPath, "utf8");
+    } catch {
+      return null;
+    }
+  }
+
+  let marker;
+  try {
+    marker = JSON.parse(raw);
+  } catch {
+    return null;
+  }
+
+  if (!marker || typeof marker !== "object") {
+    return null;
+  }
+
+  return typeof marker.mode === "string" ? marker.mode : null;
+}
 
 function main() {
   const statePath = path.resolve(
@@ -72,10 +133,20 @@ function main() {
   }
 
   const message = NEXT_STEP_MESSAGES[lastStep];
-  if (message) {
-    process.stdout.write(message + "\n");
+  if (!message) {
+    process.exit(0);
   }
 
+  let output = message;
+  const mode = readVersioningMode(process.cwd());
+  if (mode === "git" || mode === "github") {
+    const clause = LANE_CLAUSES[lastStep];
+    if (clause) {
+      output += clause;
+    }
+  }
+
+  process.stdout.write(output + "\n");
   process.exit(0);
 }
 
