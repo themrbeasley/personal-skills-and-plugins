@@ -1,15 +1,17 @@
-// Regression guard for the single-ownership aggregation in validation-sweep.mjs.
+// Regression guard for the single-ownership aggregation and the tag-registry
+// conflict guard in validation-sweep.mjs.
 //
 // The workflow module cannot be imported directly: it uses top-level await and
 // workflow-runtime globals (agent, parallel, phase, log, args), so importing it
 // would execute run() and throw. This test therefore mirrors the aggregation
 // logic. aggregateOld reproduces the historical bug (shipped through 1.5.0);
-// aggregateNew mirrors the shipped fix. Keep toOwnershipKey, aggregateNew, and
-// aggregateSingleOwnershipFixed byte-aligned with the phase('Aggregate')
-// section of validation-sweep.mjs: if you change that logic in the source,
-// change it here too, or this guard drifts. A mirror that claims a
-// correspondence it no longer has is worse than no mirror, because the whole
-// value of this suite rests on the claim being true.
+// aggregateNew mirrors the shipped fix. Keep toOwnershipKey, aggregateNew,
+// aggregateSingleOwnershipFixed, normalizeRel, and detectTagRegistryConflicts
+// byte-aligned with the corresponding sections of validation-sweep.mjs: if you
+// change that logic in the source, change it here too, or this guard drifts. A
+// mirror that claims a correspondence it no longer has is worse than no
+// mirror, because the whole value of this suite rests on the claim being
+// true.
 //
 // Run: node professor-orb/workflows/validation-sweep.ownership.test.mjs
 
@@ -142,6 +144,74 @@ function aggregateSingleOwnershipFixed(shards, settingConfigs) {
     findings.push({ file: article, ownerCount: owners.length, ruleId })
   }
   return { findings }
+}
+
+// Mirrors normalizeRel in validation-sweep.mjs. The source defines it once
+// (near the kbRoot-vs-file prefix matching) and reuses it for the tag-registry
+// conflict guard's grouping key below; this mirror is used the same way.
+const normalizeRel = (p) =>
+  String(p == null ? '' : p)
+    .replace(/\\/g, '/')
+    .replace(/^\.\/+/, '')
+    .replace(/^\/+/, '')
+    .replace(/\/+$/, '')
+
+// Mirrors the tag-registry conflict block in the phase('Aggregate') section of
+// validation-sweep.mjs (the block starting "Two settings can still land on the
+// same tagRegistryPath"). Takes the same shape run() builds for
+// proposedTagRegistries: an array of { setting, tagRegistryPath, registry }.
+// Groups by normalizeRel(tagRegistryPath), not the raw string, so two
+// spellings of the same file on disk (".professor-orb/tag-registry.json" vs
+// "./.professor-orb/tag-registry.json") are recognized as one conflict; the
+// reported tagRegistryPath is the first group member's literal, unnormalized
+// value, exactly as the DM would recognize it and exactly as conventions.json
+// records it, not the normalized string used only for comparison. Mutates
+// entry.conflict = true on every member of a group of more than one, the same
+// mutation the source performs on its own proposedTagRegistries array.
+// Logging is omitted; it carries no logic to verify.
+function detectTagRegistryConflicts(proposedTagRegistries) {
+  const tagRegistryConflicts = []
+  const needsJudgmentItems = []
+  const registriesByPath = new Map()
+  for (const entry of proposedTagRegistries) {
+    const groupKey = normalizeRel(entry.tagRegistryPath)
+    const group = registriesByPath.get(groupKey) || []
+    group.push(entry)
+    registriesByPath.set(groupKey, group)
+  }
+  for (const group of registriesByPath.values()) {
+    if (group.length <= 1) continue
+    const registryPath = group[0].tagRegistryPath
+    const names = group.map((e) => e.setting || '(unnamed)')
+    const distinctContents = new Set(group.map((e) => JSON.stringify(e.registry)))
+    for (const entry of group) entry.conflict = true
+    tagRegistryConflicts.push({ tagRegistryPath: registryPath, settings: names, contentsDiffer: distinctContents.size > 1 })
+    // This item flags a conventions.json misconfiguration, not a rule
+    // violation found in a KB article, so it does not carry a real ruleId or
+    // an article path the way every other needsJudgment item does. kind marks
+    // that explicitly; ruleId is null rather than a fake rule-id string.
+    needsJudgmentItems.push({
+      kind: 'tagRegistryConflict',
+      file: registryPath,
+      ruleId: null,
+      description:
+        group.length +
+        ' settings (' +
+        names.join(', ') +
+        ') resolve to the same tag registry path "' +
+        registryPath +
+        '"' +
+        (distinctContents.size > 1
+          ? ', and their proposed registries hold different tags'
+          : ', and their proposed registries happen to be identical on this run') +
+        '. The fix phase writes one registry per invocation, so applying these one at a time leaves only the last one on disk.',
+      question:
+        'Which setting should own "' +
+        registryPath +
+        '"? Give the other setting(s) their own tagRegistryPath in .professor-orb/conventions.json, then re-run the scan. Do not approve a tag registry write for any of these settings until each has a distinct path.',
+    })
+  }
+  return { tagRegistryConflicts, needsJudgmentItems }
 }
 
 // Synthetic shards in the real shapes: articles are full relative paths,
@@ -326,6 +396,72 @@ const flippedFiles = flipped.findings.map(f => f.file)
 assert('MULTI-SETTING (flipped): setting B is now off, none of its articles are flagged', !flippedFiles.some(f => f.startsWith('b-kb/')))
 assert('MULTI-SETTING (flipped): setting A is now on, both of its articles are flagged', flipped.findings.length === 2 && flippedFiles.every(f => f.startsWith('a-kb/')))
 assert('MULTI-SETTING (flipped): findings carry setting A\'s own rule id', flipped.findings.every(f => f.ruleId === 'structuralSingleOwnership'))
+
+// TAG REGISTRY CONFLICT regression: two settings resolving to the same tag
+// registry path must be flagged, marked conflict:true on both entries, and
+// surfaced as a needsJudgment item shaped so a caller cannot mistake it for a
+// rule violation on an article.
+
+// Baseline: distinct paths, no conflict, no mutation.
+const noConflictRegistries = [
+  { setting: 'World of Rolara', tagRegistryPath: 'world-of-rolara-kb/tag-registry.json', registry: { faction: 3 } },
+  { setting: 'Neverwinter Nights', tagRegistryPath: 'neverwinter-kb/tag-registry.json', registry: { faction: 2 } },
+]
+const noConflict = detectTagRegistryConflicts(noConflictRegistries)
+assert('NO CONFLICT: distinct paths produce zero conflicts', noConflict.tagRegistryConflicts.length === 0)
+assert('NO CONFLICT: distinct paths produce zero needsJudgment items', noConflict.needsJudgmentItems.length === 0)
+assert('NO CONFLICT: entries are not mutated', noConflictRegistries.every((e) => e.conflict === undefined))
+
+// Two settings that wrote the identical string in conventions.json.
+const sameRawPath = [
+  { setting: 'World of Rolara', tagRegistryPath: '.professor-orb/tag-registry.json', registry: { faction: 3 } },
+  { setting: 'Neverwinter Nights', tagRegistryPath: '.professor-orb/tag-registry.json', registry: { faction: 5 } },
+]
+const sameRaw = detectTagRegistryConflicts(sameRawPath)
+assert('SAME PATH: one conflict recorded', sameRaw.tagRegistryConflicts.length === 1)
+assert('SAME PATH: both entries mutated conflict true', sameRawPath.every((e) => e.conflict === true))
+assert('SAME PATH: contentsDiffer true, registries differ', sameRaw.tagRegistryConflicts[0].contentsDiffer === true)
+assert(
+  'SAME PATH: needsJudgment item carries kind tagRegistryConflict and a null ruleId, not a fake rule id',
+  sameRaw.needsJudgmentItems[0].kind === 'tagRegistryConflict' && sameRaw.needsJudgmentItems[0].ruleId === null,
+)
+assert(
+  'SAME PATH: needsJudgment item file is the registry path',
+  sameRaw.needsJudgmentItems[0].file === '.professor-orb/tag-registry.json',
+)
+
+// PATH-NORMALIZATION regression (the fix under test): two settings resolve to
+// the same file on disk but spelled it differently in conventions.json.
+// Grouping on the raw string would put these in separate groups of one and
+// the conflict would never fire, silently letting the fix phase overwrite
+// whichever registry was written second.
+const differentSpellings = [
+  { setting: 'World of Rolara', tagRegistryPath: './.professor-orb/tag-registry.json', registry: { faction: 3 } },
+  { setting: 'Neverwinter Nights', tagRegistryPath: '.professor-orb/tag-registry.json', registry: { faction: 3 } },
+]
+const spelled = detectTagRegistryConflicts(differentSpellings)
+assert('SPELLING: differing spellings of the same file are grouped as one conflict', spelled.tagRegistryConflicts.length === 1)
+assert('SPELLING: both entries mutated conflict true', differentSpellings.every((e) => e.conflict === true))
+assert(
+  'SPELLING: reported path is the literal first entry, not the normalized form',
+  spelled.needsJudgmentItems[0].file === './.professor-orb/tag-registry.json',
+)
+assert('SPELLING: identical registries so contentsDiffer is false', spelled.tagRegistryConflicts[0].contentsDiffer === false)
+
+// A third, genuinely distinct setting must be untouched by the other two's
+// conflict: the guard groups per normalized path, not all-or-nothing.
+const mixedRegistries = [
+  { setting: 'World of Rolara', tagRegistryPath: './.professor-orb/tag-registry.json', registry: { faction: 3 } },
+  { setting: 'Neverwinter Nights', tagRegistryPath: '.professor-orb/tag-registry.json', registry: { faction: 4 } },
+  { setting: 'Baldurs Gate', tagRegistryPath: 'baldurs-gate-kb/tag-registry.json', registry: { faction: 1 } },
+]
+const mixed = detectTagRegistryConflicts(mixedRegistries)
+assert('MIXED: exactly one conflict group among three settings', mixed.tagRegistryConflicts.length === 1)
+assert('MIXED: the third, genuinely distinct setting is not mutated', mixedRegistries[2].conflict === undefined)
+assert(
+  'MIXED: the conflicting pair is mutated',
+  mixedRegistries[0].conflict === true && mixedRegistries[1].conflict === true,
+)
 
 console.log(ok ? '\nAll checks passed.' : '\nSome checks FAILED.')
 process.exit(ok ? 0 : 1)

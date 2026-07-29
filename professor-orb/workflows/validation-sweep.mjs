@@ -415,8 +415,11 @@ async function run() {
       // never be read as a clean KB without also reading how much of it was
       // actually attributed to a setting and checked. Nothing was enumerated
       // on this path, so nothing could be left unattributed.
+      // unattributedSample is a slice(0, 20), never the full miss list, so its
+      // name cannot be mistaken for the true count: read filesUnattributed for
+      // that.
       filesUnattributed: 0,
-      unattributedFiles: [],
+      unattributedSample: [],
     }
   }
 
@@ -518,22 +521,49 @@ async function run() {
     if (!root || typeof root !== 'object' || root.kind !== 'kb') return
     const preferred = Number.isInteger(root.index) ? String(root.index) : null
     const existing = preferred !== null ? settingConfigs.get(preferred) : undefined
-    if (existing && !existing.kbRoot) {
+    const rootSetting = typeof root.setting === 'string' ? root.setting : ''
+    // The index alone is not proof the two arrays agree on which setting it
+    // names: the scout reports prongRoots and settingConfigs separately, and
+    // a scout that numbers them inconsistently would otherwise join one
+    // setting's KB root to a different setting's rules, silently checking
+    // every article under that root against the wrong rule set. Filling a
+    // blank name (either side left it "") is the legitimate case and still
+    // joins; two non-empty names that disagree do not.
+    const nameMismatch = Boolean(existing && existing.setting && rootSetting && existing.setting !== rootSetting)
+    if (existing && !existing.kbRoot && !nameMismatch) {
       existing.kbRoot = root.path || ''
-      if (!existing.setting && typeof root.setting === 'string') existing.setting = root.setting
+      if (!existing.setting && rootSetting) existing.setting = rootSetting
       return
     }
-    // Either no settingConfigs entry carries this index, or one does and its
-    // kbRoot is already filled (two prongRoots entries claiming the same
-    // index). This root gets its own entry either way; it never overwrites a
-    // root already recorded, because overwriting is precisely how one
-    // setting's entire KB goes unscanned.
-    if (existing) {
+    // No settingConfigs entry carries this index, one does and its kbRoot is
+    // already filled (two prongRoots entries claiming the same index), or one
+    // does but its declared name disagrees with this root's declared name.
+    // None of those are joined; this root gets its own entry either way, it
+    // never overwrites or is paired with an entry already recorded, because
+    // doing either is precisely how one setting's KB goes unscanned or ends
+    // up checked against another setting's rules.
+    if (nameMismatch) {
+      log(
+        'Warning: prongRoots index ' +
+          root.index +
+          ' is named "' +
+          rootSetting +
+          '" but settingConfigs index ' +
+          root.index +
+          ' is named "' +
+          existing.setting +
+          '". The scout numbered the two reported arrays inconsistently for this index, so they do not describe the same setting and are not joined: pairing them would check "' +
+          rootSetting +
+          '"\'s KB root against "' +
+          existing.setting +
+          '"\'s rules. Tracking this KB root as its own setting with no rules instead, so its files are still enumerated and reported rather than silently validated against the wrong conventions. Re-run the scan.',
+      )
+    } else if (existing) {
       log(
         'Warning: the scout returned more than one KB root for setting index ' +
           root.index +
           ' ("' +
-          (typeof root.setting === 'string' && root.setting ? root.setting : '(unnamed)') +
+          (rootSetting || '(unnamed)') +
           '" at ' +
           (root.path || '(no path)') +
           '). Tracking it as a separate setting with no rules rather than overwriting the root already recorded, so its files are still enumerated and reported.',
@@ -543,7 +573,7 @@ async function run() {
     settingConfigs.set(key, {
       key,
       declaredIndex: Number.isInteger(root.index) ? root.index : Number.MAX_SAFE_INTEGER,
-      setting: typeof root.setting === 'string' ? root.setting : '',
+      setting: rootSetting,
       kbRoot: root.path || '',
       rules: {},
       singleOwnershipRuleId: 'singleOwnership',
@@ -683,7 +713,7 @@ async function run() {
       proposedTagRegistries: [],
       tagRegistryConflicts: [],
       filesUnattributed: unattributedFiles.length,
-      unattributedFiles: unattributedFiles.slice(0, 20),
+      unattributedSample: unattributedFiles.slice(0, 20),
       nextStep:
         "No KB articles were found under any setting's kbRoot. Confirm each setting's kbRoot in .professor-orb/conventions.json points at the right folder.",
     }
@@ -966,19 +996,40 @@ async function run() {
   const tagRegistryConflicts = []
   const registriesByPath = new Map()
   for (const entry of proposedTagRegistries) {
-    const group = registriesByPath.get(entry.tagRegistryPath) || []
+    // Grouped by normalized path, not the raw string: ".professor-orb/tag-
+    // registry.json" and "./.professor-orb/tag-registry.json" are the same
+    // file on disk, and two settings resolving to those two spellings still
+    // clobber each other on write. Keying on the raw string leaves them in
+    // separate groups of one, and the conflict this guard exists to catch
+    // never fires.
+    const groupKey = normalizeRel(entry.tagRegistryPath)
+    const group = registriesByPath.get(groupKey) || []
     group.push(entry)
-    registriesByPath.set(entry.tagRegistryPath, group)
+    registriesByPath.set(groupKey, group)
   }
-  for (const [registryPath, group] of registriesByPath.entries()) {
+  for (const group of registriesByPath.values()) {
     if (group.length <= 1) continue
+    // The map key above is normalized for comparison only; the DM never
+    // typed that normalized form, so the reported path is the literal value
+    // an entry actually carries, exactly as it appears in conventions.json.
+    const registryPath = group[0].tagRegistryPath
     const names = group.map((e) => e.setting || '(unnamed)')
     const distinctContents = new Set(group.map((e) => JSON.stringify(e.registry)))
     for (const entry of group) entry.conflict = true
     tagRegistryConflicts.push({ tagRegistryPath: registryPath, settings: names, contentsDiffer: distinctContents.size > 1 })
+    // This item flags a conventions.json misconfiguration (two settings
+    // sharing one tagRegistryPath), not a violation found in a KB article, so
+    // it does not carry a real ruleId or an article path the way every other
+    // needsJudgment item does. kind marks that explicitly rather than letting
+    // file/ruleId masquerade as ones a caller could look up: file stays
+    // (still useful to show the DM which path collides), ruleId is null
+    // rather than the fake literal string "tagRegistryPath" the earlier
+    // version used, since that string is not a rule id in anyone's rules
+    // object and grouping or looking it up as one would be wrong.
     needsJudgment.push({
+      kind: 'tagRegistryConflict',
       file: registryPath,
-      ruleId: 'tagRegistryPath',
+      ruleId: null,
       description:
         group.length +
         ' settings (' +
@@ -1054,7 +1105,7 @@ async function run() {
     filesScanned: files.length,
     filesChecked,
     filesUnattributed: unattributedFiles.length,
-    unattributedFiles: unattributedFiles.slice(0, 20),
+    unattributedSample: unattributedFiles.slice(0, 20),
     shardsChecked: validShardPairs.length,
     shardsDropped: droppedShardCount,
     mechanicallyFixable,
