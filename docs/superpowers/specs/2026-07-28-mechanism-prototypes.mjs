@@ -23,9 +23,17 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, writeFileSync, rmSync, existsSync, renameSync } from "node:fs";
 import path from "node:path";
 import os from "node:os";
+import { fileURLToPath } from "node:url";
 
-const HOOK =
-  "C:\\Users\\jorda\\OneDrive\\Documents\\GitHub\\claude-skills_and_plugins-homebrew\\professor-orb\\hooks\\validate-write.mjs";
+// Resolved from this file's own location, not hard-coded absolutely, so the
+// suite always measures the hook belonging to the checkout it lives in. An
+// absolute path silently measured a different checkout whenever this ran from
+// a git worktree: the run reported PASS while never executing the code under
+// test, which is precisely the class of confidently wrong answer this suite
+// exists to rule out.
+const HOOK = fileURLToPath(
+  new URL("../../../professor-orb/hooks/validate-write.mjs", import.meta.url)
+);
 
 const results = [];
 function check(name, actual, expected, note) {
