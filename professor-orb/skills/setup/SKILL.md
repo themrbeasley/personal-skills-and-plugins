@@ -56,7 +56,7 @@ AskUserQuestion is mandatory for this confirmation. Do not write `conventions.js
 
 ## Step 4: convert the versioning marker
 
-If `.professor-orb/catalog-versioning.json` exists and `.professor-orb/versioning.json` does not, copy its `mode` and `decided` values unchanged into the new file and mention the conversion in passing. Never rewrite `decided`: the decision was made when it was made. Do not delete the old file here; setup deletes it after its snapshot commit captures it.
+If `.professor-orb/catalog-versioning.json` exists and `.professor-orb/versioning.json` does not, copy its `mode` and `decided` values unchanged into the new file and mention the conversion in passing. Never rewrite `decided`. Writing a fresh date destroys the only record of when the DM actually chose, and a later reader cannot tell a converted decision from a new one. That date is the single field this conversion exists to carry across. Do not delete the old file here; setup deletes it after its snapshot commit captures it.
 
 ## Step 5: create or update the .professor-orb/ directory
 
