@@ -64,6 +64,12 @@ If given a list of files (for example, the articles chronicler just touched), ch
 
 Before running cross-reference or index-ownership checks, identify homebrew catalog entries: articles with `type: Homebrew` frontmatter (and/or filed in the catalog location conventions.json documents), written by the `/catalog` command. These sit outside the wikilink graph by design: they carry no wikilinks in their body and are not linked to from other articles. Do not flag a catalog entry as an orphan or as unlinked; that is correct structure, not a violation. Index-ownership checks still apply to catalog entries, because the `/catalog` command updates the owning Homebrew index to list each new entry. Still check their frontmatter, filename, and any rule that applies regardless of graph position.
 
+> Check semantics are duplicated four ways: `skills/setup/references/conventions-schema.md`'s
+> check catalog (normative), the `CHECKS` table in `hooks/validate-write.mjs`, the
+> `checkerPrompt` in `workflows/validation-sweep.mjs`, and this step. The base rule data is
+> single-sourced at `references/base-rules.json`; the semantics are not. Changing one
+> requires changing the other three.
+
 ### Step 4: For each in-scope article, check every convention rule
 
 **Frontmatter validation** (per conventions.json's `frontmatter` category rules, or CLAUDE.md fallback):

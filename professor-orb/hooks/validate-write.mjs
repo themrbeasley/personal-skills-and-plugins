@@ -630,6 +630,11 @@ function checkFrontmatterImpliesFrontmatter(params, ctx) {
   return `Frontmatter matches ${JSON.stringify(when)}, so ${failures.join("; ")}.`;
 }
 
+// Check semantics are duplicated four ways: skills/setup/references/conventions-schema.md's
+// check catalog (normative), this CHECKS table, the checkerPrompt in
+// workflows/validation-sweep.mjs, and agents/kb-validator.md Step 4. The base rule data
+// is single-sourced at references/base-rules.json; the semantics are not. Changing one
+// requires changing the other three.
 const CHECKS = {
   requiredFields: checkRequiredFields,
   enum: checkEnum,

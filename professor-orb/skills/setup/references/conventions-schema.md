@@ -155,6 +155,12 @@ conventions.json.
 
 ## Rule catalog
 
+> Check semantics are duplicated four ways: this catalog (normative), the `CHECKS`
+> table in `hooks/validate-write.mjs`, the `checkerPrompt` in
+> `workflows/validation-sweep.mjs`, and `agents/kb-validator.md` Step 4. The base
+> rule data is single-sourced at `references/base-rules.json`; the semantics are
+> not. Changing one requires changing the other three.
+
 Four categories, matching the four kinds of conventions a knowledge base
 typically encodes. Each `check` kind below is a fixed vocabulary the hook
 implements; setup only ever emits rules using one of these check kinds.
@@ -254,7 +260,7 @@ rule's level.
 |---|---|---|
 | `block` | Exits with code 2 and prints the violation to stderr. The hook runs after the write, so the file is already on disk; the exit code surfaces the violation as an error rather than preventing anything. | Claude sees the error and repairs or reverts the just-written file. |
 | `warn` | Exits 0 and returns the violation as `hookSpecificOutput.additionalContext`. The write proceeds. | Claude sees the warning next to the tool result and may act on it, but nothing is gated. |
-| `off` | Not evaluated at write time. | Documented for the DM's and the sweep's benefit only. The sweep may still choose to report `off` rules informationally, but never fails on them. |
+| `off` | Not evaluated at write time. | Not checked by the sweep either. An `off` rule produces no finding of any kind, so it can never end up in `mechanicallyFixable`. It stays in the file so the DM can see what they turned off and turn it back on. |
 
 A PostToolUse hook's plain stdout reaches the debug log only, never Claude and
 never the transcript; `additionalContext` in a JSON body is the supported channel
