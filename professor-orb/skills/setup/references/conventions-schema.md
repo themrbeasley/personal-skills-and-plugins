@@ -351,7 +351,7 @@ conventions document; a tier 2 or 3 project would have
           "Person", "Settlement", "Location", "Landmark", "Organization",
           "Species", "Ethnicity", "Item", "Material", "Vehicle", "Technology",
           "Spell", "Article", "Myth", "Natural-Law", "Supernatural-Law", "Law",
-          "Index", "Homebrew", "Session Report"
+          "Index", "Session Report"
         ]
       }
     },
@@ -359,13 +359,13 @@ conventions document; a tier 2 or 3 project would have
       "category": "frontmatter",
       "check": "default",
       "enforcement": "warn",
-      "description": "publish defaults to true, except NSFW-tagged or Homebrew articles, which default to false.",
+      "description": "publish defaults to true, except NSFW-tagged articles and homebrew catalog entries, which default to false.",
       "params": {
         "field": "publish",
         "value": true,
         "overrides": [
           { "when": { "tags": ["NSFW"] }, "value": false },
-          { "when": { "type": ["Homebrew"] }, "value": false }
+          { "when": { "category": ["Homebrew"] }, "value": false }
         ]
       }
     },

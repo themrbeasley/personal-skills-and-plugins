@@ -886,7 +886,7 @@ At `:228-246`, the Enforcement scopes section, add that a base rule may be sweep
 
 - [ ] **Step 3: Document `provenance`, `extendedBy`, `schemaVersion`, and `scope`**
 
-Add to `conventions-schema.md`'s rule-entry documentation: `provenance` (required, `professor-orb` or `project`), `extendedBy` (optional array of project-contributed values unioned into the rule's `values` or `mapping`), `scope` (optional, `kb` restricts to the setting KB), and top-level `schemaVersion` (which base rule set version the file was generated against). Include the reconciliation rule for a v1 file: a provenance-less rule matching a base rule's check kind and target folds into that base rule's `extendedBy` and carries its enforcement level; one with no base counterpart survives as `provenance: "project"`.
+Add to `conventions-schema.md`'s rule-entry documentation: `provenance` (required, `professor-orb` or `project`), `extendedBy` (optional array of project-contributed values unioned into the rule's enum `values`, and ONLY into `values`), `scope` (optional, `kb` restricts to the setting KB), and top-level `schemaVersion` (which base rule set version the file was generated against). Include the reconciliation rule for a v1 file: a provenance-less rule matching a base rule's check kind and target folds into that base rule's `extendedBy` and carries its enforcement level; one with no base counterpart survives as `provenance: "project"`.
 
 - [ ] **Step 4: Verify**
 
