@@ -1,4 +1,4 @@
-# 2024 DMG Magic Item Tracker — Rarity by Tier
+# 2024 DMG Magic Item Tracker: Rarity by Tier
 
 Source: 2024 Dungeon Master's Guide (Magic Item Tracker sheet)
 
@@ -46,9 +46,9 @@ This table represents the expected total number of permanent magic items distrib
 ## Practical Takeaways
 
 - **Common and Uncommon** are Tier 1–2 items. Finding a Rare in Tier 1 should feel like a meaningful event.
-- **Rare** peaks in Tier 3 — this is where the bulk of impactful items land.
+- **Rare** peaks in Tier 3: this is where the bulk of impactful items land.
 - **Very Rare** becomes common only in Tier 3–4. An item powerful enough to shape an encounter should probably be Very Rare at minimum.
 - **Legendary** is Tier 3–4 only, and even then it's 2–9 total over many levels. Legendary items should feel transformative.
-- Commons drop off sharply at Tier 3+ — by that point, players have outscaled most utility from minor items.
+- Commons drop off sharply at Tier 3+: by that point, players have outscaled most utility from minor items.
 
 When assigning rarity to a homebrew item, ask: at what tier would this realistically appear, and does its power fit what's already available at that tier? An item that would be exceptional at Tier 2 is probably Rare, not Uncommon.

@@ -32,7 +32,7 @@ Note: Exhaustion is measured in levels. "You gain 1 Exhaustion level" is the cor
 
 - "make a Dexterity saving throw" (not "roll a Dexterity saving throw")
 - "make a DC [X] Strength saving throw"
-- "make a Wisdom (Perception) check" — ability first, skill in parentheses
+- "make a Wisdom (Perception) check": ability first, skill in parentheses
 - "the DC equals [formula]" (not "the difficulty class is")
 
 ---
@@ -40,7 +40,7 @@ Note: Exhaustion is measured in levels. "You gain 1 Exhaustion level" is the cor
 ## Hit Points and Healing
 
 - "regain [X] hit points" (not "restore" or "recover" or "heal for")
-- "you drop to 0 hit points" (not "you're reduced to 0 hit points" in most cases — check context)
+- "you drop to 0 hit points" (not "you're reduced to 0 hit points" in most cases; check context)
 - "a creature within range regains [X] hit points"
 - "your hit point maximum"
 
@@ -70,7 +70,7 @@ Note: Exhaustion is measured in levels. "You gain 1 Exhaustion level" is the cor
 ## Timing
 
 - "until the end of your next turn"
-- "until the start of your next turn" — use carefully, these mean different things
+- "until the start of your next turn": use carefully, these mean different things
 - "for 1 minute" / "for 1 hour" / "until you finish a Long Rest"
 - "Long Rest" and "Short Rest" are capitalized in 2024
 - "at the end of each of its turns" (for ongoing effects on another creature)
@@ -82,7 +82,7 @@ Note: Exhaustion is measured in levels. "You gain 1 Exhaustion level" is the cor
 - "a creature of your choice that you can see within range"
 - "one creature within 30 feet of you"
 - "within [X] feet" (not "up to [X] feet away")
-- "you touch a creature" (not "you touch one creature" in most spell contexts — check 2024 examples)
+- "you touch a creature" (not "you touch one creature" in most spell contexts; check 2024 examples)
 
 ---
 
