@@ -88,7 +88,7 @@ integration is a flagged future investigation.
 
 **homebrew catalog**:
 A growing corpus of locked homebrew mechanical text at `rolara-kb/homebrew/`
-(`type: Homebrew`, `publish: false` default), filed verbatim *after* the DM's
+(`type` holds the artifact key: `spell`, `magic-item`, `monster` and the rest; `publish: false` default), filed verbatim *after* the DM's
 final Foundry tweaks (never the skill's pre-tweak draft). Entries are markdown
 files: YAML frontmatter (name, artifact type, rarity/level, date) wrapping the
 Foundry-ready HTML in a fenced code block. Entries sit outside the wikilink graph

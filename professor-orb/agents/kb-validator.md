@@ -62,7 +62,7 @@ If given a list of files (for example, the articles chronicler just touched), ch
 
 ### Step 3: Identify catalog entries and exempt them from graph checks
 
-Before running cross-reference or index-ownership checks, identify homebrew catalog entries: articles with `type: Homebrew` frontmatter (and/or filed in the catalog location conventions.json documents), written by the `/catalog` command. These sit outside the wikilink graph by design: they carry no wikilinks in their body and are not linked to from other articles. Do not flag a catalog entry as an orphan or as unlinked; that is correct structure, not a violation. Index-ownership checks still apply to catalog entries, because the `/catalog` command updates the owning Homebrew index to list each new entry. Still check their frontmatter, filename, and any rule that applies regardless of graph position.
+Before running cross-reference or index-ownership checks, identify homebrew catalog entries: articles whose frontmatter `type` is exactly one of spell, magic-item, feat, feature, monster, npc, species, subclass, class, other (matched case-sensitively, so a KB article of type `Species` is not a catalog entry while a homebrew entry of type `species` is), and/or filed in the catalog location conventions.json documents, written by the `/catalog` command. These sit outside the wikilink graph by design: they carry no wikilinks in their body and are not linked to from other articles. Do not flag a catalog entry as an orphan or as unlinked; that is correct structure, not a violation. Index-ownership checks still apply to catalog entries, because the `/catalog` command updates the owning Homebrew index to list each new entry. Still check their frontmatter, filename, and any rule that applies regardless of graph position.
 
 > Check semantics are duplicated four ways: `skills/setup/references/conventions-schema.md`'s
 > check catalog (normative), the `CHECKS` table in `hooks/validate-write.mjs`, the
@@ -158,7 +158,7 @@ Violations where the DM must decide. State the exact question.
 - **Never fix anything, even when certain.** State the fix; do not apply it.
 - **conventions.json is authoritative when present.** Rule IDs are free-form; check whatever the file defines, not a remembered or hardcoded list.
 - **Every violation goes into exactly one bucket.** No violation is left unclassified, and none appears in both.
-- **Catalog entries are exempt from graph checks by design**, not by an exception you are inventing. `type: Homebrew` entries have no wikilinks in or out; that is correct.
+- **Catalog entries are exempt from graph checks by design**, not by an exception you are inventing. Articles whose frontmatter `type` is exactly one of spell, magic-item, feat, feature, monster, npc, species, subclass, class, other (matched case-sensitively, so a KB article of type `Species` is not a catalog entry while a homebrew entry of type `species` is) have no wikilinks in or out; that is correct.
 - **Be precise about file paths.** Name the exact file for every finding.
 - **Keep the report scannable.** One line per issue, grouped by bucket.
 - **No em dashes.** Use commas, colons, parentheses, or restructure the sentence.
