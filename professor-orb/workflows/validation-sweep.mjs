@@ -32,7 +32,11 @@
 //      per invocation: pick one entry from the scan report's
 //      proposedTagRegistries and pass its registry and tagRegistryPath. A
 //      project with several settings that wants several registries written
-//      re-invokes the fix phase once per setting.
+//      re-invokes the fix phase once per setting. An entry the scan marked
+//      conflict true shares its tagRegistryPath with another setting; because
+//      registries are written one per invocation, applying both would leave
+//      only the last one on disk, so fix conventions.json first and do not
+//      write either.
 //      The fix phase applies ONLY what args carries. It never invents a fix,
 //      never re-derives the fixable bucket itself, and never batch-fixes a
 //      needs-judgment item (those are resolved one at a time in the main
@@ -77,6 +81,14 @@ const shardSize = 12
 // gains homebrew or session-report checking does not need a schema change),
 // and settingConfigs carries each setting's own rules, tag registry path, and
 // index suffix, since those are no longer shared KB-wide either.
+//
+// Both arrays carry an index: the setting's position in the declared settings
+// array. It is the join key between the two arrays and the identity of a
+// setting everywhere downstream, because a name is neither unique nor
+// guaranteed present. Two v3 entries may share a name or both omit one, and
+// identifying settings by name collapses them into one, stranding a whole
+// setting's KB unscanned. Declared position is also the order the write-time
+// hook resolves ownership in, which this sweep has to agree with.
 const SCOUT_SCHEMA = {
   type: 'object',
   additionalProperties: false,
@@ -88,11 +100,12 @@ const SCOUT_SCHEMA = {
         type: 'object',
         additionalProperties: false,
         properties: {
+          index: { type: 'number' },
           setting: { type: 'string' },
           kind: { type: 'string' },
           path: { type: 'string' },
         },
-        required: ['setting', 'kind', 'path'],
+        required: ['index', 'setting', 'kind', 'path'],
       },
     },
     settingConfigs: {
@@ -101,12 +114,13 @@ const SCOUT_SCHEMA = {
         type: 'object',
         additionalProperties: false,
         properties: {
+          index: { type: 'number' },
           setting: { type: 'string' },
           rulesJson: { type: 'string' },
           tagRegistryPath: { type: 'string' },
           indexSuffix: { type: 'string' },
         },
-        required: ['setting', 'rulesJson'],
+        required: ['index', 'setting', 'rulesJson'],
       },
     },
     files: { type: 'array', items: { type: 'string' } },
@@ -206,11 +220,11 @@ const scoutPrompt = [
   '',
   'Step 1: Look for .professor-orb/conventions.json at the project root (relative to your current working directory) and read it. If the file is missing, unreadable, or is not valid JSON, return conventionsFound false and a short message field explaining that professor-orb setup has not been run for this project yet. Do nothing else in that case: do not enumerate files, do not guess at conventions.',
   '',
-  'Step 2: If conventions.json is present and valid, resolve it into one or more settings. If it has a non-empty top-level "settings" array (a v3 file), each entry in that array is one setting: its name is entry.name if that is a non-empty string, otherwise use the empty string "" as its name; its KB root is entry.kbRoot; its tag registry path is entry.tagRegistryPath if present, otherwise ".professor-orb/tag-registry.json"; its rules are entry.rules. Skip any settings-array entry whose kbRoot is not a string; it cannot be enumerated. Otherwise, if the file has a top-level "kbRoot" string and a top-level "rules" object (a v1 or v2 file), treat the whole file as exactly one setting: name "", KB root from the top-level kbRoot, tag registry path from the top-level tagRegistryPath (same default as above), rules from the top-level rules. For each setting resolved this way, look through that setting\'s own rules object for any rule whose check is "indexParity" and note its params.indexSuffix (for example "-INDEX"); if no such rule exists for that setting, use an empty string for that setting\'s indexSuffix.',
+  'Step 2: If conventions.json is present and valid, resolve it into one or more settings, and give each one an index: its zero-based position in the declared list of settings. The index, not the name, is how the rest of this sweep identifies a setting, because two settings may share a name or both omit one. If the file has a non-empty top-level "settings" array (a v3 file), each entry in that array is one setting, and its index is its position in that array (the first entry is index 0, the second is index 1, and so on). For each such entry: its name is entry.name if that is a non-empty string, otherwise use the empty string "" as its name; its KB root is entry.kbRoot, reported exactly as conventions.json records it (do not rewrite it into an absolute path); its rules are entry.rules; and its tag registry path is resolved in this exact order, stopping at the first one that is a non-empty string: entry.tagRegistryPath, then the file\'s TOP-LEVEL tagRegistryPath, then ".professor-orb/tag-registry.json". That three-step order is the order the write-time validator hook applies, and the sweep must land on the same registry file the hook validates against, or it will propose rewriting a file the hook never reads. Skip any settings-array entry whose kbRoot is not a string; it cannot be enumerated. Skipping one does not renumber the others: every index stays equal to the entry\'s position in the settings array, so a skipped entry leaves a gap. Otherwise, if the file has a top-level "kbRoot" string and a top-level "rules" object (a v1 or v2 file), treat the whole file as exactly one setting with index 0: name "", KB root from the top-level kbRoot, tag registry path from the top-level tagRegistryPath falling back to the same default, rules from the top-level rules. For each setting resolved this way, look through that setting\'s own rules object for any rule whose check is "indexParity" and note its params.indexSuffix (for example "-INDEX"); if no such rule exists for that setting, use an empty string for that setting\'s indexSuffix.',
   '',
   'Step 3: For every setting resolved in Step 2, enumerate every markdown article file under that setting\'s KB root, recursively, using paths relative to the project root (the same root conventions.json itself is relative to), for example "world-of-rolara-kb/npcs/thoric-brightaxe.md". Do not include conventions.json, any tag registry file, or non-markdown files. If two settings\' KB roots happen to overlap or nest, still list each file once in your total answer, not once per setting whose root contains it.',
   '',
-  'Return: conventionsFound (true), prongRoots (one entry per setting resolved in Step 2, each {setting, kind: "kb", path: that setting\'s KB root}), settingConfigs (one entry per setting resolved in Step 2, each {setting, rulesJson (the exact rules object for that setting, re-serialized as a JSON string, verbatim: every rule it defines, nothing summarized or dropped), tagRegistryPath, indexSuffix}), files (the full array of relative markdown file paths across every setting\'s KB root, each file listed once), message (empty string when conventions were found).',
+  'Return: conventionsFound (true), prongRoots (one entry per setting resolved in Step 2, each {index: that setting\'s index from Step 2, setting: its name, kind: "kb", path: that setting\'s KB root}), settingConfigs (one entry per setting resolved in Step 2, each {index: the same index you gave it in prongRoots, setting: its name, rulesJson (the exact rules object for that setting, re-serialized as a JSON string, verbatim: every rule it defines, nothing summarized or dropped), tagRegistryPath, indexSuffix}), files (the full array of relative markdown file paths across every setting\'s KB root, each file listed once), message (empty string when conventions were found). The index is what ties a prongRoots entry to its settingConfigs entry, so the two arrays must use the same index for the same setting.',
 ].join('\n')
 
 // Check semantics are duplicated four ways: skills/setup/references/conventions-schema.md's
@@ -396,6 +410,13 @@ async function run() {
       singleOwnershipFindings: [],
       indexParityFindings: [],
       proposedTagRegistries: [],
+      tagRegistryConflicts: [],
+      // Present on every scan-phase shape, so an empty findings bucket can
+      // never be read as a clean KB without also reading how much of it was
+      // actually attributed to a setting and checked. Nothing was enumerated
+      // on this path, so nothing could be left unattributed.
+      filesUnattributed: 0,
+      unattributedFiles: [],
     }
   }
 
@@ -403,29 +424,62 @@ async function run() {
   const files = Array.isArray(scout.files) ? scout.files : []
   const settingConfigsRaw = Array.isArray(scout.settingConfigs) ? scout.settingConfigs : []
 
+  // Every root-versus-file prefix test runs both sides through this. File
+  // paths come back from the scout project-relative, but a kbRoot can be
+  // recorded as "rolara-kb", "./rolara-kb", "/rolara-kb", or "rolara-kb/".
+  // Normalizing only one side (what shipped before: leading slashes stripped
+  // from the file, trailing slashes from the root) makes three of those four
+  // forms match nothing at all, and since kbRoot became load-bearing for
+  // attribution, every file under such a root is then silently never checked.
+  // A root recorded as an absolute path still cannot match here, because this
+  // workflow never learns the project root that would make it relative; the
+  // unattributed count in the returned report is what surfaces that case.
+  const normalizeRel = (p) =>
+    String(p == null ? '' : p)
+      .replace(/\\/g, '/')
+      .replace(/^\.\/+/, '')
+      .replace(/^\/+/, '')
+      .replace(/\/+$/, '')
+
   // One entry per setting: its own rules (parsed once), its own
   // singleOwnership and indexParity rule ids, its own tag registry path and
   // index suffix, and (filled in just below from prongRoots) its own kbRoot.
-  // A v1 or v2 file resolves to exactly one entry keyed by the empty string,
-  // the same "no name" convention Task 10's resolveSettings uses in the hook,
-  // which is also why toOwnershipKey below treats a falsy setting as "no
-  // prefix" rather than an error: the empty-string setting is a real, valid
-  // setting, just the unnamed one a v1 or v2 project implies.
+  //
+  // Keyed by a unique setting key derived from the setting's declared index,
+  // NOT by its name. Two v3 entries can share a name, or both omit one (the
+  // scout reports a missing name as ""), and a name-keyed map collapses them
+  // into a single entry holding whichever kbRoot was seen last. Every file
+  // under the other root then fails attribution, lands in the unattributed
+  // pile, and is never sharded or checked: a whole setting's KB silently
+  // dropped. Nothing upstream prevents duplicate names, since the hook's own
+  // resolveSettings does not dedupe either. A scout that omits or repeats an
+  // index falls back to a positional key, which is unique by construction and
+  // can never equal a numeric one.
   const settingConfigs = new Map()
-  for (const sc of settingConfigsRaw) {
-    if (!sc || typeof sc.setting !== 'string') continue
+  const freeKey = (preferred, fallback) => {
+    if (preferred !== null && !settingConfigs.has(preferred)) return preferred
+    let candidate = fallback
+    let n = 2
+    while (settingConfigs.has(candidate)) candidate = fallback + '-' + n++
+    return candidate
+  }
+
+  settingConfigsRaw.forEach((sc, position) => {
+    if (!sc || typeof sc !== 'object') return
+    const name = typeof sc.setting === 'string' ? sc.setting : ''
     let rules = {}
     try {
       rules = JSON.parse(sc.rulesJson || '{}')
     } catch (err) {
       log(
         'Warning: the rules JSON returned by the scout for setting "' +
-          (sc.setting || '(unnamed)') +
+          (name || '(unnamed)') +
           '" could not be parsed; proceeding with an empty rule set for that setting. ' +
           err.message,
       )
       rules = {}
     }
+    if (!rules || typeof rules !== 'object') rules = {}
     let singleOwnershipRuleId = 'singleOwnership'
     for (const ruleId of Object.keys(rules)) {
       if (rules[ruleId] && rules[ruleId].check === 'singleOwnership') {
@@ -446,8 +500,11 @@ async function run() {
         break
       }
     }
-    settingConfigs.set(sc.setting, {
-      setting: sc.setting,
+    const key = freeKey(Number.isInteger(sc.index) ? String(sc.index) : null, 'setting-' + position)
+    settingConfigs.set(key, {
+      key,
+      declaredIndex: Number.isInteger(sc.index) ? sc.index : Number.MAX_SAFE_INTEGER,
+      setting: name,
       kbRoot: '',
       rules,
       singleOwnershipRuleId,
@@ -455,65 +512,158 @@ async function run() {
       indexSuffix: sc.indexSuffix || '',
       tagRegistryPath: sc.tagRegistryPath || '.professor-orb/tag-registry.json',
     })
-  }
-  for (const root of prongRoots) {
-    if (!root || typeof root.setting !== 'string' || root.kind !== 'kb') continue
-    const cfg = settingConfigs.get(root.setting)
-    if (cfg) {
-      cfg.kbRoot = root.path || ''
-    } else {
-      settingConfigs.set(root.setting, {
-        setting: root.setting,
-        kbRoot: root.path || '',
-        rules: {},
-        singleOwnershipRuleId: 'singleOwnership',
-        indexParityRuleId: 'indexParity',
-        indexSuffix: '',
-        tagRegistryPath: '.professor-orb/tag-registry.json',
-      })
+  })
+
+  prongRoots.forEach((root, position) => {
+    if (!root || typeof root !== 'object' || root.kind !== 'kb') return
+    const preferred = Number.isInteger(root.index) ? String(root.index) : null
+    const existing = preferred !== null ? settingConfigs.get(preferred) : undefined
+    if (existing && !existing.kbRoot) {
+      existing.kbRoot = root.path || ''
+      if (!existing.setting && typeof root.setting === 'string') existing.setting = root.setting
+      return
     }
+    // Either no settingConfigs entry carries this index, or one does and its
+    // kbRoot is already filled (two prongRoots entries claiming the same
+    // index). This root gets its own entry either way; it never overwrites a
+    // root already recorded, because overwriting is precisely how one
+    // setting's entire KB goes unscanned.
+    if (existing) {
+      log(
+        'Warning: the scout returned more than one KB root for setting index ' +
+          root.index +
+          ' ("' +
+          (typeof root.setting === 'string' && root.setting ? root.setting : '(unnamed)') +
+          '" at ' +
+          (root.path || '(no path)') +
+          '). Tracking it as a separate setting with no rules rather than overwriting the root already recorded, so its files are still enumerated and reported.',
+      )
+    }
+    const key = freeKey(existing ? null : preferred, 'root-' + position)
+    settingConfigs.set(key, {
+      key,
+      declaredIndex: Number.isInteger(root.index) ? root.index : Number.MAX_SAFE_INTEGER,
+      setting: typeof root.setting === 'string' ? root.setting : '',
+      kbRoot: root.path || '',
+      rules: {},
+      singleOwnershipRuleId: 'singleOwnership',
+      indexParityRuleId: 'indexParity',
+      indexSuffix: '',
+      tagRegistryPath: '.professor-orb/tag-registry.json',
+    })
+  })
+
+  // Declared order, because that is the order the write-time hook resolves
+  // ownership in. Array.prototype.sort is stable, so settings the scout gave
+  // no usable index keep the order it returned them in.
+  const orderedConfigs = Array.from(settingConfigs.values()).sort((a, b) => a.declaredIndex - b.declaredIndex)
+
+  const nameCounts = new Map()
+  for (const cfg of orderedConfigs) {
+    const label = cfg.setting || '(unnamed)'
+    nameCounts.set(label, (nameCounts.get(label) || 0) + 1)
+  }
+  const duplicateNames = Array.from(nameCounts.entries())
+    .filter(([, n]) => n > 1)
+    .map(([label]) => label)
+  if (duplicateNames.length > 0) {
+    log(
+      'Note: ' +
+        duplicateNames.length +
+        ' setting name(s) are shared by more than one setting (' +
+        duplicateNames.join(', ') +
+        '). Each setting is tracked separately by its declared position, so no setting\'s files are dropped, but any report entry that names a setting is ambiguous between them. Give each setting a distinct name in .professor-orb/conventions.json.',
+    )
   }
 
-  // Which setting owns a file, by the longest matching KB root prefix. Every
-  // file the scout returned came from walking a setting's kbRoot in Step 3 of
-  // scoutPrompt, so this should always resolve; the null fallback only
-  // protects against a scout that returned a file outside every root it was
-  // told to enumerate.
-  const settingForFile = (file) => {
-    const normalized = String(file).replace(/\\/g, '/').replace(/^\/+/, '')
-    let best = null
-    let bestLen = -1
-    for (const cfg of settingConfigs.values()) {
-      const root = String(cfg.kbRoot || '').replace(/\\/g, '/').replace(/\/+$/, '')
-      if (!root) continue
-      if ((normalized === root || normalized.startsWith(root + '/')) && root.length > bestLen) {
-        best = cfg.setting
-        bestLen = root.length
+  // Two settings whose KB roots nest, or coincide, is a misconfiguration: every
+  // file under the inner root is also under the outer one, so only the first
+  // setting in declared order can ever own it, and the inner setting's rules
+  // are never applied to anything. Neither this sweep nor the write-time hook
+  // surfaces that today, so say it out loud.
+  const nestedRootPairs = []
+  for (let i = 0; i < orderedConfigs.length; i++) {
+    for (let j = i + 1; j < orderedConfigs.length; j++) {
+      const a = normalizeRel(orderedConfigs[i].kbRoot)
+      const b = normalizeRel(orderedConfigs[j].kbRoot)
+      if (!a || !b) continue
+      if (a === b || a.startsWith(b + '/') || b.startsWith(a + '/')) {
+        nestedRootPairs.push(
+          '"' +
+            (orderedConfigs[i].setting || '(unnamed)') +
+            '" at ' +
+            orderedConfigs[i].kbRoot +
+            ' and "' +
+            (orderedConfigs[j].setting || '(unnamed)') +
+            '" at ' +
+            orderedConfigs[j].kbRoot,
+        )
       }
     }
-    return best
+  }
+  if (nestedRootPairs.length > 0) {
+    log(
+      'Warning: ' +
+        nestedRootPairs.length +
+        ' pair(s) of setting KB roots nest or coincide (' +
+        nestedRootPairs.join('; ') +
+        '). A file inside both is owned by whichever setting is declared first, here and in the write-time hook alike, so the other setting\'s rules never reach it. Give each setting a root that contains no other setting\'s root.',
+    )
+  }
+
+  // Which setting owns a file: the FIRST setting in declared order whose KB
+  // root contains it, breaking on the first match. That is exactly what the
+  // write-time hook does (hooks/validate-write.mjs walks the settings array in
+  // order and breaks on the first prong containing the file), and the sweep
+  // has to reach the same owner for the same file or the two sides validate it
+  // against different rule sets, which is the divergence this whole path
+  // exists to remove. Longest-root ("most specific wins") is arguably the
+  // better rule on its own merits, but it is not the rule the hook applies,
+  // and changing it means changing both sides together.
+  //
+  // Every file the scout returned came from walking a setting's kbRoot in Step
+  // 3 of scoutPrompt, so this should always resolve; the null fallback catches
+  // a scout that returned a file outside every root it was told to enumerate,
+  // and a kbRoot recorded in a form no relative path can match.
+  const settingForFile = (file) => {
+    const normalized = normalizeRel(file)
+    for (const cfg of orderedConfigs) {
+      const raw = String(cfg.kbRoot == null ? '' : cfg.kbRoot).trim()
+      if (!raw) continue
+      const root = normalizeRel(raw)
+      // A root of "." or "./" is the project root itself, which contains every
+      // file. That is what the hook's path.resolve(projectRoot, ".") yields,
+      // so it has to mean the same thing here.
+      if (root === '' || root === '.') return cfg.key
+      if (normalized === root || normalized.startsWith(root + '/')) return cfg.key
+    }
+    return null
   }
 
   const filesBySetting = new Map()
   const unattributedFiles = []
   for (const f of files) {
-    const setting = settingForFile(f)
-    if (setting === null) {
+    const settingKey = settingForFile(f)
+    if (settingKey === null) {
       unattributedFiles.push(f)
       continue
     }
-    const list = filesBySetting.get(setting) || []
+    const list = filesBySetting.get(settingKey) || []
     list.push(f)
-    filesBySetting.set(setting, list)
+    filesBySetting.set(settingKey, list)
   }
   if (unattributedFiles.length > 0) {
     log(
       'Warning: ' +
         unattributedFiles.length +
-        " file(s) returned by the scout did not fall under any resolved setting's KB root and were not checked: " +
+        ' of ' +
+        files.length +
+        " file(s) returned by the scout did not fall under any resolved setting's KB root and were NOT checked: " +
         unattributedFiles.slice(0, 5).join(', ') +
         (unattributedFiles.length > 5 ? ', ...' : '') +
-        '.',
+        '. The roots they were tested against were: ' +
+        orderedConfigs.map((c) => '"' + (c.setting || '(unnamed)') + '" at ' + (c.kbRoot || '(none)')).join(', ') +
+        '. A kbRoot recorded as an absolute path cannot match a project-relative file path and strands every file beneath it.',
     )
   }
 
@@ -522,7 +672,7 @@ async function run() {
     return {
       mode: 'scan',
       conventionsFound: true,
-      settings: Array.from(settingConfigs.values()).map((cfg) => ({ setting: cfg.setting, kbRoot: cfg.kbRoot })),
+      settings: orderedConfigs.map((cfg) => ({ settingKey: cfg.key, setting: cfg.setting, kbRoot: cfg.kbRoot })),
       filesScanned: 0,
       shardsChecked: 0,
       shardsDropped: 0,
@@ -531,6 +681,9 @@ async function run() {
       singleOwnershipFindings: [],
       indexParityFindings: [],
       proposedTagRegistries: [],
+      tagRegistryConflicts: [],
+      filesUnattributed: unattributedFiles.length,
+      unattributedFiles: unattributedFiles.slice(0, 20),
       nextStep:
         "No KB articles were found under any setting's kbRoot. Confirm each setting's kbRoot in .professor-orb/conventions.json points at the right folder.",
     }
@@ -539,9 +692,9 @@ async function run() {
   phase('Check')
 
   const shardDescriptors = []
-  for (const [setting, settingFiles] of filesBySetting.entries()) {
+  for (const [settingKey, settingFiles] of filesBySetting.entries()) {
     for (let i = 0; i < settingFiles.length; i += shardSize) {
-      shardDescriptors.push({ setting, files: settingFiles.slice(i, i + shardSize) })
+      shardDescriptors.push({ settingKey, files: settingFiles.slice(i, i + shardSize) })
     }
   }
   log(
@@ -558,9 +711,12 @@ async function run() {
 
   const checkerResultsRaw = await parallel(
     shardDescriptors.map((shard, shardIdx) => () => {
-      const cfg = settingConfigs.get(shard.setting) || { kbRoot: '', rules: {}, indexSuffix: '' }
+      const cfg = settingConfigs.get(shard.settingKey) || { setting: '', kbRoot: '', rules: {}, indexSuffix: '' }
+      // The checker is given the setting's display NAME, which is only ever
+      // prose in its prompt; shard.settingKey is the identity the aggregation
+      // below joins on.
       return agent(
-        checkerPrompt(shard.files, shardIdx, shard.setting, cfg.kbRoot, JSON.stringify(cfg.rules), cfg.indexSuffix),
+        checkerPrompt(shard.files, shardIdx, cfg.setting, cfg.kbRoot, JSON.stringify(cfg.rules), cfg.indexSuffix),
         {
           model: 'haiku',
           label: 'check:shard-' + shardIdx,
@@ -597,16 +753,18 @@ async function run() {
   // basename (for example [[Baba-Yaga]]). Comparing a full path against a
   // bare basename never matches, which previously made the single-ownership
   // pass report every article as an unowned orphan. Reduce both sides to the
-  // same key first: the setting name, then the lowercased basename with no
+  // same key first: the setting key, then the lowercased basename with no
   // extension. Obsidian forbids | # ^ [ ] in note names, so stripping a
   // display alias, a heading or block anchor, a folder path, and a trailing
   // .md only ever removes wikilink decoration, never part of a real
   // basename. The setting prefix is what keeps two settings' Tavern.md from
   // colliding: each setting is its own vault boundary, so the KB filename
   // convention only has to hold basenames unique within one setting, never
-  // across all of them. A falsy setting (the unnamed v1/v2 setting) adds no
-  // prefix, so a single-setting project's keys are identical to what shipped
-  // before this change.
+  // across all of them. The prefix is the setting's unique KEY (its declared
+  // index), never its display name, because two settings are allowed to share
+  // a name and a name-prefixed key would merge their vaults right back
+  // together. A falsy key adds no prefix, which only a caller passing one
+  // explicitly can produce; every key this workflow generates is truthy.
   const toOwnershipKey = (raw, setting) => {
     let s = String(raw).trim()
     s = s.replace(/^\[\[|\]\]$/g, '') // strip [[ ]] if a raw wikilink slipped through
@@ -632,24 +790,24 @@ async function run() {
     filesChecked += result.filesChecked || 0
     for (const a of result.articles || []) {
       allArticles.add(a)
-      articleSettingByPath.set(a, shard.setting)
-      const key = toOwnershipKey(a, shard.setting)
+      articleSettingByPath.set(a, shard.settingKey)
+      const key = toOwnershipKey(a, shard.settingKey)
       const paths = articlePathsByKey.get(key) || []
       paths.push(a)
       articlePathsByKey.set(key, paths)
     }
     for (const c of result.catalogEntries || []) catalogEntries.add(c)
     for (const claim of result.ownershipClaims || []) {
-      const key = toOwnershipKey(claim.ownedArticle, shard.setting)
+      const key = toOwnershipKey(claim.ownedArticle, shard.settingKey)
       const owners = ownersByKey.get(key) || []
       owners.push(claim.indexFile)
       ownersByKey.set(key, owners)
     }
-    const tagTotals = tagTotalsBySetting.get(shard.setting) || new Map()
+    const tagTotals = tagTotalsBySetting.get(shard.settingKey) || new Map()
     for (const t of result.tagsUsed || []) {
       tagTotals.set(t.tag, (tagTotals.get(t.tag) || 0) + t.count)
     }
-    tagTotalsBySetting.set(shard.setting, tagTotals)
+    tagTotalsBySetting.set(shard.settingKey, tagTotals)
     for (const f of result.mechanicallyFixable || []) mechanicallyFixable.push(f)
     for (const j of result.needsJudgment || []) needsJudgment.push(j)
   }
@@ -690,15 +848,15 @@ async function run() {
   // choice.
   const singleOwnershipFindings = []
   for (const article of allArticles) {
-    const setting = articleSettingByPath.get(article)
-    const cfg = settingConfigs.get(setting)
+    const settingKey = articleSettingByPath.get(article)
+    const cfg = settingConfigs.get(settingKey)
     const ruleId = (cfg && cfg.singleOwnershipRuleId) || 'singleOwnership'
     const off = Boolean(cfg && cfg.rules[ruleId] && cfg.rules[ruleId].enforcement === 'off')
     if (off) continue
     // Count distinct owning indexes: an index that happens to list the same
     // article twice is still one owner, not a single-ownership violation, so
     // collapse duplicate index files before counting.
-    const owners = Array.from(new Set(ownersByKey.get(toOwnershipKey(article, setting)) || []))
+    const owners = Array.from(new Set(ownersByKey.get(toOwnershipKey(article, settingKey)) || []))
     if (owners.length === 1) continue
     if (owners.length === 0) {
       singleOwnershipFindings.push({
@@ -734,8 +892,8 @@ async function run() {
   // suffix when a setting defines no indexParity rule, and an empty suffix
   // would otherwise match every file.
   const indexParityFindings = []
-  for (const [setting, settingFiles] of filesBySetting.entries()) {
-    const cfg = settingConfigs.get(setting)
+  for (const [settingKey, settingFiles] of filesBySetting.entries()) {
+    const cfg = settingConfigs.get(settingKey)
     if (!cfg || !cfg.indexSuffix) continue
     // Same reasoning as the singleOwnership guard above: indexParity is also
     // a whole-KB check the shard prompt explicitly excludes from shard
@@ -784,15 +942,66 @@ async function run() {
   // their own tag vocabulary and their own tagRegistryPath, so one world's
   // tags are never proposed as an addition to another world's registry.
   const proposedTagRegistries = []
-  for (const [setting, tagTotals] of tagTotalsBySetting.entries()) {
+  for (const [settingKey, tagTotals] of tagTotalsBySetting.entries()) {
     const registry = {}
     for (const [tag, count] of tagTotals.entries()) registry[tag] = count
-    const cfg = settingConfigs.get(setting)
+    const cfg = settingConfigs.get(settingKey)
     proposedTagRegistries.push({
-      setting,
+      settingKey,
+      setting: (cfg && cfg.setting) || '',
       tagRegistryPath: (cfg && cfg.tagRegistryPath) || '.professor-orb/tag-registry.json',
       registry,
     })
+  }
+
+  // Two settings can still land on the same tagRegistryPath: v3 entries that
+  // both omit tagRegistryPath fall back to the file's top-level one, or to the
+  // shared default. The fix phase writes exactly one registry per invocation
+  // and the nextStep below tells the DM to apply them one at a time, so two
+  // proposals for one path would leave only the last written, and the hook
+  // would then validate one setting's articles against a vocabulary missing
+  // every tag of its own. Surface it as a needs-judgment item, the bucket the
+  // DM resolves individually, and mark the entries so no part of the fix phase
+  // can be handed one blind.
+  const tagRegistryConflicts = []
+  const registriesByPath = new Map()
+  for (const entry of proposedTagRegistries) {
+    const group = registriesByPath.get(entry.tagRegistryPath) || []
+    group.push(entry)
+    registriesByPath.set(entry.tagRegistryPath, group)
+  }
+  for (const [registryPath, group] of registriesByPath.entries()) {
+    if (group.length <= 1) continue
+    const names = group.map((e) => e.setting || '(unnamed)')
+    const distinctContents = new Set(group.map((e) => JSON.stringify(e.registry)))
+    for (const entry of group) entry.conflict = true
+    tagRegistryConflicts.push({ tagRegistryPath: registryPath, settings: names, contentsDiffer: distinctContents.size > 1 })
+    needsJudgment.push({
+      file: registryPath,
+      ruleId: 'tagRegistryPath',
+      description:
+        group.length +
+        ' settings (' +
+        names.join(', ') +
+        ') resolve to the same tag registry path "' +
+        registryPath +
+        '"' +
+        (distinctContents.size > 1
+          ? ', and their proposed registries hold different tags'
+          : ', and their proposed registries happen to be identical on this run') +
+        '. The fix phase writes one registry per invocation, so applying these one at a time leaves only the last one on disk.',
+      question:
+        'Which setting should own "' +
+        registryPath +
+        '"? Give the other setting(s) their own tagRegistryPath in .professor-orb/conventions.json, then re-run the scan. Do not approve a tag registry write for any of these settings until each has a distinct path.',
+    })
+  }
+  if (tagRegistryConflicts.length > 0) {
+    log(
+      'Warning: ' +
+        tagRegistryConflicts.length +
+        ' tag registry path(s) are claimed by more than one setting. Those proposals carry conflict true and must not be written until each setting has its own path; writing them one at a time would leave only the last one on disk.',
+    )
   }
 
   log(
@@ -815,12 +1024,37 @@ async function run() {
       ' index-parity).',
   )
 
+  // A file that matched no setting root reaches the DM as a number, not just a
+  // log line. Dropped shards already had shardsDropped; unattributed files had
+  // nothing, so a scan where every file failed attribution ran zero checkers
+  // and returned two empty buckets that read exactly like a clean KB.
+  const unattributedNote =
+    unattributedFiles.length > 0
+      ? 'WARNING: ' +
+        unattributedFiles.length +
+        ' of ' +
+        files.length +
+        " file(s) fell under no setting's kbRoot and were never checked, so this report says nothing at all about them. " +
+        (filesBySetting.size === 0
+          ? 'No file matched any setting root, so no checker ran: the empty buckets in this report are silence, not a clean bill of health. '
+          : '') +
+        "Fix each setting's kbRoot in .professor-orb/conventions.json (it must be a path relative to the project root, not an absolute one) and re-run the scan. "
+      : ''
+  const conflictNote =
+    tagRegistryConflicts.length > 0
+      ? 'WARNING: ' +
+        tagRegistryConflicts.length +
+        ' tag registry path(s) are claimed by more than one setting; those proposedTagRegistries entries carry conflict true. Do not approve a tag registry write for any of them until each setting has its own tagRegistryPath, because the fix phase writes one registry per invocation and the second would overwrite the first. '
+      : ''
+
   return {
     mode: 'scan',
     conventionsFound: true,
-    settings: Array.from(settingConfigs.values()).map((cfg) => ({ setting: cfg.setting, kbRoot: cfg.kbRoot })),
+    settings: orderedConfigs.map((cfg) => ({ settingKey: cfg.key, setting: cfg.setting, kbRoot: cfg.kbRoot })),
     filesScanned: files.length,
     filesChecked,
+    filesUnattributed: unattributedFiles.length,
+    unattributedFiles: unattributedFiles.slice(0, 20),
     shardsChecked: validShardPairs.length,
     shardsDropped: droppedShardCount,
     mechanicallyFixable,
@@ -828,7 +1062,10 @@ async function run() {
     singleOwnershipFindings,
     indexParityFindings,
     proposedTagRegistries,
+    tagRegistryConflicts,
     nextStep:
+      unattributedNote +
+      conflictNote +
       'Present the mechanically fixable bucket to the DM for one batch approval (a single yes covers the whole bucket), resolve each needs-judgment item individually (including the single-ownership and index-parity findings), then re-invoke this workflow with args.mode "fix", args.approvedFixes set to the approved subset, and, if the DM approves it for one setting at a time, args.approvedTagRegistry set to that setting\'s entry from proposedTagRegistries and args.tagRegistryPath set to that entry\'s tagRegistryPath.',
   }
 }
