@@ -104,6 +104,40 @@ command writes the markdown-wrapped entry, updates the owning Homebrew index, an
 nothing else. Precise and repeatable by design: capture is a command, not a
 reminder.
 
+**lane model**:
+The split that governs committing: three prongs, three commands, and a commit that
+never mixes them. `/catalog` owns the homebrew prong (`homebrew/<setting>/`) and
+commits the entry and index it just wrote; `/scribe` owns the setting KB
+(`settings/<setting>/`); `/log` owns one campaign's session reports
+(`session-reports/<setting>/<campaign>/`). Lane roots resolve from the conventions
+file's `settings` array, never from a bare `kbRoot`: on a v1 or v2 shape that root
+physically contains all three prongs, so `/scribe` and `/log` refuse rather than
+sweep the other two into a commit labelled for one. A command that spots
+uncommitted work in another lane names it and names the command that owns it, and
+touches nothing.
+_Avoid_: auto-committing on write, one commit spanning two prongs
+
+**scribe command**:
+The `/scribe` capture step for the setting KB lane: the lore and setting articles
+`chronicler` writes, the chronology documents `timeline` writes, and the DM's own
+Obsidian edits. Authors none of it; the only file it writes is
+`.professor-orb/versioning.json`, and only to carry a pending legacy conversion
+across. Stages with `git add -- ":(literal)<kbRoot>"` and commits with the
+identical pathspec, because `commit --only` with nothing staged first silently
+drops new files and a bare `commit` takes the whole index. One commit per setting
+with outstanding work, so no two worlds share a commit.
+_Avoid_: calling it a KB writer (it commits, it does not author), merging settings
+
+**log command**:
+The `/log` capture step for the session-reports lane: the reports `debrief` writes,
+the Session Prep briefs `prep` saves beside them, and the recaps and handouts
+`content` writes into the campaign's `content/` subdirectory. Authors none of it.
+One resolved campaign per invocation, asking rather than guessing when more than one
+has outstanding work. A report missing required frontmatter or carrying an empty
+section is set aside by name while the rest of the lane still commits: a report
+written across two sittings is ordinary, not an error to interrupt over.
+_Avoid_: committing a half-written report, fanning out across campaigns
+
 **folder–index parity**:
 The structural convention professor-orb introduces (amending Rolara's current,
 sloppier practice via the resync flow): exactly one index per folder; subfolders

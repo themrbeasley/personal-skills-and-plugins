@@ -4,7 +4,7 @@ A Claude Code plugin for D&D Dungeon Masters managing a campaign knowledge base.
 
 ## Architecture overview
 
-Professor Orb ships as a standard Claude Code plugin: skills, agents, one command, a pair of hooks, and a workflow script, declared in `.claude-plugin/plugin.json`.
+Professor Orb ships as a standard Claude Code plugin: skills, agents, three commands, a pair of hooks, and two workflow scripts, declared in `.claude-plugin/plugin.json`.
 
 Two facts govern everything else in this plugin:
 
@@ -29,6 +29,8 @@ Setup also produces the rest of `.professor-orb/`: `pipeline-state.json` (a brea
 | historian | Agent (read-only) | Chronological indexing, calendar conversion, temporal consistency checks | Spawned by `timeline` (and by `content` for timeline visualizations), or on demand |
 | kb-validator | Agent (read-only) | Audits article frontmatter, cross-references, index ownership, and filenames against `conventions.json` | After a `chronicler` pass, or on demand for a health check |
 | /catalog | Command | Captures one finalized, DM-confirmed piece of homebrew as a type-specific, versioned catalog entry, and maintains it across its playtest life | `/catalog` with the finalized homebrew pasted or referenced, or a name/type to catalog |
+| /scribe | Command | Commits the setting KB lane (`settings/<setting>/`): what `chronicler` and `timeline` wrote, plus the DM's own Obsidian edits. Authors no KB content itself | `/scribe`, "commit the lore," "commit the KB changes" |
+| /log | Command | Commits the session-reports lane (`session-reports/<setting>/<campaign>/`): reports, prep briefs, recaps, and handouts. Sets an unfinished report aside by name and commits the rest | `/log`, "commit the session report," "commit the recap" |
 | validation-sweep | Workflow | Whole-KB convention audit at scale: a read-only scan phase, then an approved fix phase | Via the Workflow tool, from `.claude/workflows/validation-sweep.mjs` (copied there by `setup`) |
 | write-time validator | Hook (PostToolUse) | Validates a just-written article's frontmatter against `conventions.json` | Automatic on every Write/Edit; silent on success |
 | pipeline-next | Hook (Stop) | Suggests the next session-pipeline step after a pipeline skill finishes | Automatic; silent when there is nothing to suggest |
@@ -50,13 +52,13 @@ debrief --> prep --> content   --\
 
 Each pipeline skill's last act is writing `.professor-orb/pipeline-state.json` with the step that just completed, the session date, and a timestamp. Only `debrief`, `prep`, `content`, and `chronicler` write this file. The Stop hook (`pipeline-next.mjs`) reads it to suggest the next step automatically, and the `orb` skill reads the same file on demand for the same purpose.
 
-**Standalone components**, never part of pipeline state: `setup` (after the first install), `homebrew`, `timeline`, `/catalog`, and the `validation-sweep` workflow. These run on demand at any point regardless of where the pipeline stands, and none of them write `pipeline-state.json`.
+**Standalone components**, never part of pipeline state: `setup` (after the first install), `homebrew`, `timeline`, `/catalog`, `/scribe`, `/log`, and the `validation-sweep` workflow. These run on demand at any point regardless of where the pipeline stands, and none of them write `pipeline-state.json`.
 
 ## Design philosophy
 
 **Professor-orb brings the structural schema; the consumer project owns its content.** `conventions.json` is checked first because it is machine-checkable; `CLAUDE.md` is the fallback for campaign facts and content, never for structure. No skill hardcodes a path.
 
-**Approval before mutation.** All three agents (`lore`, `historian`, `kb-validator`) are read-only: they analyze and propose, never write. `debrief`, `prep`, `content`, `chronicler`, `timeline`, and `/catalog` write to the knowledge base, each only after DM approval: `debrief`, `prep`, `content`, and `timeline` present a draft for DM review before writing it, `chronicler` and `timeline`'s hand-offs for corrections and declarations route through a written proposal the DM reviews before execution, and `/catalog` treats the DM's own act of invoking it on homebrew already finalized and confirmed as that approval. The `validation-sweep` workflow honors the same covenant with its own two-phase design: a scan phase that mutates nothing and returns a report split into mechanically fixable and needs-judgment violations, followed by a fix phase that applies only the fixes the DM approved for that specific run.
+**Approval before mutation.** All three agents (`lore`, `historian`, `kb-validator`) are read-only: they analyze and propose, never write. `debrief`, `prep`, `content`, `chronicler`, `timeline`, and `/catalog` write to the knowledge base, each only after DM approval: `debrief`, `prep`, `content`, and `timeline` present a draft for DM review before writing it, `chronicler` and `timeline`'s hand-offs for corrections and declarations route through a written proposal the DM reviews before execution, and `/catalog` treats the DM's own act of invoking it on homebrew already finalized and confirmed as that approval. `/scribe` and `/log` are deliberately absent from that list: they commit knowledge base content to version control without authoring any of it, so the approval that governs them is the one that already gated the write which put the content on disk. The `validation-sweep` workflow honors the same covenant with its own two-phase design: a scan phase that mutates nothing and returns a report split into mechanically fixable and needs-judgment violations, followed by a fix phase that applies only the fixes the DM approved for that specific run.
 
 **Structured input goes through AskUserQuestion.** When a skill needs a real decision from the DM (a go or no-go on a proposal, an ambiguous field, an enforcement level), it asks with AskUserQuestion rather than a plain-text question. Open-ended discussion, brainstorming, and explaining how something works stay free-form chat.
 
