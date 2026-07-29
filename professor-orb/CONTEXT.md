@@ -116,7 +116,7 @@ wikilinks are filename-based, not path-based, so moves don't break the link grap
 The Master-INDEX is simply the KB root's one index. Parity also feeds the DM's
 separate wiki-website project, where folders/indexes define the site's categories.
 Rolara needs a one-time migration to parity (its `items/` folder alone holds 6
-sub-index files today): proposal file, DM approval, then execution.
+sub-index files today): snapshot commit, unattended execution, after-action report.
 _Avoid_: free-floating thematic indexes without a folder, multiple indexes per folder
 
 **index maintenance**:

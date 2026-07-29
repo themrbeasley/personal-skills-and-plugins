@@ -30,9 +30,9 @@ KB root, it was raw material for the extras layer only; the structural layer doe
 not come from it. The setup skill regenerates the file; nothing else hand-edits it
 as primary.
 
-A companion file, `.professor-orb/tag-registry.json`, holds the actual inventory
-of tags in use across the KB. `conventions.json` only references that the tag
-registry exists and where to find it; it does not embed the tag list.
+A companion file per setting, at that setting's `tagRegistryPath`, holds the actual
+inventory of tags in use across its KB. `conventions.json` only references that the
+tag registry exists and where to find it; it does not embed the tag list.
 
 ## Design principles
 
@@ -55,7 +55,7 @@ registry exists and where to find it; it does not embed the tag list.
    "strict mode" toggle. Each rule carries its own `enforcement`. A DM can block
    on invalid `type` values while only warning on new tags, in the same file.
 3. **Flat and cheap to parse.** The hook is a small Node ESM script. Rules live in
-   one top-level `rules` object keyed by rule ID. Each rule entry is shallow: a
+   one `rules` object per setting, keyed by rule ID. Each rule entry is shallow: a
    handful of scalar fields plus one `params` object holding check-specific
    values. Most params are flat; the deepest nesting is three levels in the
    `default` check's conditional overrides.
@@ -71,7 +71,7 @@ registry exists and where to find it; it does not embed the tag list.
 {
   // Schema version for this file format. Bump only if the shape of a rule
   // entry changes in a way older hook versions cannot parse.
-  "version": 1,
+  "version": 3,
 
   // Which version of professor-orb's base rule set this file was generated
   // against, copied from the "schemaVersion" of references/base-rules.json.
@@ -80,8 +80,34 @@ registry exists and where to find it; it does not embed the tag list.
   // describes the rule set the file was instantiated from.
   "schemaVersion": 1,
 
-  // Path to the KB folder, relative to the project root.
-  "kbRoot": "rolara-kb",
+  // One entry per setting. A setting is one world: its own knowledge base,
+  // its own Obsidian vault, its own article types, its own tag vocabulary.
+  "settings": [
+    {
+      // Short identifier for this setting, used in per-setting paths.
+      "name": "rolara",
+
+      // The three prong roots, each relative to the project root.
+      "kbRoot": "settings/rolara",
+      "homebrewRoot": "homebrew/rolara",
+      "sessionReportsRoot": "session-reports/rolara",
+
+      // The campaigns under sessionReportsRoot. A cache, not the authority;
+      // see the note below.
+      "campaigns": ["ashes-of-the-first-crown"],
+
+      // Where this setting's companion tag registry lives. The hook reads
+      // this path when running any "tagVocabulary" check against an article
+      // in this setting; conventions.json never embeds the tag list itself.
+      "tagRegistryPath": ".professor-orb/tag-registry.rolara.json",
+
+      // Every rule the DM has confirmed for this setting, keyed by a short
+      // rule ID. See "Rule entry shape" and the "Rule catalog" below.
+      "rules": {
+        "...": { "...": "..." }
+      }
+    }
+  ],
 
   // How this file was produced. One of: "setup" (first-time generation),
   // "resync" (setup re-run against a KB that has drifted), "manual" (a DM
@@ -89,28 +115,29 @@ registry exists and where to find it; it does not embed the tag list.
   "generatedBy": "setup",
 
   // ISO 8601 timestamp of the last (re)generation.
-  "generatedAt": "2026-07-09T00:00:00Z",
+  "generatedAt": "2026-07-28T00:00:00Z",
 
   // Path to the human-readable conventions document this file was derived
   // from, or null if no single source document existed (tiers 2 and 3 set
   // this to null; see below).
-  "sourceConventionsDoc": "rolara-kb/KB-CONVENTIONS.md",
-
-  // Where the companion tag registry lives. The hook reads this path when
-  // running any "tagVocabulary" check; conventions.json never embeds the
-  // tag list itself.
-  "tagRegistryPath": ".professor-orb/tag-registry.json",
-
-  // Every rule the DM has confirmed, keyed by a short rule ID. See "Rule
-  // entry shape" and the "Rule catalog" below.
-  "rules": {
-    "...": { "...": "..." }
-  }
+  "sourceConventionsDoc": null
 }
 ```
 
 `conventions.json` on disk is strict JSON (no comments). The `jsonc` fencing above
 is for this document only, to annotate each field inline.
+
+**`rules` and `tagRegistryPath` move inside each setting.** A second world must be
+able to carry its own article types and its own tag vocabulary. The base layer is
+identical in every setting's `rules`; only `extendedBy` and the project rules differ.
+
+**`campaigns` is a cache, not the authority.** Lane resolution enumerates the
+filesystem under `sessionReportsRoot`; the array disambiguates and orders.
+
+A file with a bare top-level `kbRoot` and no `settings` array (versions 1 and 2) is
+still read, as a single unnamed setting whose other prong roots are unknown. That is
+enough for validation and deliberately not enough for lane resolution, which refuses
+a shape it cannot resolve a prong from.
 
 ## Rule entry shape
 
@@ -424,7 +451,7 @@ Checked against the article's body text.
 | check | params | what it checks |
 |---|---|---|
 | `wikilinkPolicy` | `format` (description string, e.g. `[[Filename\|Display Text]]`), `requireExistingTarget` (bool), `requireDisplayText` (bool, default false) | Wikilinks in the body are well-formed and, if `requireExistingTarget` is true, point at a file that exists in the KB. If `requireDisplayText` is true, a wikilink with no separator at all (e.g. `[[Target]]`) is flagged as missing display text; a wikilink that carries one, whether table-escaped (`[[Target\|Display]]`) or plain, still passes. Inside Markdown tables the pipe separator appears escaped as `\|` (a bare pipe would split the cell); checkers treat the escaped and bare forms as the same separator, never as a malformed link |
-| `tagVocabulary` | *(none beyond the top-level `tagRegistryPath`)* | Tags used in frontmatter are cross-checked against the tag registry; new tags are reported with suggested near-matches, never blocked (see note below) |
+| `tagVocabulary` | *(none beyond the owning setting's `tagRegistryPath`)* | Tags used in frontmatter are cross-checked against the tag registry; new tags are reported with suggested near-matches, never blocked (see note below) |
 | `prohibitedPattern` | `pattern` (regex string), `appliesTo` (`"body"` or `"frontmatter"`), `flags` (regex flags string, default `"u"`), `excludeTableDelimiters` (bool, body only, default false) | The text does not contain a disallowed pattern, e.g. em dashes. Set `flags` for case-insensitive or multiline matching (e.g. `"im"`); JavaScript regex does not support inline `(?im)` groups, so put those flags here instead. When the pattern also bans a double-hyphen used as a prose em-dash substitute, set `excludeTableDelimiters: true` so Markdown table delimiter rows and horizontal rules are not flagged |
 | `bodyImpliesFrontmatter` | `bodyPattern` (regex string), `flags` (regex flags string, default `"u"`), `requireFrontmatter` (object, never an array, mapping frontmatter field names to a required boolean, string, or number) | If the article body matches `bodyPattern`, every field named in `requireFrontmatter` must be present in frontmatter with exactly the given value; a missing field fails. Built for publish gating: a body carrying a DM-only content marker must set `publish: false` explicitly, because a missing field would fall back to the site's default and leak. Booleans and strings compare strictly, so a quoted `"false"` does not satisfy a required `false` (it is a real bug worth surfacing); a required number is compared against the frontmatter parser's string reading of it, so `2` matches `field: 2`. See `frontmatterImpliesFrontmatter` (Frontmatter rules, above) for the same mechanism triggered by a frontmatter condition instead of a body pattern |
 
@@ -540,161 +567,187 @@ carries a violation-shaped character inside genuine code.
 
 ## Example conventions.json
 
-A realistic (abbreviated) file in the v1 shape: `"version": 1`, and no rule
-carrying a `provenance` field. Setup reconciles a file like this against the
-base rule set on its next run, by "Reconciling a v1 file" above. The values are
-Rolara-shaped illustrations of what one project's rules look like on disk; what
-differs in another consumer is the extras layer, not the structural rules.
-Rolara is a tier 1 project with an existing conventions document; a tier 2 or 3
-project would have `"sourceConventionsDoc": null`.
+A realistic (abbreviated) v3 file, as setup writes it: one setting, its three prong
+roots, and one `rules` object inside it carrying the base rule set plus this
+project's extras. The base entries are copied from `references/base-rules.json`,
+where they are single-sourced; read the artifact rather than this copy when they
+disagree. What differs in another consumer is the extras layer, not the structural
+rules. Rolara is a tier 1 project with an existing conventions document, so
+`sourceConventionsDoc` names it; a tier 2 or 3 project would have
+`"sourceConventionsDoc": null`.
 
 ```json
 {
-  "version": 1,
-  "kbRoot": "rolara-kb",
-  "generatedBy": "setup",
-  "generatedAt": "2026-07-09T00:00:00Z",
-  "sourceConventionsDoc": "rolara-kb/KB-CONVENTIONS.md",
-  "tagRegistryPath": ".professor-orb/tag-registry.json",
-  "rules": {
-    "frontmatterRequiredFields": {
-      "category": "frontmatter",
-      "check": "requiredFields",
-      "enforcement": "block",
-      "description": "Frontmatter must include publish, type, category, tags in that order when present.",
-      "params": {
-        "fields": ["publish", "type", "category", "tags"],
-        "requiredSubset": ["publish", "type"],
-        "orderMatters": true
-      }
-    },
-    "frontmatterTypeEnum": {
-      "category": "frontmatter",
-      "check": "enum",
-      "enforcement": "block",
-      "description": "type must be one of the KB's recognized article types.",
-      "params": {
-        "field": "type",
-        "values": [
-          "Person", "Settlement", "Location", "Landmark", "Organization",
-          "Species", "Ethnicity", "Item", "Material", "Vehicle", "Technology",
-          "Spell", "Article", "Myth", "Natural-Law", "Supernatural-Law", "Law",
-          "Index", "Session Report"
-        ]
-      }
-    },
-    "frontmatterPublishDefault": {
-      "category": "frontmatter",
-      "check": "default",
-      "enforcement": "warn",
-      "description": "publish defaults to true, except NSFW-tagged articles and homebrew catalog entries, which default to false.",
-      "params": {
-        "field": "publish",
-        "value": true,
-        "overrides": [
-          { "when": { "tags": ["NSFW"] }, "value": false },
-          { "when": { "category": ["Homebrew"] }, "value": false }
-        ]
-      }
-    },
-    "frontmatterTagsFormat": {
-      "category": "frontmatter",
-      "check": "format",
-      "enforcement": "block",
-      "description": "tags, when present, must be an array of strings.",
-      "params": {
-        "field": "tags",
-        "format": "string-array",
-        "optional": true
-      }
-    },
-    "filenameSuffixByType": {
-      "category": "filename",
-      "check": "suffixByType",
-      "enforcement": "block",
-      "description": "Index, session report, and session prep articles carry a mandatory filename suffix.",
-      "params": {
-        "mapping": [
-          { "type": "Index", "suffix": "-INDEX" },
-          { "type": "Session Report", "suffix": "-REPORT" },
-          { "type": "Session Prep", "suffix": "-PREP" }
-        ]
-      }
-    },
-    "filenameCharset": {
-      "category": "filename",
-      "check": "charset",
-      "enforcement": "warn",
-      "description": "Filenames should use letters, digits, and hyphens only.",
-      "params": {
-        "pattern": "^[A-Za-z0-9-]+$"
-      }
-    },
-    "structuralIndexParity": {
-      "category": "structural",
-      "check": "indexParity",
-      "enforcement": "warn",
-      "description": "Every folder with content has exactly one owning -INDEX file.",
-      "params": {
-        "indexSuffix": "-INDEX"
-      }
-    },
-    "structuralSingleOwnership": {
-      "category": "structural",
-      "check": "singleOwnership",
-      "enforcement": "warn",
-      "description": "Each article's wikilink appears in exactly one owning index. The write-time check always returns not applicable; only the sweep can evaluate this KB-wide, so enforcement must stay non-off for the sweep to report it.",
-      "params": {}
-    },
-    "structuralSplitThreshold": {
-      "category": "structural",
-      "check": "splitThreshold",
-      "enforcement": "warn",
-      "description": "A folder earns its own sub-index at 6 or more entries.",
-      "params": {
-        "minEntries": 6,
-        "indexSuffix": "-INDEX"
-      }
-    },
-    "structuralAbsorbThreshold": {
-      "category": "structural",
-      "check": "absorbThreshold",
-      "enforcement": "warn",
-      "description": "A sub-index is absorbed into its parent below 4 entries.",
-      "params": {
-        "maxEntries": 4,
-        "indexSuffix": "-INDEX"
-      }
-    },
-    "contentWikilinkPolicy": {
-      "category": "content",
-      "check": "wikilinkPolicy",
-      "enforcement": "warn",
-      "description": "Wikilinks should point at confirmed existing articles.",
-      "params": {
-        "format": "[[Filename-Without-Extension|Display Text]]",
-        "requireExistingTarget": true
-      }
-    },
-    "contentTagVocabulary": {
-      "category": "content",
-      "check": "tagVocabulary",
-      "enforcement": "warn",
-      "description": "Prefer reusing an existing tag over coining a near-duplicate. Never blocks.",
-      "params": {}
-    },
-    "contentNoEmDashes": {
-      "category": "content",
-      "check": "prohibitedPattern",
-      "enforcement": "block",
-      "description": "Article body text must not contain em dashes or a double-hyphen used as a prose substitute for one.",
-      "params": {
-        "pattern": "\\u2014|--",
-        "appliesTo": "body",
-        "excludeTableDelimiters": true
+  "version": 3,
+  "schemaVersion": 1,
+  "settings": [
+    {
+      "name": "rolara",
+      "kbRoot": "settings/rolara",
+      "homebrewRoot": "homebrew/rolara",
+      "sessionReportsRoot": "session-reports/rolara",
+      "campaigns": ["ashes-of-the-first-crown"],
+      "tagRegistryPath": ".professor-orb/tag-registry.rolara.json",
+      "rules": {
+        "frontmatterFieldOrder": {
+          "provenance": "professor-orb",
+          "category": "frontmatter",
+          "check": "requiredFields",
+          "enforcement": "warn",
+          "description": "Frontmatter lists publish, type, tags in that order when present.",
+          "params": {
+            "fields": ["publish", "type", "tags"],
+            "orderMatters": true
+          }
+        },
+        "frontmatterTypeEnum": {
+          "provenance": "professor-orb",
+          "category": "frontmatter",
+          "check": "enum",
+          "enforcement": "block",
+          "extendedBy": ["Settlement", "Landmark", "Myth"],
+          "description": "type must be one of the recognized article types or homebrew artifact keys.",
+          "params": {
+            "field": "type",
+            "values": [
+              "Person", "Location", "Organization", "Item", "Creature", "Concept",
+              "Index", "Session Report", "Session Prep", "Chronology",
+              "spell", "magic-item", "feat", "feature", "monster", "npc",
+              "species", "subclass", "class", "other"
+            ]
+          }
+        },
+        "frontmatterPublishDefault": {
+          "provenance": "project",
+          "category": "frontmatter",
+          "check": "default",
+          "enforcement": "warn",
+          "description": "publish defaults to true, except NSFW-tagged articles and homebrew catalog entries, which default to false.",
+          "params": {
+            "field": "publish",
+            "value": true,
+            "overrides": [
+              { "when": { "tags": ["NSFW"] }, "value": false },
+              { "when": { "category": ["Homebrew"] }, "value": false }
+            ]
+          }
+        },
+        "frontmatterTagsFormat": {
+          "provenance": "professor-orb",
+          "category": "frontmatter",
+          "check": "format",
+          "enforcement": "warn",
+          "description": "tags, when present, must be an array of strings.",
+          "params": {
+            "field": "tags",
+            "format": "string-array",
+            "optional": true
+          }
+        },
+        "filenameSuffixByType": {
+          "provenance": "professor-orb",
+          "category": "filename",
+          "check": "suffixByType",
+          "enforcement": "block",
+          "description": "Index, session report, and session prep articles carry a mandatory filename suffix.",
+          "params": {
+            "mapping": [
+              { "type": "Index", "suffix": "-INDEX" },
+              { "type": "Session Report", "suffix": "-REPORT" },
+              { "type": "Session Prep", "suffix": "-PREP" }
+            ]
+          }
+        },
+        "filenameCharset": {
+          "provenance": "professor-orb",
+          "category": "filename",
+          "check": "charset",
+          "enforcement": "warn",
+          "description": "Filenames use letters, digits, and hyphens only.",
+          "params": {
+            "pattern": "^[A-Za-z0-9-]+$"
+          }
+        },
+        "structuralIndexParity": {
+          "provenance": "professor-orb",
+          "category": "structural",
+          "check": "indexParity",
+          "enforcement": "warn",
+          "scope": "kb",
+          "description": "Every folder with content has exactly one owning -INDEX file.",
+          "params": {
+            "indexSuffix": "-INDEX"
+          }
+        },
+        "structuralSingleOwnership": {
+          "provenance": "professor-orb",
+          "category": "structural",
+          "check": "singleOwnership",
+          "enforcement": "warn",
+          "scope": "kb",
+          "description": "An article's wikilink appears in exactly one index. Checked by the validation sweep, not at write time.",
+          "params": {}
+        },
+        "structuralSplitThreshold": {
+          "provenance": "professor-orb",
+          "category": "structural",
+          "check": "splitThreshold",
+          "enforcement": "warn",
+          "scope": "kb",
+          "description": "A folder holding six or more articles earns its own subfolder and index.",
+          "params": {
+            "minEntries": 6,
+            "indexSuffix": "-INDEX"
+          }
+        },
+        "structuralAbsorbThreshold": {
+          "provenance": "professor-orb",
+          "category": "structural",
+          "check": "absorbThreshold",
+          "enforcement": "warn",
+          "scope": "kb",
+          "description": "A leaf folder holding fewer than four articles is absorbed into its parent.",
+          "params": {
+            "maxEntries": 4,
+            "indexSuffix": "-INDEX"
+          }
+        },
+        "contentWikilinkPolicy": {
+          "provenance": "project",
+          "category": "content",
+          "check": "wikilinkPolicy",
+          "enforcement": "warn",
+          "description": "Wikilinks point at an article that exists.",
+          "params": {
+            "format": "[[Filename-Without-Extension|Display Text]]",
+            "requireExistingTarget": true
+          }
+        },
+        "contentTagVocabulary": {
+          "provenance": "project",
+          "category": "content",
+          "check": "tagVocabulary",
+          "enforcement": "warn",
+          "description": "Frontmatter tags are cross-checked against the setting's tag registry.",
+          "params": {}
+        },
+        "contentNoEmDashes": {
+          "provenance": "professor-orb",
+          "category": "content",
+          "check": "prohibitedPattern",
+          "enforcement": "warn",
+          "description": "Body prose does not use em dashes.",
+          "params": {
+            "pattern": "\u2014",
+            "appliesTo": "body"
+          }
+        }
       }
     }
-  }
+  ],
+  "generatedBy": "setup",
+  "generatedAt": "2026-07-28T00:00:00Z",
+  "sourceConventionsDoc": "settings/rolara/KB-CONVENTIONS.md"
 }
 ```
 

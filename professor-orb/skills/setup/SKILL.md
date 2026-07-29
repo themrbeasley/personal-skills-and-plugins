@@ -1,6 +1,6 @@
 ---
 name: setup
-description: "One-time (plus on-demand resync) onboarding workflow that produces the .professor-orb/ artifacts every other professor-orb skill and hook depends on (conventions.json, pipeline-state.json, tag-registry.json, proposals/), plus a copy of the validation sweep workflow in .claude/workflows/. Use it when installing professor-orb into a new campaign project, when the DM asks to set up or configure the plugin, or when .professor-orb/ is missing, stale, or has drifted from the KB's actual conventions."
+description: "One-time (plus on-demand resync) onboarding workflow that puts version control under a campaign project, migrates it onto professor-orb's canonical layout behind a snapshot commit, and produces the .professor-orb/ artifacts every other professor-orb skill and hook depends on (conventions.json, versioning.json, pipeline-state.json, per-setting tag registries, proposals/), plus copies of the plugin's workflows in .claude/workflows/. Use it when installing professor-orb into a new campaign project, when the DM asks to set up or configure the plugin, or when .professor-orb/ is missing, stale, or has drifted from the KB's actual conventions."
 ---
 
 > **Before you begin:** read `../SHARED-PRINCIPLES.md` and apply its rules throughout this workflow. Then read `references/conventions-schema.md` in full: it defines the exact shape of `conventions.json`, the enforcement levels, the check kinds, and the three intake tiers this skill implements. Do not attempt to write `conventions.json` from memory or by guessing the schema.
@@ -11,81 +11,212 @@ You are onboarding a D&D DM's campaign project onto professor-orb. This skill ru
 
 The DM is the source of truth throughout. Project documents are records of past decisions and raw material for deriving conventions; they are not authoritative in themselves. When a document and the DM disagree, the DM wins. This skill applies professor-orb's schema and derives only what that schema does not cover. The base rule set ships at `references/base-rules.json`; the extras layer is discovered from this project.
 
-Every mutation in this workflow (conventions.json contents, enforcement levels, migrations, the Tier 1 CLAUDE.md pointer paragraph, predecessor removal) requires the DM's explicit approval before it happens. Propose, then execute. Never restructure or write silently.
+**Every mutation in this workflow requires the DM's explicit approval before it happens, with exactly one exception.** The exception is the schema migration at Step 10, and only that. What replaces the gate there is Step 5's verified snapshot commit, Step 7's confirmation of the prong mapping, and Step 16's after-action report. Everything else keeps its gate: `conventions.json`'s contents, every enforcement level, the Tier 1 CLAUDE.md pointer paragraph, predecessor removal, and retirement of a source conventions document. For those, propose, then execute. Never write them silently.
 
-## Step 0: check for an existing install
+**The carve-out is conditional on the snapshot.** If `versioning.json` records mode `changelog`, or if Step 5's assertion fails for any reason, there is no verified hash and therefore no gate to replace. On that path the manifest from Step 9 is presented as a proposal and execution waits for the DM's approval, exactly as it did before. Note also that the executor refuses to start without a snapshot commit and without a determinable ignore list, so on the no-version-control path an approved migration still cannot be run unattended: say that plainly, offer version control again, and otherwise report what would have moved rather than moving it.
 
-Before anything else, check whether `.professor-orb/` already exists at the consumer project root.
+## The run order
 
-- **If it does not exist,** this is a first-time setup. Continue to Step 1.
-- **If it does exist,** do not clobber it. Tell the DM what you found (existing conventions, when it was last generated, whether the KB looks like it has drifted since) and offer a menu: review the current conventions, resync (re-run the intake and confirmation walkthrough against whatever has changed), or leave it alone. Only proceed past this point with the DM's direction. A resync reuses the rest of this workflow but treats the DM's prior confirmed choices as the starting draft rather than re-deriving everything from scratch, and sets `generatedBy` to `"resync"` instead of `"setup"`. If the existing file carries no `provenance` on any of its rules, reconcile those rules against the base rule set by the schema reference's "Reconciling a v1 file" section, which produces a report the DM approves item by item. The test is per rule, not per file: a file where some rules carry `provenance` and some do not is the expected shape after a DM hand-edit, which `generatedBy: "manual"` records, and its provenance-less rules need reconciling just as much as a wholly v1 file's do. Never apply a reconciliation result into the starting draft first, or the confirmation walkthrough will present changed enforcement levels as if they were the DM's own prior choices. Note: on resync, Step 1 (predecessor detection) is skipped; Step 5 regenerates only `conventions.json` and `tag-registry.json`, leaving `pipeline-state.json` and `proposals/` untouched.
+The order of the steps below is the safety design, not a suggested sequence. Run them in the order they are numbered. Three orderings carry the whole design: the clean-tree gate precedes anything that writes a file, the snapshot commit precedes every mutation, and the migration's own commit comes last so that everything Steps 12 through 14 change is captured by it. A resync runs Steps 1 through 14 in full, including the snapshot, the aside, the mapping confirmation, the manifest, and the prechecks. It is not a lighter path.
 
-## Step 1: detect predecessor installs
+## Step 1: detect what is already here
 
-This step runs only on first-time setup. On a resync, skip to Step 2.
+This step writes nothing. Gather all four findings below; the run does not continue past this step until each of them is resolved.
 
-Look at the consumer project root for signs of the old Cowork edition (`dnd-campaign-toolkit`), such as a `dnd-campaign-toolkit.plugin` file or directory. Also check for any installed-plugin manifest that references it.
+**An existing install.** Check whether `.professor-orb/` already exists at the consumer project root. If it does not, this is a first-time setup. If it does, do not clobber it: tell the DM what you found (existing conventions, when they were generated, whether the KB looks like it has drifted since) and offer a menu: review the current conventions, resync, or leave it alone. Say plainly what a resync does before they choose it: it re-imposes professor-orb's schema, it relocates the project to the canonical layout at Step 10, it takes a snapshot commit first, and it can be undone with `git reset --hard <snapshot hash>`, which Step 5 prints. Only proceed past this point with the DM's direction. A resync sets `generatedBy` to `"resync"` instead of `"setup"`.
 
-If found, explain the overlap to the DM in plain terms: professor-orb supersedes it, running both risks duplicate or conflicting behavior (for example, two Stop hooks suggesting different next steps). Offer to remove the predecessor's install artifacts. Wait for explicit approval before removing anything. If the DM declines or wants to keep it installed alongside, proceed with the rest of setup and note the coexistence so the DM remembers it later.
+**A predecessor install.** Look at the project root for signs of the old Cowork edition (`dnd-campaign-toolkit`), such as a `dnd-campaign-toolkit.plugin` file or directory, and for any installed-plugin manifest that references it. This check runs on a resync too, not only on first-time setup, because the migration runs on both. Explain the overlap in plain terms: professor-orb supersedes it, running both risks duplicate or conflicting behavior, and its own `Write|Edit` hook fires throughout the migration no matter what professor-orb does with its own conventions file. That makes removal a mutation-safety matter rather than tidiness. Offer to remove the predecessor's install artifacts and wait for explicit approval, per Step 13. If the DM declines, proceed and state in the report that its hook will have produced noise during the migration.
 
-## Step 2: derive conventions through the appropriate intake tier
+**Repository state.** Enumerate every remote (`git remote -v`) rather than testing whether one exists. Four cases:
 
-Every project starts from the same base rule set. The tiers differ only in where the project-specific extras come from: an existing conventions document is the richest source, scattered prose is next, and an interview is the fallback when nothing is written down. Determine which tier applies by looking at what the consumer project already has. The full mechanics of each tier are in `references/conventions-schema.md` under "How setup produces this file"; this section summarizes how to choose and act.
+- **A repository with a remote the DM confirms in this run.** Record it. Never push to a remote the DM has not confirmed in this run: a project can carry archived read-only remotes from retired repositories, and pushing to one would be both a failure and a surprise.
+- **A repository with no usable remote.** No `git init`. Offer the GitHub connection at Step 3, or record local-git mode.
+- **Not a repository, but nested inside one.** Name the ancestor repository's root and ask. Never adopt an ancestor silently.
+- **No repository anywhere.** The full three-way offer at Step 3.
 
-**First, locate the KB.** Find the consumer's knowledge base folder (look for a folder full of markdown articles, references in CLAUDE.md, or ask the DM directly if it is not obvious). This becomes `kbRoot` in `conventions.json`.
+**A nested repository below the project root.** Scan the project root and every candidate prong root for a `.git` directory below the root. A nested repository's contents are invisible to the outer snapshot, so if one exists, stop here and resolve it (absorb its history, or have the DM archive and remove it) before anything else happens.
 
-- **Tier 1, an existing conventions document.** If the KB root (or the project generally) already has a human-readable conventions file (for example `KB-CONVENTIONS.md`), read it as raw material for the extras layer. Where it states something a base rule already covers, fold its distinct values into that base rule's `extendedBy` rather than emitting a second rule of the same check kind on the same field; where it states something no base rule covers, emit a `provenance: "project"` rule using the matching check kind from the reference file's rule catalog. Set `sourceConventionsDoc` to that file's path, recording where the extras came from. Then offer the DM (approval required before acting) to retire the source doc and add a short pointer paragraph in the consumer's CLAUDE.md noting that `.professor-orb/conventions.json` is the single source of conventions. Do not draft a new `KB-CONVENTIONS.md`.
+## Step 2: require a clean tree
+
+If the project is already a repository, run `git status --porcelain`. If it is non-empty, report what is uncommitted and stop, or offer to commit the DM's existing work first under its own message. Nothing has been written yet, so this gate is reachable and a refusal here costs nothing.
+
+The gate exists because a migration that begins on a dirty tree cannot be cleanly reverted: the snapshot would sweep in unrelated work, and `git reset --hard` back to it would discard the DM's own uncommitted changes along with the migration. On a project that is not a repository yet there is no tree to be dirty; the gate applies from the moment one exists.
+
+## Step 3: establish version control
+
+**The offer names the migration.** The DM is not choosing version control in the abstract, they are choosing whether the restructure about to happen is undoable. Say so in the AskUserQuestion body: setup is about to reorganize N files into professor-orb's layout, and version control is what makes that reversible.
+
+1. **A private GitHub repository (recommended).** Full undo plus an offsite copy.
+2. **Local git only.** No account, works offline, full undo. No offsite copy.
+3. **No version control.** The changelog baseline, and the migration then has no restore point. On this path the migration requires an explicit second confirmation, and Step 16's undo instruction is replaced by a plain statement that the restructure cannot be reversed automatically.
+
+**Voice.** This is the plugin's only encounter with a DM who may never have used git. Avoid every term or define it on first use in one clause. Never emit a bare command without saying what it does and what they will see.
+
+**Privacy.** Campaign material routinely contains what players must not read. Private is the default, a public repository would expose unrevealed plot, and private is confirmed before anything is created. Choosing GitHub uploads campaign content to a third party; state that before creating anything.
+
+**Handed back to the DM:** creating a GitHub account, running `gh auth login` (interactive, and it cannot be driven from a non-interactive shell), and entering any password or token.
+
+**What you do once they are authenticated:** verify with `gh --version` and `gh auth status`, run `git init` if needed, write the `.gitignore` additions below, and nothing else here. The repository itself is created at Step 15 with `gh repo create <name> --private --source=. --remote=origin --push`, once the snapshot and migration commits exist for `--push` to send. If `gh` is absent, offer installation (`winget install --id GitHub.cli`, `brew install gh`); if that is declined, the DM creates the repository in the web UI and pastes the HTTPS URL, you run `git remote add origin`, and the DM runs the first push themselves. A bare `git push` without `gh` can raise a credential-manager window that would hang a non-interactive shell call. If the DM stalls on account creation, complete local git now, record mode `git` with `githubPending: true`, and say that finishing later is a matter of asking.
+
+**The `.gitignore` policy, additions only.** Never rewrite or reorder an existing `.gitignore`; append what is missing.
+
+Ignored, as derived or transient: `.professor-orb/pipeline-state.json`, `.professor-orb/proposals/`, `.professor-orb/tag-registry*.json`, `**/.obsidian/workspace*.json`, `**/.obsidian/plugins/`.
+
+The `**/` prefix is required, not decorative. A gitignore pattern with a slash anywhere but at its end is anchored to the directory holding the `.gitignore`, so `.obsidian/workspace*.json` matches a vault at the project root and nothing under `settings/<setting>/`. Measured against real git: without the prefix, vault state and plugin bundles get staged and pushed, and `workspace.json` is rewritten every time Obsidian opens or closes, so `git status --porcelain` is never clean again and Step 2's gate fails on every later resync.
+
+Tracked, deliberately: `.professor-orb/conventions.json`, `.professor-orb/versioning.json`, and the migration manifest.
+
+**Do not ask the large-and-sensitive-material question here.** It runs at Step 14, after the snapshot. Asking before anything is captured invites the DM to exclude exactly the material the migration is about to move, which would then sit outside the only restore point they have.
+
+## Step 4: convert the versioning marker
+
+If `.professor-orb/catalog-versioning.json` exists and `.professor-orb/versioning.json` does not, copy its `mode` and `decided` values unchanged into the new file and mention the conversion in passing. Never rewrite `decided`. Writing a fresh date destroys the only record of when the DM actually chose, and a later reader cannot tell a converted decision from a new one. That date is the single field this conversion exists to carry across. Do not delete the old file here; Step 12 deletes it, after the snapshot commit has captured it.
+
+## Step 5: commit the snapshot
+
+Commit everything as it stands, with the message `chore: pre-migration snapshot before professor-orb setup`. Then **assert** that `git status --porcelain` is empty and capture the commit hash. If either the commit or the assertion fails, abort before any mutation and say why.
+
+Print the hash and the undo command now, in conversation, not only in the closing report. `git init` alone provides zero revertibility, because an untracked working tree has no restore point; this commit is the restore point, and it is the thing that stands between an unattended restructure and unrecoverable loss.
+
+## Step 6: move any existing conventions.json aside
+
+Read its rules, its extras layer, and its per-rule enforcement levels into memory **first**. Then move the file to `.professor-orb/conventions.json.pre-migration`, which the snapshot has already captured.
+
+`conventions.json` exists on disk at no point between this step and Step 12. That is what keeps the write-time hook silent through the migration on **resync** as well as on a first run, and resync is the path an established project takes. Without it the hook is armed for every write the migration makes, blocking on rule violations and dispatching autofixes that race the migration's own edits.
+
+## Step 7: discover the prongs and confirm the mapping
+
+This is the one confirmation the migration asks for. Enumerate the candidate locations of all three prongs (the setting knowledge base, the homebrew catalog, and the session reports), report exactly what you found and where each one would move to, and confirm the source-to-destination mapping with the DM via AskUserQuestion before anything moves.
+
+It is the one input the plugin cannot derive reliably, and getting it wrong is the one error the after-action report cannot help with, because the DM would not know to look. Any move whose destination lies inside its own source is staged through a temporary sibling path.
+
+## Step 8: copy the workflows
+
+Copy every workflow the plugin ships (resolved from the plugin root) into `.claude/workflows/` in the consumer project, creating the destination directory if needed. This includes `migrate.mjs`, which Step 10 needs, and `validation-sweep.mjs`. Copy each file as-is; do not read its contents into the conversation and retype them, and do not reproduce or summarize them anywhere in this skill's own instructions. Plugins cannot ship workflow files directly into a consumer project's `.claude/workflows/`, which is why this copy step exists.
+
+If a source file is missing (for example if the plugin build has not shipped it yet), tell the DM that step could not complete; do not fabricate a placeholder script. If the missing file is `migrate.mjs`, stop: the migration cannot run without it.
+
+## Step 9: write the migration manifest and run the prechecks
+
+Survey the project against the base rule set and build the manifest. The survey includes the folder-index parity scan: scan for folder-index parity violations, folders containing more than one index file, and folders with content but no index file at all.
+
+Run `migrate.mjs`'s plan phase, which mutates nothing, and write the resulting operation list and its prechecks to a tracked path so a half-applied run is diagnosable from the repository alone. **A precheck failure stops the run before any mutation.** A destination collision aborts: list the colliding pairs, state that the project is unchanged, and offer to continue once the DM has resolved them.
+
+Split and absorb are **reported, never executed** on this run. Crossing a threshold says a folder should divide or dissolve; it does not say how to partition it or where its contents belong, and that is a judgment about the DM's own material.
+
+**Greenfield KB (no articles yet).** There is nothing to migrate. Set up the folder and index structure from scratch, following professor-orb's canonical layout as the base rules define it (the `-INDEX` suffix, one owning index per folder that holds content, the split and absorb thresholds), and confirm the structure with the DM before creating it.
+
+**A migration is never asserted inside `conventions.json`.** The manifest is a run artifact; the migration itself is never recorded in `conventions.json` as "approved," "planned," or "deferred," whether as a rule of its own or folded into a description. That file records confirmed rules, not intentions.
+
+Finish this step by committing what it and Steps 6 and 8 have written (the aside, the copied workflows, the manifest) under a plain message such as `chore: professor-orb setup preparation`, so that the working tree is clean. The executor refuses to start on a dirty tree, and correctly: a tree with uncommitted work has no coherent state to restore to. The snapshot from Step 5 remains the restore point, since resetting to it discards this preparation commit too.
+
+## Step 10: execute the migration
+
+Run `migrate.mjs`'s apply phase against the plan from Step 9, with its own commit step disabled (`"commit": false` in its arguments), because the single migration commit happens at Step 15 and has to carry what Steps 12 through 14 produce as well.
+
+What the executor guarantees, and what you must carry into the report rather than restate as your own: every relocation goes through `git mv`; any operation whose source is git-ignored is skipped and reported, never moved, because the snapshot does not contain it; per-file applied true or false accounting means a dropped worker is never counted as done; and link integrity is asserted across every prong root before anything is committed. It also reports `ignoredEdits` and `ignoredMoved`, the edits and moves the snapshot cannot undo. If the link-integrity assertion fails, do not commit at Step 15: report the dead links with their containing files and point at the snapshot.
+
+The migration applies the base rules at their **default** enforcement levels, because the DM confirms levels at Step 11, after this. The levels they choose take effect from the next write onward. This run's authority comes from the snapshot commit and the after-action report, not from a level confirmed at setup.
+
+## Step 11: derive the extras, draft the rule set, and confirm enforcement levels
+
+Both of these belong here, after the migration, because the extras are derived from the KB's post-migration state.
+
+**Locate the KB** as it now stands: the setting knowledge base at its canonical destination becomes that setting's `kbRoot`, and its two sibling prongs become `homebrewRoot` and `sessionReportsRoot`.
+
+Every project starts from the same base rule set. The tiers differ only in where the project-specific extras come from. The full mechanics of each tier are in `references/conventions-schema.md` under "How setup produces this file"; this section summarizes how to choose and act.
+
+- **Tier 1, an existing conventions document.** If the KB root (or the project generally) already has a human-readable conventions file (for example `KB-CONVENTIONS.md`), read it as raw material for the extras layer. Where it states something a base rule already covers, fold its distinct values into that base rule's `extendedBy` rather than emitting a second rule of the same check kind on the same field; where it states something no base rule covers, emit a `provenance: "project"` rule using the matching check kind from the reference file's rule catalog. Set `sourceConventionsDoc` to that file's path. Retiring that document and adding a pointer paragraph to the consumer's CLAUDE.md are offered at Step 13 and both keep their approval gate. Do not draft a new `KB-CONVENTIONS.md`.
 - **Tier 2, conventions scattered.** If project-specific conventions exist but live spread across CLAUDE.md, README files, or index articles rather than in one document, gather them into the same extras layer by the same fold-or-emit rule as tier 1. Set `sourceConventionsDoc` to null. Do not draft a `KB-CONVENTIONS.md`.
 - **Tier 3, conventions in the DM's head.** If nothing is written down, the base rule set still applies unchanged. Interview the DM using AskUserQuestion for the extras, and derive candidates from articles already in the KB: the distinct `type` values actually in use become `extendedBy` entries on the base type enum, and existing tags seed the tag registry. Set `sourceConventionsDoc` to null. Do not draft a `KB-CONVENTIONS.md`.
 
 AskUserQuestion is mandatory for the tier 3 interview; do not substitute plain-text questions in chat for structured intake. Batch related questions together rather than asking one at a time.
 
+**On a resync**, the base layer is re-imposed from `references/base-rules.json` again, never carried over from the previous file. What survives is the extras layer and the DM's enforcement choices, both read into memory at Step 6. If any rule in that file carries no `provenance`, reconcile it against the base rule set by the schema reference's "Reconciling a v1 file" section, which produces a report the DM approves item by item. The test is per rule, not per file: a file where some rules carry `provenance` and some do not is the expected shape after a DM hand-edit, which `generatedBy: "manual"` records, and its provenance-less rules need reconciling just as much as a wholly v1 file's do. Never apply a reconciliation result into the draft first, or the confirmation walkthrough will present changed enforcement levels as if they were the DM's own prior choices.
+
 **Classify by enforcement scope.** Before a candidate convention reaches the draft, decide where it can actually be enforced: per-write (the hook can check it against the file being written, its folder, and cheap existence lookups), whole-KB (only the validation sweep can check it), or human judgment (no deterministic check exists, for example which of two colliding filenames is primary, or whether a prose cross-reference reads well). A per-write-checkable convention becomes an active rule in `conventions.json`. A whole-KB convention may also be recorded there, as a sweep-scope entry; a judgment-only convention skips `conventions.json` entirely and goes to the consumer's CLAUDE.md instead. A base rule may be whole-KB scope; `structuralSingleOwnership` ships that way, carrying `enforcement: "warn"` and a check function that returns not applicable at write time. The hook is therefore silent on it by function rather than by level, and the validation sweep is what actually checks it. Never present a sweep-scope or judgment-only convention to the DM as something the hook enforces on every write. See the schema reference's "Enforcement scopes" section for the full breakdown.
 
 **Description discipline.** Every rule `description` you draft is one terse sentence stating what the rule checks, nothing more. Never write migration status, DM-approval claims, audit or changelog notes, dates, percentages, or statistics into a description; see the schema reference's note on `description`.
 
-In every tier, present the full rule set, base and extras, as one draft to the DM before moving to Step 3. Take a single markup pass: the DM flags anything wrong, you fix it, and that is the end of it. Any answer the DM gives about their campaign's content is canon; you may ask one clarifying question if a correction is unclear.
+In every tier, present the full rule set, base and extras, as one draft to the DM. Take a single markup pass: the DM flags anything wrong, you fix it, and that is the end of it. Any answer the DM gives about their campaign's content is canon; you may ask one clarifying question if a correction is unclear.
 
-## Step 3: confirm enforcement levels with the DM
-
-Every rule in `conventions.json` carries `block`, `warn`, or `off` (see the reference file's "Enforcement levels" section for the guidance behind each). Propose a sensible default per rule using that guidance (for example, an invalid `type` enum defaults to `block`; a structural threshold or new-tag detection defaults to `warn`), then confirm the actual levels with the DM via AskUserQuestion.
-
-Batch these questions sensibly: group rules that share stakes or a category (all frontmatter rules together, all structural thresholds together) rather than asking one question per rule. Push back gently if the DM asks to `block` on `tagVocabulary`: blocking on an unrecognized tag would prevent the KB's vocabulary from ever growing, and `warn` (or `off`, for a DM who does not want tag drift tracked at all) fits the intent better.
+**Then confirm enforcement levels.** Every rule carries `block`, `warn`, or `off` (see the reference file's "Enforcement levels" section for the guidance behind each). Propose a sensible default per rule using that guidance (for example, an invalid `type` enum defaults to `block`; a structural threshold or new-tag detection defaults to `warn`), then confirm the actual levels with the DM via AskUserQuestion. Batch these questions sensibly: group rules that share stakes or a category (all frontmatter rules together, all structural thresholds together) rather than asking one question per rule. Push back gently if the DM asks to `block` on `tagVocabulary`: blocking on an unrecognized tag would prevent the KB's vocabulary from ever growing, and `warn` (or `off`, for a DM who does not want tag drift tracked at all) fits the intent better.
 
 AskUserQuestion is mandatory for this confirmation. Do not write `conventions.json` from assumed defaults; every rule's enforcement level must be something the DM actually chose or explicitly approved.
 
-## Step 4: convert the versioning marker
+## Step 12: write the .professor-orb/ artifacts
 
-If `.professor-orb/catalog-versioning.json` exists and `.professor-orb/versioning.json` does not, copy its `mode` and `decided` values unchanged into the new file and mention the conversion in passing. Never rewrite `decided`. Writing a fresh date destroys the only record of when the DM actually chose, and a later reader cannot tell a converted decision from a new one. That date is the single field this conversion exists to carry across. Do not delete the old file here; setup deletes it after its snapshot commit captures it.
+- **`conventions.json`**: the approved rules, in the exact shape documented in `references/conventions-schema.md`. It is a v3 file: a `settings` array, with `kbRoot`, `homebrewRoot`, `sessionReportsRoot`, `campaigns`, `tagRegistryPath`, and `rules` inside each setting. Copy `schemaVersion` from the `schemaVersion` of `references/base-rules.json`; it is what lets a later run detect that the base rule set has moved on, so a file written without it defeats its own purpose.
+- **`pipeline-state.json`**: an empty initial state, `{}`. Setup does not write a `lastStep` here; setup is not a pipeline step, it is the prerequisite the pipeline runs on top of. On a resync, leave this file untouched.
+- **A tag registry per setting**, at each setting's `tagRegistryPath`. Scan that setting's KB article frontmatter for `tags` fields and build a flat object mapping each tag name to a rough count of how many articles use it, for example `{"npc": 12, "faction": 6}`. This is a quick scan for a starting inventory, not an exhaustive audit; the validation sweep regenerates these files properly later.
+- **`proposals/`**: an empty directory where the chronicler skill will later write lore-update proposals for DM review. On a resync, leave it and its contents untouched.
 
-## Step 5: create or update the .professor-orb/ directory
+Then delete `.professor-orb/conventions.json.pre-migration` and, if Step 4 converted it, the old `.professor-orb/catalog-versioning.json`. The snapshot captured both. `versioning.json` itself is never regenerated here: Step 4 owns it, and `decided` is never rewritten.
 
-Once the DM has approved the rule set and every enforcement level, act based on whether this is a first-time setup or a resync.
+## Step 13: handle the remaining deletions
 
-**First-time setup.** Create `.professor-orb/` at the consumer project root with:
+Both of these keep their approval gates, and both wait for explicit approval before anything is removed.
 
-- **`conventions.json`**: the approved rules, in the exact shape documented in `references/conventions-schema.md` (`version`, `schemaVersion`, `kbRoot`, `generatedBy`, `generatedAt`, `sourceConventionsDoc`, `tagRegistryPath`, `rules`). Copy `schemaVersion` from the `schemaVersion` of `references/base-rules.json`; it is what lets a later run detect that the base rule set has moved on, so a file written without it defeats its own purpose.
-- **`pipeline-state.json`**: an empty initial state, `{}`. Setup does not write a `lastStep` here; setup is not a pipeline step, it is the prerequisite the pipeline runs on top of.
-- **`tag-registry.json`**: an initial tag inventory. Scan existing KB article frontmatter for `tags` fields and build a flat object mapping each tag name to a rough count of how many articles use it, for example `{"npc": 12, "faction": 6}`. This is a quick scan for a starting inventory, not an exhaustive audit; the validation sweep regenerates this file properly later.
-- **`proposals/`**: an empty directory where the chronicler skill will later write lore-update proposals for DM review.
+- **Predecessor install artifacts**, if Step 1 found any and the DM approved removal. If they declined, or want it kept installed alongside, note the coexistence in the report so the DM remembers it later.
+- **Retiring a source conventions document** (tier 1 only), together with a short pointer paragraph in the consumer's CLAUDE.md noting that `.professor-orb/conventions.json` is the single source of conventions. Offer both; do not do either unasked.
 
-**Resync.** Update only `conventions.json` and `tag-registry.json` with their new values. Leave `pipeline-state.json` and `proposals/` untouched; this preserves any in-flight pipeline breadcrumbs and pending chronicler proposals.
+## Step 14: ask the large-and-sensitive-material question
 
-## Step 6: copy the validation sweep workflow
+Ask the DM whether anything under the project should stay out of version control: large binaries, scanned handouts, audio, video, and any material they do not want in a repository at all. Apply the additions to `.gitignore`, then run `git rm --cached` on any newly ignored path the project's history already tracks, and check for pre-existing ignore rules that would swallow a file that is currently tracked.
 
-Copy the plugin's `workflows/validation-sweep.mjs` (resolved from the plugin root) to `.claude/workflows/validation-sweep.mjs` in the consumer project, creating the destination directory if needed. Copy the file as-is; do not read its contents into the conversation and retype them, and do not reproduce or summarize its contents anywhere in this skill's own instructions. Plugins cannot ship workflow files directly into a consumer project's `.claude/workflows/`, which is why this copy step exists.
+The position of this step is deliberate at both ends. It runs **after** the snapshot at Step 5, because asking what to exclude before anything is captured invites the DM to exclude exactly the material the migration is about to move, which would then be missing from the only restore point they have. It runs **before** the migration commit at Step 15, so that the `git rm --cached` removals it produces are captured by that commit rather than left sitting uncommitted in the tree.
 
-If the source file is missing (for example if the plugin build has not shipped it yet), tell the DM this step could not complete and move on; do not fabricate a placeholder script.
+## Step 15: commit the migration
 
-## Step 7: apply folder-index parity
+Commit only if Step 10's link-integrity assertion passed. One commit carries the migration, the `.professor-orb/` artifacts, the deletions, and Step 14's untracking. Then push, if and only if the DM confirmed a remote in this run: `gh repo create <name> --private --source=. --remote=origin --push` for a new GitHub repository, or a push to the confirmed remote for an existing one. Never push to a remote the DM has not confirmed in this run.
 
-Check whether the KB already has articles.
+## Step 16: report
 
-- **Established KB.** Scan for folder-index parity violations: folders containing more than one index file, and folders with content but no index file at all. If you find violations, write a migration proposal describing exactly which files move or merge and which index files get created, and present it to the DM. Only execute the migration after explicit approval. Never restructure the KB silently, even if the fix looks obvious.
-- **Greenfield KB (no articles yet).** There is nothing to migrate. Set up the folder and index structure from scratch, following professor-orb's canonical layout as the base rules define it (the `-INDEX` suffix, one owning index per folder that holds content, the split and absorb thresholds), and confirm the structure with the DM before creating it.
+The DM approved the prong mapping and nothing else, so this report is the whole accountability surface. It reuses the KB Validation Report shape from `../../agents/kb-validator.md`:
 
-**Migrations stay proposals.** A migration proposal from this step is a conversation artifact, never file state. Never assert it inside `conventions.json`, whether "approved," "planned," or "deferred." That holds whether it appears as a rule of its own or folded into a description; `conventions.json` records confirmed rules, not intentions.
+```
+## professor-orb Setup Report
+
+### Scope
+**Project:** [path]
+**Run:** first-time setup, or resync
+**Layout before:** [where each prong was found]
+**Layout after:** [where each prong now lives]
+
+### Moved
+Files moved: N. Renamed: N. Created: N. Merged: N. Deleted: N.
+**Manifest:** [tracked path]
+
+### Edited
+Files whose contents were edited: N, broken down by the operation that edited each
+one (type normalization, link rewriting, index merging, frontmatter repair).
+Wikilinks rewritten: N.
+[Any edit the executor reported as outside the snapshot, which restoring will not undo.]
+
+### Obsidian
+**Vault to reopen:** [path, per setting]
+
+### Declined
+Everything not done, with the reason: git-ignored files, absorb candidates, split
+proposals, -TIMELINE and -HISTORY files, articles missing `publish`, prose path
+references in CLAUDE.md or elsewhere.
+
+### Failed
+[file and error, or "None"]
+
+### Git
+**Snapshot:** [hash]
+**Migration:** [hash]
+**Undo:** git -C [project] reset --hard [snapshot hash]
+
+### Summary
+[One paragraph: what changed, what still needs the DM, and the recommended next step.]
+```
+
+The **Edited** section is not optional. Two of the migration's operations change what is inside articles rather than where they sit, and a report that enumerates only location changes leaves them out entirely: the DM would have approved a mapping and received an accounting of everything except what was rewritten inside their own articles.
+
+On the no-version-control path, replace the **Undo** line with a plain statement that the restructure cannot be reversed automatically.
 
 ## Closing this run
 
-Once all applicable steps are complete, summarize for the DM what was created or changed: the conventions source and tier used, the number of rules and their enforcement levels, whether a migration ran, and whether the validation sweep workflow copied successfully. If you noticed any factual discrepancy in the DM's documents while reading them, include one line flagging it: "noticed X, you may want to look at it". No offers, no corrections, no edits. On first-time setup, note that `pipeline-state.json` was initialized with an empty state; on resync, note what was updated (conventions and tag registry only). Point them at the session pipeline (debrief is the natural first step) as a next action. Setup's job ends here; the pipeline skills take it from there.
+Add what the report shape does not cover: the conventions source and tier used, the number of rules and their enforcement levels, whether the workflows copied successfully, and, on a first-time setup, that `pipeline-state.json` was initialized empty. If you noticed any factual discrepancy in the DM's documents while reading them, include one line flagging it: "noticed X, you may want to look at it". No offers, no corrections, no edits. Point them at the session pipeline (debrief is the natural first step) as a next action. Setup's job ends here; the pipeline skills take it from there.
