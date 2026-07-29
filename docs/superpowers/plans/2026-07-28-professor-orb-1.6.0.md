@@ -1953,11 +1953,10 @@ const LANE_CLAUSES = {
   debrief: " /log can commit the session report.",
   content: " /log can commit the recap and handouts.",
   chronicler: " /scribe can commit the KB changes.",
-  timeline: " /scribe can commit the chronology document.",
 };
 ```
 
-The `timeline` clause is the one entry with no spec-supplied wording. The phase 3 spec names timeline as a `/scribe` feeder but its clause table omits the row. The DM settled it: "/scribe can commit the chronology document", chosen to parallel the other three in form and to match Part 3's statement that `/scribe` owns "the chronology documents `timeline` writes". Task 19 Step 4 applies the identical wording to `timeline/SKILL.md`; the two must not drift.
+A `timeline` entry was briefly added here during a plan repair and has been REMOVED. It was unreachable: `NEXT_STEP_MESSAGES` has no timeline key, `timeline/SKILL.md` never writes `lastStep: timeline`, and the phase 3 spec's Part 6 table lists exactly three rows and says two messages gain a lane command and one gains the other. Three modifications, full stop. The DM's settled wording, The phase 3 spec names timeline as a `/scribe` feeder but its clause table omits the row. The DM settled it: "/scribe can commit the chronology document", chosen to parallel the other three in form and to match Part 3's statement that `/scribe` owns "the chronology documents `timeline` writes". Task 19 Step 4 applies the identical wording to `timeline/SKILL.md`; the two must not drift.
 
 Read `.professor-orb/versioning.json` with the same fail-silent contract the hook already uses for `pipeline-state.json`. Treat a lone `catalog-versioning.json` as a valid marker for reading; the hook never performs the conversion, because it must stay silent, non-interactive, and non-mutating.
 
