@@ -60,11 +60,14 @@ export function buildPlan({ projectRoot, settings, baseRules, discovered }) {
 }
 
 /**
- * @returns {{ok: boolean, collisions: Array, caseRenames: Array, ignored: Array}}
+ * `ignored` is Array OR null. null means the question could not be answered;
+ * see findIgnoredSources. An empty array and null are not interchangeable.
+ *
+ * @returns {{ok: boolean, collisions: Array, caseRenames: Array, ignored: Array|null}}
  */
 export function runPrechecks({ operations, projectRoot }) {
-  const collisions = findDestinationCollisions(operations);
-  const caseRenames = operations.filter(
+  const collisions = findDestinationCollisions(operations, projectRoot);
+  const caseRenames = list(operations).filter(
     (o) => o.from && o.to && o.from.toLowerCase() === o.to.toLowerCase() && o.from !== o.to
   );
   const ignored = findIgnoredSources(operations, projectRoot);
@@ -75,20 +78,78 @@ export function runPrechecks({ operations, projectRoot }) {
   return { ok: collisions.length === 0, collisions, caseRenames, ignored };
 }
 
+// Operation kinds whose destination is SUPPOSED to be there already, so finding
+// it on disk is not a collision. merge-index targets the surviving index it
+// folds the others into, and tag-registry regenerates a registry an earlier run
+// wrote. Every other kind is checked, including one added later: a new kind that
+// aborts on a destination it meant to create is a louder failure than one that
+// silently overwrites the DM's file.
+const DESTINATION_MAY_EXIST = new Set(["merge-index", "tag-registry"]);
+
 // Collisions are scoped to each DESTINATION DIRECTORY, which is what a move can
 // actually overwrite. Two settings legitimately holding a Tavern.md is not a
 // collision, and aborting on it would abort for the exact duplication the
 // per-setting layout exists to permit.
-function findDestinationCollisions(operations) {
+//
+// A destination collides two ways, and both abort. Two operations can target
+// the same path, and ONE operation can target a path that is already occupied
+// on disk. The second is the likelier shape: the first needs two files to both
+// violate the filename schema, while the second needs only one, say
+// "The Tavern.md", whose corrected name Tavern.md is already taken precisely
+// because that file already conforms and so generates no operation of its own.
+//
+// The on-disk half belongs here rather than in the apply phase because the rail
+// reads "aborts before any mutation": an apply-time discovery lands after the
+// snapshot and possibly mid-run, with earlier operations already applied.
+//
+// The whole key is case-folded, directory included. The basename was already
+// folded because the filesystem is case-insensitive; settings/Rolara/items and
+// settings/rolara/items are one directory on that same filesystem, so folding
+// half the key let through a pair that is one file.
+function findDestinationCollisions(operations, projectRoot) {
+  const ops = list(operations).filter((o) => o && typeof o === "object");
+  const foldKey = (p) => `${path.dirname(p)}::${path.basename(p)}`.toLowerCase();
+  const rootUsable = Boolean(projectRoot) && existsSync(projectRoot);
+
+  // A move vacates its own source, so a path some operation renames away from
+  // is free by the time the plan reaches it, and A -> B, B -> C is legal.
+  // Only an operation carrying BOTH from and to vacates anything: an in-place
+  // edit carries from and no to exactly because it leaves the file where it is,
+  // so its source must not count as freed.
+  const vacated = new Set();
+  for (const o of ops) {
+    if (o.from && o.to) vacated.add(foldKey(toPosix(o.from)));
+  }
+
   const byDir = new Map();
   const hits = [];
-  for (const o of operations) {
+  for (const o of ops) {
     if (!o.to) continue;
-    const dir = path.dirname(o.to);
-    const base = path.basename(o.to).toLowerCase();
-    const key = `${dir}::${base}`;
-    if (byDir.has(key)) hits.push({ a: byDir.get(key), b: o.to });
-    else byDir.set(key, o.to);
+    const to = toPosix(o.to);
+    const key = foldKey(to);
+
+    if (byDir.has(key)) {
+      hits.push({
+        kind: "in-plan",
+        a: byDir.get(key),
+        b: to,
+        reason: "Two operations target the same destination, so applying both would overwrite one.",
+      });
+    } else {
+      byDir.set(key, to);
+    }
+
+    if (!rootUsable || DESTINATION_MAY_EXIST.has(o.op)) continue;
+    if (vacated.has(key)) continue;
+    if (!existsSync(path.resolve(projectRoot, to))) continue;
+    hits.push({
+      kind: "on-disk",
+      op: o.op,
+      from: o.from,
+      to,
+      reason:
+        "Destination already exists and no operation in this plan moves it away, so applying this one would overwrite it.",
+    });
   }
   return hits;
 }
@@ -97,11 +158,19 @@ function findDestinationCollisions(operations) {
 // The survey buildPlan consumes
 // ---------------------------------------------------------------------------
 //
-// buildPlan does not walk the tree looking for work. Discovery runs upstream,
-// in the workflow's scout, and arrives here as `discovered`. Keeping the two
-// apart is what lets the whole planning half be exercised against fixtures
-// without a project on disk, and it is why this module has no code path that
-// can write.
+// buildPlan does not survey for OPERATIONS. Discovery runs upstream, in the
+// workflow's scout, and arrives here as `discovered`. Keeping the two apart is
+// what lets the operation half be exercised against fixtures with no project on
+// disk.
+//
+// It does walk the tree, though, and Task 15 should not read the paragraph
+// above as saying otherwise: reportMissingPublish recurses every prong root of
+// every setting and reads the frontmatter of every markdown file it finds, and
+// findDestinationCollisions and findIgnoredSources both stat the project. The
+// read-only property is not an absence of walking. It is that the only fs
+// functions this module imports are readdirSync, readFileSync, statSync, and
+// existsSync, none of which can write, plus a git command set that is a fixed
+// literal in this file and takes nothing from the caller or the project.
 //
 // Every field is optional; a survey that found nothing of a kind may omit it.
 //
@@ -122,8 +191,19 @@ function findDestinationCollisions(operations) {
 // them, which is the same rule the sweep and the write-time hook already
 // follow for ownership keys.
 //
-// Two operation kinds carry a field beyond the {op, from, to, reason} shape the
-// JSDoc above buildPlan documents, because the shape cannot express them:
+// FOUR operation kinds carry fields beyond the {op, from, to, reason} shape the
+// JSDoc above buildPlan documents, because the shape cannot express them. In
+// OPERATION_ORDER order:
+//
+//   normalize-type carries `typeFrom` and `typeTo`, the base-type value being
+//   corrected and what it becomes. Both, because the reason line names the old
+//   value and the apply phase has to match on it.
+//
+//   rename-with-link-rewrite carries `links`, the files whose wikilinks point
+//   at the old name, and carries it only when there are any. The rename and its
+//   rewrite are one unit of work, so the plan has to carry both halves:
+//   re-deriving the link set at apply time would be the apply phase inventing
+//   an operation.
 //
 //   merge-index carries `sources`, the indexes being merged away. It is ONE
 //   operation per folder, not one per source. Emitting one per source would
@@ -132,15 +212,16 @@ function findDestinationCollisions(operations) {
 //   that) as five collisions and abort a migration that has nothing wrong
 //   with it.
 //
-//   rename-with-link-rewrite carries `links`, the files whose wikilinks point
-//   at the old name. The rename and its rewrite are one unit of work, so the
-//   plan has to carry both halves: re-deriving the link set at apply time
-//   would be the apply phase inventing an operation.
+//   repair-frontmatter carries `insert`, the defaulted fields to add, and
+//   `reorder`, whether the canonical-order pass runs. Always both, even when
+//   `insert` is empty. `insert` is decided here rather than at apply time
+//   because here is where publish is stripped out of it.
 //
 // normalize-type and repair-frontmatter edit a file in place, so they carry
 // `from` and no `to`. That is not a shortcut: `to` means a destination a move
 // could overwrite, and giving an in-place edit a `to` equal to its own path
-// would make two edits to one file read as a collision with itself.
+// would make two edits to one file read as a collision with itself, and would
+// now also read as a collision with the file on disk.
 
 // Paths in a plan are project-relative and posix-separated, so that the
 // collision key built from path.dirname and path.basename is stable no matter
@@ -149,6 +230,10 @@ function findDestinationCollisions(operations) {
 // slash only changes separators. toPosix also drops a trailing slash, which is
 // right for a plan path and wrong for git's ignore output, where the trailing
 // slash is the whole signal that an entry is a directory rather than a file.
+//
+// NEITHER is applied to a path git printed. git's own output is already
+// posix-separated on every platform, so a backslash in it is a character in a
+// filename, not a separator, and rewriting it corrupts the name.
 const slash = (p) => String(p == null ? "" : p).replace(/\\/g, "/");
 const toPosix = (p) => slash(p).replace(/(.)\/+$/, "$1");
 
@@ -453,12 +538,24 @@ function frontmatterHasPublish(file) {
 // Every operation whose source is ignored is reported here and skipped by the
 // apply phase. It does not fail the run: see runPrechecks.
 //
-// projectRoot is required to answer the question at all. Called without one
-// (re-running the prechecks against a bare plan object, which carries no root),
-// this returns an empty list, which means "not determined" rather than "none
-// ignored". Pass projectRoot whenever the answer matters.
+// THREE states, not two, and a consumer using this as a skip list has to tell
+// them apart:
+//
+//   []    determined, and nothing in the plan has an ignored source.
+//   [...] determined, and these are the operations to skip.
+//   null  NOT DETERMINED. No projectRoot (re-running the prechecks against a
+//         bare plan object, which carries no root), a projectRoot that is not
+//         there, a project that is not a git repository, or a git call that
+//         failed for any reason including outrunning maxBuffer.
+//
+// null and [] are not interchangeable, which is why null rather than a flag
+// beside an empty array: a consumer that iterates it without handling the third
+// state fails loudly instead of quietly reading "unknown" as "nothing to skip".
+// The non-repo case is the sharp one. No repository means no snapshot either,
+// so it is not that nothing is ignored, it is that EVERY source is outside the
+// snapshot, and returning [] there would say the opposite.
 function findIgnoredSources(operations, projectRoot) {
-  if (!projectRoot || !existsSync(projectRoot)) return [];
+  if (!projectRoot || !existsSync(projectRoot)) return null;
 
   const git = (argv) => {
     try {
@@ -478,25 +575,29 @@ function findIgnoredSources(operations, projectRoot) {
   // can be compared. A consumer project sitting inside a larger repository
   // would otherwise never match.
   const top = git(["rev-parse", "--show-toplevel"]);
-  const status = git(["status", "--ignored", "--porcelain"]);
-  if (top == null || status == null) return []; // Not a repository: nothing is known to be ignored.
+  // -z, and NOT the default line-oriented format. Without it git C-quotes any
+  // path holding a byte above 0x7F and escapes it in octal, so
+  // "settings/rolara/éclair-notes.md" arrives as
+  // "settings/rolara/\303\251clair-notes.md". That is not JSON, so it cannot be
+  // decoded by parsing it as JSON, and it cannot be recovered by stripping the
+  // quotes either: the backslashes survive into the path and then read as
+  // separators, and the entry matches nothing. git quotes the WHOLE path when
+  // any one component needs it, so a single accented directory would hide every
+  // ignored file beneath it and the never-move-ignored-files rail would not
+  // fire. -z emits the path raw and NUL-terminated, and still carries the
+  // trailing slash on a directory entry that the prefix test below depends on.
+  const status = git(["status", "--ignored", "--porcelain", "-z"]);
+  // Not a repository, or git could not be asked: undetermined, not "none".
+  if (top == null || status == null) return null;
   const repoRoot = top.trim();
 
   const ignoredFiles = new Set();
   const ignoredDirs = [];
-  for (const line of status.split("\n")) {
-    if (!line.startsWith("!! ")) continue;
-    let p = line.slice(3).trim();
-    // git quotes paths containing unusual bytes, in C style with surrounding
-    // double quotes.
-    if (p.startsWith('"') && p.endsWith('"')) {
-      try {
-        p = JSON.parse(p);
-      } catch {
-        p = p.slice(1, -1);
-      }
-    }
-    p = slash(p);
+  for (const record of status.split("\0")) {
+    if (!record.startsWith("!! ")) continue;
+    // Exactly the path: two status characters, one space, then the raw bytes to
+    // the NUL. No trim, because a trailing space would be part of the name.
+    const p = record.slice(3);
     // --ignored reports an entirely ignored directory as one entry with a
     // trailing slash rather than listing every file inside it, so the slash has
     // to survive to here.
@@ -513,7 +614,8 @@ function findIgnoredSources(operations, projectRoot) {
   };
 
   const out = [];
-  for (const o of operations) {
+  for (const o of list(operations)) {
+    if (!o || typeof o !== "object") continue;
     for (const source of [o.from, ...list(o.sources)]) {
       if (!source || !isIgnored(source)) continue;
       out.push({

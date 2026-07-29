@@ -134,6 +134,22 @@ const FULL_SURVEY = {
 const plan = (discovered, projectRoot) =>
   buildPlan({ projectRoot, settings: SETTINGS, baseRules: BASE_RULES, discovered });
 
+// base-rules.json ships structuralIndexParity.indexSuffix as "-INDEX", which is
+// byte-identical to the hardcoded fallback in indexSuffixFor. Asserting
+// "-INDEX" therefore passes whether the base rules were read or never opened at
+// all. This copy pins a suffix that differs from the fallback, so only an
+// actual read of the base layer can produce it.
+const BASE_RULES_DISTINCT_SUFFIX = {
+  ...BASE_RULES,
+  rules: {
+    ...BASE_RULES.rules,
+    structuralIndexParity: {
+      ...BASE_RULES.rules.structuralIndexParity,
+      params: { ...BASE_RULES.rules.structuralIndexParity.params, indexSuffix: "-BASEIDX" },
+    },
+  },
+};
+
 // ---------------------------------------------------------------------------
 // Disposable git fixture, for the two cases that need a real repository:
 // git-ignored sources, and the read-only assertion.
@@ -146,15 +162,31 @@ function makeRepo() {
     mkdirSync(path.dirname(abs), { recursive: true });
     writeFileSync(abs, body);
   };
-  write(".gitignore", "settings/rolara/editor-state/\n");
+  // The last two entries are paths git C-quotes in its default porcelain
+  // output, one for a byte above 0x7F and one for a space. The reference
+  // consumer's character class already holds 18 markdown files with non-ASCII
+  // names.
+  write(
+    ".gitignore",
+    "settings/rolara/editor-state/\nsettings/rolara/éclair-notes.md\nsettings/rolara/two words.md\n"
+  );
   // Missing publish. Reported, never inserted.
   write("settings/rolara/Ashfall-Compact.md", "---\ntype: Organization\ntags: [faction]\n---\n\nBody.\n");
-  // publish present, and false: nothing to report.
+  // publish present, and false: nothing to report. Doubles as the destination
+  // that is ALREADY OCCUPIED for the on-disk collision cases.
   write("settings/rolara/Vault-Of-Secrets.md", "---\npublish: false\ntype: Location\n---\n\nBody.\n");
   // Inside a prong root, and git-ignored: the reference consumer keeps editor
   // state exactly here, which is why an ignored file must not abort a run. It
   // carries publish so that the missing-publish case below stays about publish.
   write("settings/rolara/editor-state/scratch.md", "---\npublish: false\ntype: Concept\n---\n\nScratch.\n");
+  // Ignored, and named so that git quotes the path. Both carry publish, for the
+  // same reason scratch.md does.
+  write("settings/rolara/éclair-notes.md", "---\npublish: false\ntype: Concept\n---\n\nBody.\n");
+  write("settings/rolara/two words.md", "---\npublish: false\ntype: Concept\n---\n\nBody.\n");
+  // A folder holding an index that already exists, for the merge-index and
+  // create-index destination cases.
+  write("settings/rolara/items/Items-INDEX.md", "---\npublish: false\ntype: Index\n---\n\nSurvivor.\n");
+  write("settings/rolara/items/Artifacts-INDEX.md", "---\npublish: false\ntype: Index\n---\n\nSource.\n");
   const git = (...argv) =>
     execFileSync("git", argv, { cwd: root, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
   git("init", "-q");
@@ -258,6 +290,21 @@ console.log("\nDestination collisions");
 }
 
 {
+  // The DIRECTORY half of the key folds too. settings/Rolara/items and
+  // settings/rolara/items are one directory on Windows and macOS, so folding
+  // only the basename let a pair through that is one file. No projectRoot here,
+  // so this is about the key alone and not about anything on disk.
+  const p = plan({
+    renames: [
+      { file: "settings/rolara/items/a.md", to: "settings/Rolara/items/Sword.md", ruleId: "filenameCharset" },
+      { file: "settings/rolara/items/b.md", to: "settings/rolara/items/sword.md", ruleId: "filenameCharset" },
+    ],
+  });
+  check("two destinations differing only in the case of a DIRECTORY collide", p.prechecks.ok, false);
+  check("and that pair is reported once", p.prechecks.collisions.length, 1);
+}
+
+{
   // Two worlds are each entitled to a Tavern.md. Aborting here would abort for
   // the exact duplication the per-setting layout exists to permit.
   const p = plan({
@@ -307,10 +354,16 @@ console.log("\npublish is never written");
 console.log("\nIndex suffix comes from the owning setting");
 
 {
-  const p = plan({ missingIndexes: FULL_SURVEY.missingIndexes });
-  check("a setting with no rule of its own takes the base suffix",
-    p.operations[0].to, "settings/rolara/culture/Culture-INDEX.md");
-  check("a setting carrying its own indexParity rule takes that suffix",
+  // Driven with a base layer whose suffix differs from the hardcoded fallback,
+  // so producing it proves the base rules were actually consulted.
+  const p = buildPlan({
+    settings: SETTINGS,
+    baseRules: BASE_RULES_DISTINCT_SUFFIX,
+    discovered: { missingIndexes: FULL_SURVEY.missingIndexes },
+  });
+  check("a setting with no rule of its own takes the BASE suffix, not the hardcoded fallback",
+    p.operations[0].to, "settings/rolara/culture/Culture-BASEIDX.md");
+  check("a setting carrying its own indexParity rule overrides the base layer",
     p.operations[1].to, "settings/karsk/culture/Culture-IDX.md");
 }
 
@@ -368,6 +421,181 @@ try {
     });
     check("runPrechecks alone reaches the same ignored verdict", pre.ignored.length, 1);
     check("and still turns on collisions alone", pre.ok, true);
+  }
+
+  console.log("\nIgnored paths git would quote");
+
+  {
+    // git C-quotes the WHOLE path when any byte in it needs quoting, and
+    // escapes non-ASCII bytes in octal, which is not JSON. Decoding those by
+    // hand dropped the accented path entirely, so the never-move-ignored-files
+    // rail never fired for it. The spaced path survived that decode; it is here
+    // so a regression in either direction is caught.
+    const p = plan(
+      {
+        renames: [
+          { file: "settings/rolara/éclair-notes.md", to: "settings/rolara/Eclair-Notes-CONCEPT.md", ruleId: "filenameCharset" },
+          { file: "settings/rolara/two words.md", to: "settings/rolara/Two-Words-CONCEPT.md", ruleId: "filenameCharset" },
+        ],
+      },
+      repo
+    );
+    check("an ignored path holding a non-ASCII byte is reported",
+      p.prechecks.ignored.some((i) => i.source === "settings/rolara/éclair-notes.md"), true);
+    check("an ignored path holding a space is reported",
+      p.prechecks.ignored.some((i) => i.source === "settings/rolara/two words.md"), true);
+    check("both quoted paths are reported and nothing else is",
+      p.prechecks.ignored.map((i) => i.source).sort(),
+      ["settings/rolara/two words.md", "settings/rolara/éclair-notes.md"]);
+    check("and neither aborts the run", p.prechecks.ok, true);
+  }
+
+  console.log("\nDestinations already occupied on disk");
+
+  {
+    // The likelier collision shape. The in-plan comparison needs TWO files to
+    // both violate the filename schema. This needs one, whose corrected name is
+    // already taken precisely because the file holding it already conforms and
+    // so generates no operation of its own. Nothing in the plan can see that.
+    const p = plan(
+      {
+        renames: [
+          { file: "settings/rolara/éclair-notes.md", to: "settings/rolara/Vault-Of-Secrets.md", ruleId: "filenameCharset" },
+        ],
+      },
+      repo
+    );
+    check("a rename onto a path that already exists on disk aborts the run", p.prechecks.ok, false);
+    check("and the collision names the occupied destination",
+      p.prechecks.collisions.map((c) => c.to), ["settings/rolara/Vault-Of-Secrets.md"]);
+  }
+
+  {
+    // A file renamed away frees its own path, so A -> B, B -> C is legal and
+    // must not be flagged.
+    const p = plan(
+      {
+        renames: [
+          { file: "settings/rolara/Vault-Of-Secrets.md", to: "settings/rolara/Vault-Of-Secrets-LOCATION.md", ruleId: "filenameSuffixByType" },
+          { file: "settings/rolara/éclair-notes.md", to: "settings/rolara/Vault-Of-Secrets.md", ruleId: "filenameCharset" },
+        ],
+      },
+      repo
+    );
+    check("a destination another operation renames away from is free: A -> B, B -> C is legal",
+      p.prechecks.ok, true);
+  }
+
+  {
+    // An in-place edit carries `from` and no `to` because it leaves the file
+    // where it is, so its source is NOT freed and a rename onto it still
+    // collides. This is the exact confusion that would reintroduce the bug.
+    const p = plan(
+      {
+        typeMismatches: [
+          { file: "settings/rolara/Vault-Of-Secrets.md", typeFrom: "location", typeTo: "Location" },
+        ],
+        renames: [
+          { file: "settings/rolara/éclair-notes.md", to: "settings/rolara/Vault-Of-Secrets.md", ruleId: "filenameCharset" },
+        ],
+      },
+      repo
+    );
+    check("an in-place edit does not free the path it edits", p.prechecks.ok, false);
+  }
+
+  {
+    // A case-only rename is the same file on a case-insensitive filesystem, so
+    // finding the destination on disk is not something to overwrite.
+    const p = plan(
+      {
+        renames: [
+          { file: "settings/rolara/items/Items-INDEX.md", to: "settings/rolara/items/items-INDEX.md", ruleId: "filenameCharset" },
+        ],
+      },
+      repo
+    );
+    check("a case-only rename against a real project still does not abort", p.prechecks.ok, true);
+    check("and is still flagged as a case rename", p.prechecks.caseRenames.length, 1);
+  }
+
+  {
+    // merge-index targets the surviving index, which is on disk BY DEFINITION.
+    // Reading that as a collision would abort every real merge.
+    const p = plan(
+      {
+        multiIndexFolders: [
+          {
+            folder: "settings/rolara/items",
+            survivor: "settings/rolara/items/Items-INDEX.md",
+            sources: ["settings/rolara/items/Artifacts-INDEX.md"],
+          },
+        ],
+      },
+      repo
+    );
+    check("a merge into a survivor that is already on disk is not a collision", p.prechecks.ok, true);
+  }
+
+  {
+    // create-index is NOT exempt. The survey only reports a folder with no
+    // index at all, so a destination already on disk means the survey is stale
+    // and creating it would overwrite the DM's file.
+    const p = plan(
+      { missingIndexes: [{ folder: "settings/rolara/items", settingIndex: 0, basename: "Items" }] },
+      repo
+    );
+    check("a create-index onto an index that already exists is a collision", p.prechecks.ok, false);
+  }
+
+  console.log("\nIgnored has three states, not two");
+
+  {
+    // A bare plan object carries no projectRoot, so the question cannot be
+    // answered at all. An empty array would be the claim that nothing is
+    // ignored, which is a different and unearned answer.
+    const pre = runPrechecks({
+      operations: [
+        { op: "rename-with-link-rewrite", from: "settings/rolara/Ashfall-Compact.md", to: "settings/rolara/Ashfall-Compact-ORG.md" },
+      ],
+    });
+    check("runPrechecks with no projectRoot reports ignored undetermined, not empty", pre.ignored, null);
+    check("and undetermined ignored does not by itself abort", pre.ok, true);
+  }
+
+  {
+    // A real repository where no operation source is ignored. This [] and the
+    // null above are different answers, and a skip list has to tell them apart.
+    const pre = runPrechecks({
+      operations: [
+        { op: "rename-with-link-rewrite", from: "settings/rolara/Ashfall-Compact.md", to: "settings/rolara/Ashfall-Compact-ORG.md" },
+      ],
+      projectRoot: repo,
+    });
+    check("a real repository with no ignored source reports the empty list, not null", pre.ignored, []);
+  }
+
+  {
+    // Not a git repository. No repository means no snapshot either, so every
+    // source is outside it, and reporting [] would say exactly the opposite.
+    const bare = mkdtempSync(path.join(os.tmpdir(), "orb-migrate-plan-norepo-"));
+    try {
+      mkdirSync(path.join(bare, "settings", "rolara"), { recursive: true });
+      writeFileSync(path.join(bare, "settings", "rolara", "Ashfall-Compact.md"), "body\n");
+      const pre = runPrechecks({
+        operations: [
+          { op: "rename-with-link-rewrite", from: "settings/rolara/Ashfall-Compact.md", to: "settings/rolara/Ashfall-Compact-ORG.md" },
+        ],
+        projectRoot: bare,
+      });
+      check("a project that is not a git repository reports ignored undetermined", pre.ignored, null);
+    } finally {
+      try {
+        rmSync(bare, { recursive: true, force: true, maxRetries: 5 });
+      } catch {
+        /* Same Windows handle caveat as the fixture repo below. */
+      }
+    }
   }
 } finally {
   if (repo) {
