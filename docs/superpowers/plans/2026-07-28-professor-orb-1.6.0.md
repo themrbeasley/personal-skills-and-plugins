@@ -1747,7 +1747,7 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 
 **Files:**
 - Modify: `professor-orb/skills/setup/SKILL.md` (substantial rewrite)
-- Modify: `professor-orb/skills/setup/references/conventions-schema.md:56-91` (the `## Top-level shape` section)
+- Modify: `professor-orb/skills/setup/references/conventions-schema.md:56-91` (the `## Top-level shape` section) and its `## Example conventions.json` block
 - Modify: `professor-orb/skills/SHARED-PRINCIPLES.md` (Principle 2 and 8 carve-outs)
 - Modify: `professor-orb/CONTEXT.md:118-119`
 
@@ -1804,6 +1804,8 @@ On the no-version-control path the undo instruction is replaced by a plain state
 - [ ] **Step 5: Rewrite the schema reference's top-level shape to v3**
 
 `professor-orb/skills/setup/references/conventions-schema.md:56-91` is a `## Top-level shape` section documenting v1: `"version": 1` with a flat `"kbRoot"`, a top-level `"rules"` object, and a top-level `"tagRegistryPath"`. Nothing else in this release touches it. At release the hook, the sweep, setup, the path consumers, and both new lane commands all consume a v3 settings array, while setup's own normative reference, the document setup generates `conventions.json` from, still documents only v1.
+
+The same applies to that file's `## Example conventions.json` block, which is also still a v1 file. Update both in this step, to the same shape. Task 8 deliberately left the example at `"version": 1` and labelled it as a v1 file rather than bumping it to 2, because the phase 1 spec's "version goes to 2 at this phase, and to 3 in phase 2" would have meant churning the same example twice within one release that never ships those phases separately. Going straight to v3 here is the intended end state. If you leave the example behind, the document contradicts itself: a v3 top-level shape above a v1 example, in the file every consumer's `conventions.json` is generated from.
 
 Replace that section with the v3 shape the phase 2 spec gives at `apply-the-schema-design.md:159-180`:
 
