@@ -38,7 +38,7 @@ Check for `.professor-orb/conventions.json` first. If it exists, it is authorita
 
 Read it rather than re-deriving these rules from prose (Shared Principle 9).
 
-**If `.professor-orb/conventions.json` is missing,** fall back to reading the project's `CLAUDE.md` (or equivalent instructions file) directly. Extract the same information: where the homebrew catalog lives, frontmatter schema, filename conventions, and index format. If neither source says where the catalog lives, ask the DM.
+If it is missing, apply professor-orb's base schema per SHARED-PRINCIPLES Principle 11 and note that setup has not run. If nothing says where the catalog lives, ask the DM.
 
 ## Step 3: Establish how this catalog is versioned
 
@@ -107,9 +107,9 @@ Versioning follows the mode established in Step 3 (`git` or `changelog`) and the
 
 ## Step 8: Update the owning index
 
-Update the Homebrew catalog's owning index to list the entry, following whatever index format and ownership rule the project already uses. Ownership is single: the entry's link belongs in exactly one index, never duplicated across indexes. On a revision (per Step 5's determination), add the entry's link only if it is not already listed; do not duplicate the index line on re-capture.
+Update the Homebrew catalog's owning index to list the entry, following the index format and single-ownership rule set by the conventions file's structural rules, which professor-orb owns. Ownership is single: the entry's link belongs in exactly one index, never duplicated across indexes. On a revision (per Step 5's determination), add the entry's link only if it is not already listed; do not duplicate the index line on re-capture.
 
-If the catalog already has sub-indexes, follow that existing structure. Do not invent a new sub-index split on your own initiative. If the catalog has grown to the point where a new sub-index split looks warranted (per the project's split threshold convention, if one exists), propose that split to the DM with AskUserQuestion instead of creating it unprompted. Absent a clear threshold or an obvious existing split pattern, add the entry to the current owning index and move on.
+If the catalog already has sub-indexes, follow that existing structure. Do not invent a new sub-index split on your own initiative. If the catalog has grown to the point where a new sub-index split looks warranted (per the `structuralSplitThreshold` rule), propose that split to the DM with AskUserQuestion instead of creating it unprompted.
 
 Do not edit any other article to add a wikilink to the new entry. The only structural touch this command makes is the owning index update; catalog entries sit outside the wikilink graph, per Step 5.
 

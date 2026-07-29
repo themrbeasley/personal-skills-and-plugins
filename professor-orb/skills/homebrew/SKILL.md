@@ -15,7 +15,7 @@ This skill is **standalone**, like `timeline`. It is not part of the debrief, pr
 
 Check for `.professor-orb/conventions.json` first. If it exists, it is authoritative for the KB folder structure (including where the homebrew catalog lives, if `/catalog` has already been used in this project) and any writing style rules that apply to homebrew output. Read it rather than re-deriving these rules from prose (Principle 9).
 
-**If `.professor-orb/conventions.json` is missing,** fall back to reading the project's `CLAUDE.md` (or equivalent project instructions file) directly. Extract:
+If it is missing, apply professor-orb's base schema per SHARED-PRINCIPLES Principle 11 and note that setup has not run. For anything conventions.json does not cover, read the project's `CLAUDE.md` (or equivalent project instructions file) directly. Extract:
 
 - **VTT platform**, if the project names one. This informs the VTT Automation Awareness section below.
 - **Where the homebrew catalog lives**, if the project has already run `/catalog` before. Catalogued entries there are useful precedent alongside published material when checking for design overlap.

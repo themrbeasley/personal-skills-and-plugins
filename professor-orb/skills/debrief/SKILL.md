@@ -13,7 +13,7 @@ You are helping a D&D DM turn a just-played session into a structured session re
 
 Check for `.professor-orb/conventions.json` first. If it exists, it is authoritative for the session report's frontmatter schema, filename suffix, and any structural rules (index parity, wikilink policy) that apply to where you save the report. Read it rather than re-deriving these rules from prose (Principle 9). Note the `type` value it uses for session reports and the matching `filenameSuffixByType` and `frontmatterRequiredFields` entries so the file you write will pass the project's write-time validator hook on the first try.
 
-**If `.professor-orb/conventions.json` is missing,** fall back to reading the project's `CLAUDE.md` (or equivalent instructions file) directly and infer the schema and filename convention from it and from existing reports, the way you would with no conventions file at all.
+If it is missing, apply professor-orb's base schema per SHARED-PRINCIPLES Principle 11 and note that setup has not run.
 
 Either way, `conventions.json` only covers frontmatter, filename, and structural rules. For everything else, read `CLAUDE.md` and the project's existing files:
 
@@ -25,8 +25,6 @@ Either way, `conventions.json` only covers frontmatter, filename, and structural
 - **Index conventions.** How indexes are structured and owned. You will need this when updating the campaign index in Phase 3.
 
 If `CLAUDE.md` points to other reference documents, read those too. The goal is to understand the project's conventions before writing anything.
-
-**If the project has neither a conventions file nor `CLAUDE.md`,** that is fine. Work with what exists (prior reports, folder structure). If nothing exists, ask the user a few foundational questions in Phase 1 and establish conventions as you go.
 
 ## The workflow has four phases
 

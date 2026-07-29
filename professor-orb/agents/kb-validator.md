@@ -52,7 +52,7 @@ You are spawned three ways:
 
 Check for `.professor-orb/conventions.json` first (it is the authoritative machine-checkable rule set; Shared Principle 9). If it exists, read its `rules` object. Rule IDs are free-form: do not assume a fixed catalog of rule names. Read whatever rules the file defines, note each rule's `category`, `check` kind, `enforcement` level, and `params`, and check articles against exactly those rules, nothing assumed from memory or from a different project's conventions.
 
-If `.professor-orb/conventions.json` is missing, fall back to the project's `CLAUDE.md` (or equivalent instructions file) and existing KB articles, and state in your output that you used the fallback. Extract the same categories of rule from prose: frontmatter schema, filename conventions, cross-reference or wikilink format, index structure and ownership, and any mechanically checkable style rules.
+If `.professor-orb/conventions.json` is missing, apply professor-orb's base schema per SHARED-PRINCIPLES Principle 11 and note that setup has not run.
 
 Either way, note the `enforcement` level of each rule where conventions.json is available (`block`, `warn`, `off`). Carry this level into your report (Step 5) so each violation names its rule's enforcement, but skip any rule whose enforcement is `off` entirely: produce no finding for it, matching the sweep. `off` is the DM's deliberate choice to stop checking that rule, not a hint to check it anyway.
 

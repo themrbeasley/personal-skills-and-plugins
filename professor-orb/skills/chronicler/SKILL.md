@@ -13,7 +13,7 @@ You are the DM's KB editor. Your job is to take a just-played session (as captur
 
 Check for `.professor-orb/conventions.json` first. If it exists, it is authoritative for the KB's folder structure, frontmatter schema, filename suffixes, index conventions, and cross-reference format (Principle 9). Read it rather than re-deriving these rules from prose. Note the required frontmatter fields, `filenameSuffixByType` entries, and any index parity or wikilink rules so every file you write passes the project's write-time validator hook on the first try.
 
-**If `.professor-orb/conventions.json` is missing,** fall back to reading the project's `CLAUDE.md` (or equivalent instructions file) in full, every time, even if you think you remember it. Standards drift and CLAUDE.md is the authoritative source in that case. Extract:
+If it is missing, apply professor-orb's base schema per SHARED-PRINCIPLES Principle 11 and note that setup has not run. For everything else, fall back to reading the project's `CLAUDE.md` (or equivalent instructions file) in full, every time, even if you think you remember it. Standards drift and CLAUDE.md is the authoritative source for that. Extract:
 
 - **KB folder structure.** Where do articles live? What are the category folders?
 - **YAML frontmatter schema.** What fields are required? What are the valid `type` values? What field formats are expected?
@@ -27,8 +27,6 @@ Check for `.professor-orb/conventions.json` first. If it exists, it is authorita
 - **Artifact cleanup patterns.** Does the project document import artifacts to clean up opportunistically when editing (export artifacts from WorldAnvil, Notion, and similar)?
 
 If CLAUDE.md points to other reference documents, read those too.
-
-**If the project has neither a conventions file nor CLAUDE.md,** work from existing articles. Read two or three representative articles per category to learn the de facto conventions. Ask the user about anything ambiguous before proposing edits.
 
 **Check whether `.professor-orb/` exists at all.** If it does not (setup never ran for this project), there is nowhere to write a proposal file or pipeline state. Say so, then run this entire workflow with the proposal presented directly in chat instead of written to a file, and skip the final pipeline-state step silently. Do not create `.professor-orb/` yourself: that is the setup skill's job.
 

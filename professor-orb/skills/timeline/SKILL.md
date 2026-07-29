@@ -15,7 +15,7 @@ This skill is **standalone**, like `homebrew`. It is not part of the debrief, pr
 
 Check for `.professor-orb/conventions.json` first. If it exists, it is authoritative for the KB folder structure, frontmatter schema, filename suffixes, and cross-reference format. Read it rather than re-deriving these rules from prose (Principle 9).
 
-**If `.professor-orb/conventions.json` is missing,** fall back to reading the project's `CLAUDE.md` (or equivalent project instructions file) directly. Extract:
+If it is missing, apply professor-orb's base schema per SHARED-PRINCIPLES Principle 11 and note that setup has not run. For everything else, fall back to reading the project's `CLAUDE.md` (or equivalent project instructions file) directly. Extract:
 
 - **KB folder structure and paths.** Where articles live.
 - **Where chronology documents live (if a convention exists).** Look for a `chronologies/`, `timelines/`, or `history/` folder, or a `type: chronology` value. If no convention exists, establish a minimal one with the DM in Phase 1.
@@ -26,8 +26,6 @@ Check for `.professor-orb/conventions.json` first. If it exists, it is authorita
 - **Content exclusions.** Tags or categories marked off limits. Honor them when scoping.
 
 Either way, then **discover calendar articles** in the KB. Read them to understand the available calendar systems and conversion rules. The `historian` will do this independently, but you should know what calendars exist so you can scope the work intelligently.
-
-If the project has no chronology conventions and no existing chronology documents, that is fine. Establish minimal conventions with the DM in Phase 1 (filename pattern, folder, frontmatter `type` value) before drafting.
 
 ## The workflow: propose, then execute
 

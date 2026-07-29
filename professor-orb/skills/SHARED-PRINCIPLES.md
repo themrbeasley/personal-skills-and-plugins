@@ -48,8 +48,14 @@ Do not create files, memory entries, or auxiliary documents beyond what the skil
 
 ## 9. Conventions file is authoritative
 
-For structural checks, skills read `.professor-orb/conventions.json` rather than re-deriving rules from CLAUDE.md each time. The conventions file is a machine-checkable derivation maintained by the setup skill; when it exists, prefer it over re-inferring structure from prose. If it is missing or looks stale, say so and suggest running setup rather than guessing.
+For structural checks, skills read `.professor-orb/conventions.json` rather than re-deriving rules from CLAUDE.md each time. The conventions file is instantiated from professor-orb's base rule set, and authoritative for structural checks: it is not a derivation of the consumer's prose. When it exists, prefer it over re-inferring structure from prose. If it is missing or looks stale, say so and suggest running setup rather than guessing (Principle 11 covers what to do while it is missing).
 
 ## 10. Pipeline state updates
 
 Every pipeline skill's final act is updating `.professor-orb/pipeline-state.json` with what completed and what comes next. This breadcrumb drives the Stop hook's next-step suggestion and answers "where were we?" in fresh sessions. A skill that finishes without updating this file has left the pipeline in an unknown state.
+
+## 11. Missing conventions file means apply the base schema
+
+When `.professor-orb/conventions.json` is absent, apply professor-orb's base schema, which ships at `references/base-rules.json`, and say that setup has not run. Do not infer structural conventions from the project's prose or from its existing articles, and never invent conventions on the spot: two components inventing independently will disagree.
+
+Structure means folder layout, index rules, frontmatter schema, filename conventions, and wikilink format. The project's `CLAUDE.md` remains authoritative for campaign facts and content, never for structure.
