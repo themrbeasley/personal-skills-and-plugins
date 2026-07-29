@@ -11,7 +11,7 @@
 // Run: node professor-orb/workflows/validation-sweep.ownership.test.mjs
 
 // Shared key. Must match toOwnershipKey in validation-sweep.mjs exactly.
-const toOwnershipKey = (raw) => {
+const toOwnershipKey = (raw, setting) => {
   let s = String(raw).trim()
   s = s.replace(/^\[\[|\]\]$/g, '')
   s = s.replace(/\\\|/g, '|')
@@ -19,7 +19,7 @@ const toOwnershipKey = (raw) => {
   s = s.split('#')[0]
   s = s.replace(/\\/g, '/').replace(/\/+$/, '')
   const base = s.slice(s.lastIndexOf('/') + 1)
-  return base.replace(/\.md$/i, '').trim().toLowerCase()
+  return (setting ? setting + '/' : '') + base.replace(/\.md$/i, '').trim().toLowerCase()
 }
 
 // OLD logic: the owners map is keyed by the raw claim target (a bare basename)
@@ -46,21 +46,28 @@ function aggregateOld(shards) {
 }
 
 // NEW logic: both sides reduced to toOwnershipKey, distinct owners only,
-// basename collisions surfaced. Mirrors the fixed source.
+// basename collisions surfaced. Mirrors the fixed source. Each shard reports
+// for one setting (shard.setting), so the key is setting-scoped: two settings
+// are each entitled to their own Tavern.md, and articleSettingByPath is what
+// lets the closing lookup at the bottom recover which setting an article
+// (from the merged allArticles set) came from, since that set itself carries
+// no setting information once shards are flattened into it.
 function aggregateNew(shards) {
   const allArticles = new Set()
+  const articleSettingByPath = new Map()
   const articlePathsByKey = new Map()
   const ownersByKey = new Map()
   for (const shard of shards) {
     for (const a of shard.articles || []) {
       allArticles.add(a)
-      const k = toOwnershipKey(a)
+      articleSettingByPath.set(a, shard.setting)
+      const k = toOwnershipKey(a, shard.setting)
       const p = articlePathsByKey.get(k) || []
       p.push(a)
       articlePathsByKey.set(k, p)
     }
     for (const c of shard.ownershipClaims || []) {
-      const k = toOwnershipKey(c.ownedArticle)
+      const k = toOwnershipKey(c.ownedArticle, shard.setting)
       const o = ownersByKey.get(k) || []
       o.push(c.indexFile)
       ownersByKey.set(k, o)
@@ -73,7 +80,7 @@ function aggregateNew(shards) {
   }
   const findings = []
   for (const a of allArticles) {
-    const o = Array.from(new Set(ownersByKey.get(toOwnershipKey(a)) || []))
+    const o = Array.from(new Set(ownersByKey.get(toOwnershipKey(a, articleSettingByPath.get(a))) || []))
     if (o.length !== 1) findings.push({ file: a, ownerCount: o.length })
   }
   return { findings, collisions }
@@ -165,6 +172,31 @@ assert('NEW: genuine orphan flagged 0', byFile['kb/archfey/Orphan.md'] === 0)
 assert('NEW: multi-owner flagged 2', byFile['kb/places/Shared.md'] === 2)
 assert('NEW: exactly two findings (orphan + multi-owner)', neu.findings.length === 2)
 assert('NEW: basename collision detected', neu.collisions.length === 1)
+
+// CROSS-SETTING regression: two settings are each entitled to their own
+// Tavern.md under the per-setting vault boundary. Before this fix the key
+// was a bare basename in one global namespace, so both indexes' ownership
+// claims would land on the same ownersByKey entry and BOTH articles would
+// misreport as owned by 2 indexes, a multi-owner violation that isn't one.
+const crossSettingShards = [
+  {
+    setting: 'World of Rolara',
+    articles: ['world-of-rolara-kb/inns/Tavern.md'],
+    ownershipClaims: [{ indexFile: 'world-of-rolara-kb/inns/Inns-INDEX.md', ownedArticle: 'Tavern' }],
+  },
+  {
+    setting: 'Neverwinter Nights',
+    articles: ['neverwinter-kb/inns/Tavern.md'],
+    ownershipClaims: [{ indexFile: 'neverwinter-kb/inns/Inns-INDEX.md', ownedArticle: 'Tavern' }],
+  },
+]
+assert(
+  'CROSS-SETTING: the two settings\' Tavern.md keys are distinct',
+  toOwnershipKey('Tavern', 'World of Rolara') !== toOwnershipKey('Tavern', 'Neverwinter Nights'),
+)
+const crossSetting = aggregateNew(crossSettingShards)
+assert('CROSS-SETTING: zero findings, each Tavern.md has exactly one owner in its own setting', crossSetting.findings.length === 0)
+assert('CROSS-SETTING: no basename collision either, the keys never merge', crossSetting.collisions.length === 0)
 
 // Enforcement-off regression: shards contain a genuine single-ownership
 // violation (Shared.md, owned by two distinct indexes), but the DM has set

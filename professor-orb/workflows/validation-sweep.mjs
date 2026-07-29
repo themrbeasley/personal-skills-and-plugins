@@ -5,13 +5,17 @@
 // This workflow runs in the background and cannot ask the DM anything mid-run,
 // so mutation is split into two separate invocations, driven by args.mode:
 //
-//   1. SCAN phase (default, or args.mode === "scan"): read-only. Shards the KB
-//      across parallel haiku checkers, aggregates a KB-wide singleOwnership
-//      pass, and returns one merged report: violations sorted into
-//      mechanicallyFixable (exact fix stated) and needsJudgment (exact DM
-//      question stated), plus a proposed replacement tag registry. Mutates
-//      NOTHING. If .professor-orb/conventions.json is missing, this phase
-//      returns a short "setup has not been run" report and does nothing else.
+//   1. SCAN phase (default, or args.mode === "scan"): read-only. A project may
+//      define more than one setting (conventions.json's v3 settings array; a
+//      v1 or v2 file reads as one unnamed setting), each its own vault with
+//      its own kbRoot, rules, and tag registry. This phase shards every
+//      setting's KB across parallel haiku checkers, aggregates a
+//      per-setting singleOwnership pass, and returns one merged report:
+//      violations sorted into mechanicallyFixable (exact fix stated) and
+//      needsJudgment (exact DM question stated), plus one proposed
+//      replacement tag registry per setting. Mutates NOTHING. If
+//      .professor-orb/conventions.json is missing, this phase returns a
+//      short "setup has not been run" report and does nothing else.
 //
 //   2. FIX phase (args.mode === "fix"): the DM's main session, after showing
 //      the scan report and getting the DM's batch approval for the whole
@@ -24,6 +28,11 @@
 //          approvedTagRegistry: { tagName: count, ... }   // optional
 //          tagRegistryPath: ".professor-orb/tag-registry.json" // optional
 //        }
+//      approvedTagRegistry and tagRegistryPath apply to exactly one setting
+//      per invocation: pick one entry from the scan report's
+//      proposedTagRegistries and pass its registry and tagRegistryPath. A
+//      project with several settings that wants several registries written
+//      re-invokes the fix phase once per setting.
 //      The fix phase applies ONLY what args carries. It never invents a fix,
 //      never re-derives the fixable bucket itself, and never batch-fixes a
 //      needs-judgment item (those are resolved one at a time in the main
@@ -40,7 +49,7 @@
 export const meta = {
   name: 'validation-sweep',
   description:
-    'KB-wide convention audit for a professor-orb campaign project. Scan phase (default) shards the knowledge base across parallel haiku checkers, aggregates a KB-wide single-ownership pass, and returns a merged report split into mechanically fixable and needs-judgment violations plus a proposed tag registry, mutating nothing. Fix phase (args.mode "fix") applies only the DM-approved fixes passed in args, via dedicated haiku fixer subagents. Invoke by name validation-sweep; pass args.mode and, for the fix phase, args.approvedFixes.',
+    'KB-wide convention audit for a professor-orb campaign project, aware of every setting the project defines. Scan phase (default) shards each setting\'s knowledge base across parallel haiku checkers, aggregates a per-setting single-ownership pass, and returns a merged report split into mechanically fixable and needs-judgment violations plus a proposed tag registry per setting, mutating nothing. Fix phase (args.mode "fix") applies only the DM-approved fixes passed in args, via dedicated haiku fixer subagents. Invoke by name validation-sweep; pass args.mode and, for the fix phase, args.approvedFixes.',
   whenToUse:
     'Run the scan phase on demand for a KB health audit, or as a heavier alternative to a single kb-validator spot-check when the DM wants full KB coverage. Run the fix phase only after the DM has reviewed a scan report and approved the mechanically fixable bucket (and, if offered, the regenerated tag registry).',
   phases: [
@@ -58,15 +67,48 @@ const input = (typeof args === 'string' && args.trim() ? JSON.parse(args) : args
 const mode = input.mode === 'fix' ? 'fix' : 'scan'
 const shardSize = 12
 
+// A v3 conventions.json carries a settings array (each entry its own kbRoot,
+// homebrewRoot, sessionReportsRoot, campaigns, rules, tagRegistryPath); a v1
+// or v2 file carries a bare top-level kbRoot and rules and reads as one
+// unnamed setting. Either way the scout resolves one or more settings, never
+// a single global kbRoot, so that shape replaces the old flat kbRoot field
+// here: prongRoots is one entry per setting (kind is "kb" for every entry
+// today, this workflow's scope; the field exists so a project that later
+// gains homebrew or session-report checking does not need a schema change),
+// and settingConfigs carries each setting's own rules, tag registry path, and
+// index suffix, since those are no longer shared KB-wide either.
 const SCOUT_SCHEMA = {
   type: 'object',
   additionalProperties: false,
   properties: {
     conventionsFound: { type: 'boolean' },
-    kbRoot: { type: 'string' },
-    tagRegistryPath: { type: 'string' },
-    rulesJson: { type: 'string' },
-    indexSuffix: { type: 'string' },
+    prongRoots: {
+      type: 'array',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          setting: { type: 'string' },
+          kind: { type: 'string' },
+          path: { type: 'string' },
+        },
+        required: ['setting', 'kind', 'path'],
+      },
+    },
+    settingConfigs: {
+      type: 'array',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          setting: { type: 'string' },
+          rulesJson: { type: 'string' },
+          tagRegistryPath: { type: 'string' },
+          indexSuffix: { type: 'string' },
+        },
+        required: ['setting', 'rulesJson'],
+      },
+    },
     files: { type: 'array', items: { type: 'string' } },
     message: { type: 'string' },
   },
@@ -164,11 +206,11 @@ const scoutPrompt = [
   '',
   'Step 1: Look for .professor-orb/conventions.json at the project root (relative to your current working directory) and read it. If the file is missing, unreadable, or is not valid JSON, return conventionsFound false and a short message field explaining that professor-orb setup has not been run for this project yet. Do nothing else in that case: do not enumerate files, do not guess at conventions.',
   '',
-  'Step 2: If conventions.json is present and valid, read its top-level kbRoot, tagRegistryPath (if absent, use ".professor-orb/tag-registry.json"), and rules fields. Look through the rules object for any rule whose check is "indexParity" and note its params.indexSuffix (for example "-INDEX"). If no such rule exists, use an empty string for indexSuffix.',
+  'Step 2: If conventions.json is present and valid, resolve it into one or more settings. If it has a non-empty top-level "settings" array (a v3 file), each entry in that array is one setting: its name is entry.name if that is a non-empty string, otherwise use the empty string "" as its name; its KB root is entry.kbRoot; its tag registry path is entry.tagRegistryPath if present, otherwise ".professor-orb/tag-registry.json"; its rules are entry.rules. Skip any settings-array entry whose kbRoot is not a string; it cannot be enumerated. Otherwise, if the file has a top-level "kbRoot" string and a top-level "rules" object (a v1 or v2 file), treat the whole file as exactly one setting: name "", KB root from the top-level kbRoot, tag registry path from the top-level tagRegistryPath (same default as above), rules from the top-level rules. For each setting resolved this way, look through that setting\'s own rules object for any rule whose check is "indexParity" and note its params.indexSuffix (for example "-INDEX"); if no such rule exists for that setting, use an empty string for that setting\'s indexSuffix.',
   '',
-  'Step 3: Enumerate every markdown article file under kbRoot, recursively, using paths relative to the project root (the same root conventions.json itself is relative to), for example "rolara-kb/npcs/thoric-brightaxe.md". Do not include conventions.json, the tag registry file, or non-markdown files.',
+  'Step 3: For every setting resolved in Step 2, enumerate every markdown article file under that setting\'s KB root, recursively, using paths relative to the project root (the same root conventions.json itself is relative to), for example "world-of-rolara-kb/npcs/thoric-brightaxe.md". Do not include conventions.json, any tag registry file, or non-markdown files. If two settings\' KB roots happen to overlap or nest, still list each file once in your total answer, not once per setting whose root contains it.',
   '',
-  'Return: conventionsFound (true), kbRoot, tagRegistryPath, rulesJson (the exact rules object from conventions.json, re-serialized as a JSON string, verbatim: every rule it defines, nothing summarized or dropped), indexSuffix, files (the full array of relative markdown file paths under kbRoot), message (empty string when conventions were found).',
+  'Return: conventionsFound (true), prongRoots (one entry per setting resolved in Step 2, each {setting, kind: "kb", path: that setting\'s KB root}), settingConfigs (one entry per setting resolved in Step 2, each {setting, rulesJson (the exact rules object for that setting, re-serialized as a JSON string, verbatim: every rule it defines, nothing summarized or dropped), tagRegistryPath, indexSuffix}), files (the full array of relative markdown file paths across every setting\'s KB root, each file listed once), message (empty string when conventions were found).',
 ].join('\n')
 
 // Check semantics are duplicated four ways: skills/setup/references/conventions-schema.md's
@@ -176,9 +218,13 @@ const scoutPrompt = [
 // agents/kb-validator.md Step 4. The base rule data is single-sourced at
 // references/base-rules.json; the semantics are not. Changing one requires changing the
 // other three.
-const checkerPrompt = (shardFiles, shardIdx, kbRoot, rulesJson, indexSuffix) =>
+const checkerPrompt = (shardFiles, shardIdx, setting, kbRoot, rulesJson, indexSuffix) =>
   [
-    'You are checker shard ' + shardIdx + ' of a knowledge base validation sweep for a D&D campaign project. Check ONLY the files listed below against the project conventions given below. Do not check, open, or report on any other file.',
+    'You are checker shard ' +
+      shardIdx +
+      ' of a knowledge base validation sweep for a D&D campaign project' +
+      (setting ? ', covering the "' + setting + '" setting' : '') +
+      '. Check ONLY the files listed below against the project conventions given below. Do not check, open, or report on any other file.',
     '',
     'Files in this shard (paths relative to the project root):',
     JSON.stringify(shardFiles),
@@ -349,51 +395,134 @@ async function run() {
       needsJudgment: [],
       singleOwnershipFindings: [],
       indexParityFindings: [],
-      proposedTagRegistry: {},
+      proposedTagRegistries: [],
     }
   }
 
-  const kbRoot = scout.kbRoot || ''
+  const prongRoots = Array.isArray(scout.prongRoots) ? scout.prongRoots : []
   const files = Array.isArray(scout.files) ? scout.files : []
-  const rulesJson = scout.rulesJson || '{}'
-  const indexSuffix = scout.indexSuffix || ''
-  const tagRegistryPath = scout.tagRegistryPath || '.professor-orb/tag-registry.json'
+  const settingConfigsRaw = Array.isArray(scout.settingConfigs) ? scout.settingConfigs : []
 
-  let rules = {}
-  try {
-    rules = JSON.parse(rulesJson)
-  } catch (err) {
-    log('Warning: the rules JSON returned by the scout could not be parsed; proceeding with an empty rule set for this run. ' + err.message)
-    rules = {}
+  // One entry per setting: its own rules (parsed once), its own
+  // singleOwnership and indexParity rule ids, its own tag registry path and
+  // index suffix, and (filled in just below from prongRoots) its own kbRoot.
+  // A v1 or v2 file resolves to exactly one entry keyed by the empty string,
+  // the same "no name" convention Task 10's resolveSettings uses in the hook,
+  // which is also why toOwnershipKey below treats a falsy setting as "no
+  // prefix" rather than an error: the empty-string setting is a real, valid
+  // setting, just the unnamed one a v1 or v2 project implies.
+  const settingConfigs = new Map()
+  for (const sc of settingConfigsRaw) {
+    if (!sc || typeof sc.setting !== 'string') continue
+    let rules = {}
+    try {
+      rules = JSON.parse(sc.rulesJson || '{}')
+    } catch (err) {
+      log(
+        'Warning: the rules JSON returned by the scout for setting "' +
+          (sc.setting || '(unnamed)') +
+          '" could not be parsed; proceeding with an empty rule set for that setting. ' +
+          err.message,
+      )
+      rules = {}
+    }
+    let singleOwnershipRuleId = 'singleOwnership'
+    for (const ruleId of Object.keys(rules)) {
+      if (rules[ruleId] && rules[ruleId].check === 'singleOwnership') {
+        singleOwnershipRuleId = ruleId
+        break
+      }
+    }
+    // indexParity is a whole-folder rule, so like singleOwnership no single
+    // shard can judge it: a shard sees only its slice of a folder, never the
+    // folder's full file list. It is evaluated centrally in the Aggregate
+    // phase below, per setting, from the scout's complete enumeration.
+    // Discover its rule id the same way, so the finding carries the
+    // setting's own rule name (for example structuralIndexParity).
+    let indexParityRuleId = 'indexParity'
+    for (const ruleId of Object.keys(rules)) {
+      if (rules[ruleId] && rules[ruleId].check === 'indexParity') {
+        indexParityRuleId = ruleId
+        break
+      }
+    }
+    settingConfigs.set(sc.setting, {
+      setting: sc.setting,
+      kbRoot: '',
+      rules,
+      singleOwnershipRuleId,
+      indexParityRuleId,
+      indexSuffix: sc.indexSuffix || '',
+      tagRegistryPath: sc.tagRegistryPath || '.professor-orb/tag-registry.json',
+    })
   }
-
-  let singleOwnershipRuleId = 'singleOwnership'
-  for (const ruleId of Object.keys(rules)) {
-    if (rules[ruleId] && rules[ruleId].check === 'singleOwnership') {
-      singleOwnershipRuleId = ruleId
-      break
+  for (const root of prongRoots) {
+    if (!root || typeof root.setting !== 'string' || root.kind !== 'kb') continue
+    const cfg = settingConfigs.get(root.setting)
+    if (cfg) {
+      cfg.kbRoot = root.path || ''
+    } else {
+      settingConfigs.set(root.setting, {
+        setting: root.setting,
+        kbRoot: root.path || '',
+        rules: {},
+        singleOwnershipRuleId: 'singleOwnership',
+        indexParityRuleId: 'indexParity',
+        indexSuffix: '',
+        tagRegistryPath: '.professor-orb/tag-registry.json',
+      })
     }
   }
 
-  // indexParity is a whole-folder rule, so like singleOwnership no single shard
-  // can judge it: a shard sees only its slice of a folder, never the folder's
-  // full file list. It is evaluated centrally in the Aggregate phase below from
-  // the scout's complete enumeration. Discover its rule id the same way, so the
-  // finding carries the project's own rule name (for example structuralIndexParity).
-  let indexParityRuleId = 'indexParity'
-  for (const ruleId of Object.keys(rules)) {
-    if (rules[ruleId] && rules[ruleId].check === 'indexParity') {
-      indexParityRuleId = ruleId
-      break
+  // Which setting owns a file, by the longest matching KB root prefix. Every
+  // file the scout returned came from walking a setting's kbRoot in Step 3 of
+  // scoutPrompt, so this should always resolve; the null fallback only
+  // protects against a scout that returned a file outside every root it was
+  // told to enumerate.
+  const settingForFile = (file) => {
+    const normalized = String(file).replace(/\\/g, '/').replace(/^\/+/, '')
+    let best = null
+    let bestLen = -1
+    for (const cfg of settingConfigs.values()) {
+      const root = String(cfg.kbRoot || '').replace(/\\/g, '/').replace(/\/+$/, '')
+      if (!root) continue
+      if ((normalized === root || normalized.startsWith(root + '/')) && root.length > bestLen) {
+        best = cfg.setting
+        bestLen = root.length
+      }
     }
+    return best
+  }
+
+  const filesBySetting = new Map()
+  const unattributedFiles = []
+  for (const f of files) {
+    const setting = settingForFile(f)
+    if (setting === null) {
+      unattributedFiles.push(f)
+      continue
+    }
+    const list = filesBySetting.get(setting) || []
+    list.push(f)
+    filesBySetting.set(setting, list)
+  }
+  if (unattributedFiles.length > 0) {
+    log(
+      'Warning: ' +
+        unattributedFiles.length +
+        " file(s) returned by the scout did not fall under any resolved setting's KB root and were not checked: " +
+        unattributedFiles.slice(0, 5).join(', ') +
+        (unattributedFiles.length > 5 ? ', ...' : '') +
+        '.',
+    )
   }
 
   if (files.length === 0) {
-    log('Scout found conventions.json but no markdown article files under kbRoot. Nothing to check.')
+    log("Scout found conventions.json but no markdown article files under any setting's kbRoot. Nothing to check.")
     return {
       mode: 'scan',
       conventionsFound: true,
-      kbRoot,
+      settings: Array.from(settingConfigs.values()).map((cfg) => ({ setting: cfg.setting, kbRoot: cfg.kbRoot })),
       filesScanned: 0,
       shardsChecked: 0,
       shardsDropped: 0,
@@ -401,39 +530,60 @@ async function run() {
       needsJudgment: [],
       singleOwnershipFindings: [],
       indexParityFindings: [],
-      proposedTagRegistry: {},
-      tagRegistryPath,
-      nextStep: 'No KB articles were found under kbRoot. Confirm kbRoot in .professor-orb/conventions.json points at the right folder.',
+      proposedTagRegistries: [],
+      nextStep:
+        "No KB articles were found under any setting's kbRoot. Confirm each setting's kbRoot in .professor-orb/conventions.json points at the right folder.",
     }
   }
 
   phase('Check')
 
-  const shards = []
-  for (let i = 0; i < files.length; i += shardSize) {
-    shards.push(files.slice(i, i + shardSize))
+  const shardDescriptors = []
+  for (const [setting, settingFiles] of filesBySetting.entries()) {
+    for (let i = 0; i < settingFiles.length; i += shardSize) {
+      shardDescriptors.push({ setting, files: settingFiles.slice(i, i + shardSize) })
+    }
   }
-  log('Partitioned ' + files.length + ' KB file(s) into ' + shards.length + ' shard(s) of up to ' + shardSize + ' file(s) each.')
-
-  const checkerResultsRaw = await parallel(
-    shards.map((shardFiles, shardIdx) => () =>
-      agent(checkerPrompt(shardFiles, shardIdx, kbRoot, rulesJson, indexSuffix), {
-        model: 'haiku',
-        label: 'check:shard-' + shardIdx,
-        phase: 'Check',
-        schema: CHECKER_SCHEMA,
-      }),
-    ),
+  log(
+    'Partitioned ' +
+      files.length +
+      ' KB file(s) across ' +
+      filesBySetting.size +
+      ' setting(s) into ' +
+      shardDescriptors.length +
+      ' shard(s) of up to ' +
+      shardSize +
+      ' file(s) each.',
   )
 
-  const validShardResults = checkerResultsRaw.filter(Boolean)
-  const droppedShardCount = checkerResultsRaw.length - validShardResults.length
+  const checkerResultsRaw = await parallel(
+    shardDescriptors.map((shard, shardIdx) => () => {
+      const cfg = settingConfigs.get(shard.setting) || { kbRoot: '', rules: {}, indexSuffix: '' }
+      return agent(
+        checkerPrompt(shard.files, shardIdx, shard.setting, cfg.kbRoot, JSON.stringify(cfg.rules), cfg.indexSuffix),
+        {
+          model: 'haiku',
+          label: 'check:shard-' + shardIdx,
+          phase: 'Check',
+          schema: CHECKER_SCHEMA,
+        },
+      )
+    }),
+  )
+
+  // Pairs, not a bare filter: a dropped shard must not desynchronize which
+  // setting a surviving result belongs to, and filter(Boolean) alone would
+  // have discarded the index that ties each result back to its shard.
+  const validShardPairs = shardDescriptors
+    .map((shard, i) => ({ shard, result: checkerResultsRaw[i] }))
+    .filter((p) => Boolean(p.result))
+  const droppedShardCount = shardDescriptors.length - validShardPairs.length
   if (droppedShardCount > 0) {
     log(
       'Warning: ' +
         droppedShardCount +
         ' of ' +
-        checkerResultsRaw.length +
+        shardDescriptors.length +
         ' shard checker(s) failed or returned nothing. Their files were NOT validated this run; coverage is incomplete for this scan, not silently capped as complete.',
     )
   }
@@ -442,19 +592,22 @@ async function run() {
 
   // Ownership matching runs on a shared key, not on raw strings. The scout
   // enumerates each article by its full relative path (for example
-  // rolara-kb/characters/archfey/Baba-Yaga.md), but an index claims ownership
-  // with an Obsidian short wikilink whose target is only the basename (for
-  // example [[Baba-Yaga]]). Comparing a full path against a bare basename never
-  // matches, which previously made the single-ownership pass report every
-  // article as an unowned orphan. Reduce both sides to the same key first: the
-  // lowercased basename with no extension. Obsidian forbids | # ^ [ ] in note
-  // names, so stripping a display alias, a heading or block anchor, a folder
-  // path, and a trailing .md only ever removes wikilink decoration, never part
-  // of a real basename. The project's filename-collision convention keeps
-  // basenames unique across folders, so this key does not conflate two distinct
-  // articles; any collision that slips through is surfaced below rather than
-  // silently merged.
-  const toOwnershipKey = (raw) => {
+  // world-of-rolara-kb/characters/archfey/Baba-Yaga.md), but an index claims
+  // ownership with an Obsidian short wikilink whose target is only the
+  // basename (for example [[Baba-Yaga]]). Comparing a full path against a
+  // bare basename never matches, which previously made the single-ownership
+  // pass report every article as an unowned orphan. Reduce both sides to the
+  // same key first: the setting name, then the lowercased basename with no
+  // extension. Obsidian forbids | # ^ [ ] in note names, so stripping a
+  // display alias, a heading or block anchor, a folder path, and a trailing
+  // .md only ever removes wikilink decoration, never part of a real
+  // basename. The setting prefix is what keeps two settings' Tavern.md from
+  // colliding: each setting is its own vault boundary, so the KB filename
+  // convention only has to hold basenames unique within one setting, never
+  // across all of them. A falsy setting (the unnamed v1/v2 setting) adds no
+  // prefix, so a single-setting project's keys are identical to what shipped
+  // before this change.
+  const toOwnershipKey = (raw, setting) => {
     let s = String(raw).trim()
     s = s.replace(/^\[\[|\]\]$/g, '') // strip [[ ]] if a raw wikilink slipped through
     s = s.replace(/\\\|/g, '|') // unescape a table-escaped pipe (\| -> |)
@@ -462,48 +615,55 @@ async function run() {
     s = s.split('#')[0] // drop a heading or block-reference anchor
     s = s.replace(/\\/g, '/').replace(/\/+$/, '') // normalize separators, drop a trailing slash
     const base = s.slice(s.lastIndexOf('/') + 1) // basename
-    return base.replace(/\.md$/i, '').trim().toLowerCase() // drop a .md extension
+    return (setting ? setting + '/' : '') + base.replace(/\.md$/i, '').trim().toLowerCase() // drop a .md extension
   }
 
   const allArticles = new Set()
+  const articleSettingByPath = new Map()
   const articlePathsByKey = new Map()
   const catalogEntries = new Set()
   const ownersByKey = new Map()
-  const tagTotals = new Map()
+  const tagTotalsBySetting = new Map()
   const mechanicallyFixable = []
   const needsJudgment = []
   let filesChecked = 0
 
-  for (const shard of validShardResults) {
-    filesChecked += shard.filesChecked || 0
-    for (const a of shard.articles || []) {
+  for (const { shard, result } of validShardPairs) {
+    filesChecked += result.filesChecked || 0
+    for (const a of result.articles || []) {
       allArticles.add(a)
-      const key = toOwnershipKey(a)
+      articleSettingByPath.set(a, shard.setting)
+      const key = toOwnershipKey(a, shard.setting)
       const paths = articlePathsByKey.get(key) || []
       paths.push(a)
       articlePathsByKey.set(key, paths)
     }
-    for (const c of shard.catalogEntries || []) catalogEntries.add(c)
-    for (const claim of shard.ownershipClaims || []) {
-      const key = toOwnershipKey(claim.ownedArticle)
+    for (const c of result.catalogEntries || []) catalogEntries.add(c)
+    for (const claim of result.ownershipClaims || []) {
+      const key = toOwnershipKey(claim.ownedArticle, shard.setting)
       const owners = ownersByKey.get(key) || []
       owners.push(claim.indexFile)
       ownersByKey.set(key, owners)
     }
-    for (const t of shard.tagsUsed || []) {
+    const tagTotals = tagTotalsBySetting.get(shard.setting) || new Map()
+    for (const t of result.tagsUsed || []) {
       tagTotals.set(t.tag, (tagTotals.get(t.tag) || 0) + t.count)
     }
-    for (const f of shard.mechanicallyFixable || []) mechanicallyFixable.push(f)
-    for (const j of shard.needsJudgment || []) needsJudgment.push(j)
+    tagTotalsBySetting.set(shard.setting, tagTotals)
+    for (const f of result.mechanicallyFixable || []) mechanicallyFixable.push(f)
+    for (const j of result.needsJudgment || []) needsJudgment.push(j)
   }
 
-  // The basename key assumes basenames are unique KB-wide, which is the
-  // project's filename-collision convention but is not enforced by any hook. If
-  // two different article paths reduce to the same key, their owner lists merge
-  // and the single-ownership verdict for both becomes unreliable: an orphan can
-  // look owned, or one owner can look like several. Surface any such collision
-  // so the DM knows those files' ownership results are approximate, instead of
-  // trusting a silently merged verdict.
+  // The setting-scoped key assumes basenames are unique within a setting,
+  // which is the project's filename-collision convention but is not enforced
+  // by any hook. If two different article paths in the same setting reduce
+  // to the same key, their owner lists merge and the single-ownership
+  // verdict for both becomes unreliable: an orphan can look owned, or one
+  // owner can look like several. Surface any such collision so the DM knows
+  // those files' ownership results are approximate, instead of trusting a
+  // silently merged verdict. Two settings sharing a basename is not a
+  // collision at all now, that is the entire point of the setting prefix, so
+  // this can only fire within one setting.
   const basenameCollisions = []
   for (const paths of articlePathsByKey.values()) {
     const distinct = Array.from(new Set(paths))
@@ -513,9 +673,9 @@ async function run() {
     log(
       'Warning: ' +
         basenameCollisions.length +
-        ' basename collision(s) across folders (for example ' +
+        ' basename collision(s) within a setting (for example ' +
         basenameCollisions[0].join(' and ') +
-        '). Ownership is matched by basename, the form indexes link to, so single-ownership results for these files may be unreliable. The KB filename convention is meant to keep basenames unique across folders.',
+        '). Ownership is matched by basename within a setting, the form indexes link to, so single-ownership results for these files may be unreliable. The KB filename convention is meant to keep basenames unique within a setting.',
     )
   }
 
@@ -525,59 +685,68 @@ async function run() {
   // it is computed here instead. That means the shard-level skip-off
   // instruction never reaches this check; without a matching guard here, an
   // "off" singleOwnership rule would still produce findings on this path.
-  // Absent is not off: only the literal string "off" suppresses.
-  const singleOwnershipOff = Boolean(
-    rules[singleOwnershipRuleId] && rules[singleOwnershipRuleId].enforcement === 'off',
-  )
-
+  // Absent is not off: only the literal string "off" suppresses. Evaluated
+  // per article's own setting, since enforcement is a per-setting rule
+  // choice.
   const singleOwnershipFindings = []
-  if (!singleOwnershipOff) {
-    for (const article of allArticles) {
-      // Count distinct owning indexes: an index that happens to list the same
-      // article twice is still one owner, not a single-ownership violation, so
-      // collapse duplicate index files before counting.
-      const owners = Array.from(new Set(ownersByKey.get(toOwnershipKey(article)) || []))
-      if (owners.length === 1) continue
-      if (owners.length === 0) {
-        singleOwnershipFindings.push({
-          file: article,
-          ruleId: singleOwnershipRuleId,
-          description: 'This article is not listed as owned by any index in the KB.',
-          question: 'Which index should list ' + article + ', or should a new index be created to own it?',
-        })
-      } else {
-        singleOwnershipFindings.push({
-          file: article,
-          ruleId: singleOwnershipRuleId,
-          description: 'This article is listed as owned by ' + owners.length + ' indexes: ' + owners.join(', ') + '.',
-          question: 'Which one of these indexes should own ' + article + ', and should it be removed from the others?',
-        })
-      }
+  for (const article of allArticles) {
+    const setting = articleSettingByPath.get(article)
+    const cfg = settingConfigs.get(setting)
+    const ruleId = (cfg && cfg.singleOwnershipRuleId) || 'singleOwnership'
+    const off = Boolean(cfg && cfg.rules[ruleId] && cfg.rules[ruleId].enforcement === 'off')
+    if (off) continue
+    // Count distinct owning indexes: an index that happens to list the same
+    // article twice is still one owner, not a single-ownership violation, so
+    // collapse duplicate index files before counting.
+    const owners = Array.from(new Set(ownersByKey.get(toOwnershipKey(article, setting)) || []))
+    if (owners.length === 1) continue
+    if (owners.length === 0) {
+      singleOwnershipFindings.push({
+        file: article,
+        ruleId,
+        description: 'This article is not listed as owned by any index in the KB.',
+        question: 'Which index should list ' + article + ', or should a new index be created to own it?',
+      })
+    } else {
+      singleOwnershipFindings.push({
+        file: article,
+        ruleId,
+        description: 'This article is listed as owned by ' + owners.length + ' indexes: ' + owners.join(', ') + '.',
+        question: 'Which one of these indexes should own ' + article + ', and should it be removed from the others?',
+      })
     }
   }
   for (const finding of singleOwnershipFindings) needsJudgment.push(finding)
 
-  // indexParity, evaluated centrally: no shard sees a whole folder, so group the
-  // scout's complete file list by folder and count the index files in each. An
-  // index file is one whose basename (extension stripped) ends with the project's
-  // indexSuffix, matched case-insensitively to agree with the write-time hook (a
-  // mis-cased "-index" still counts as an index). A folder holding more than one
-  // is a parity violation; which index survives is the DM's call, so it is a
-  // needs-judgment finding, never an auto-fix. With no configured suffix there is
-  // no central way to tell an index from an article, so the check is skipped: the
-  // scout returns an empty suffix when the project defines no indexParity rule,
-  // and an empty suffix would otherwise match every file.
-  // Same reasoning as singleOwnershipOff above: indexParity is also a
-  // whole-KB check the shard prompt explicitly excludes from shard evaluation
-  // (step 7), so the shard-level skip-off instruction cannot cover it either;
-  // this guard is the only thing that can. Absent is not off.
-  const indexParityOff = Boolean(rules[indexParityRuleId] && rules[indexParityRuleId].enforcement === 'off')
-
+  // indexParity, evaluated centrally per setting: no shard sees a whole
+  // folder, so group each setting's own file list by folder and count the
+  // index files in each. Grouping per setting, not across the whole scan,
+  // keeps two settings that happen to share a folder name (for example both
+  // having an "npcs" folder) from being compared against each other; they
+  // are different vaults. An index file is one whose basename (extension
+  // stripped) ends with that setting's indexSuffix, matched
+  // case-insensitively to agree with the write-time hook (a mis-cased
+  // "-index" still counts as an index). A folder holding more than one is a
+  // parity violation; which index survives is the DM's call, so it is a
+  // needs-judgment finding, never an auto-fix. With no configured suffix for
+  // a setting there is no central way to tell an index from an article in
+  // that setting, so the check is skipped for it: the scout returns an empty
+  // suffix when a setting defines no indexParity rule, and an empty suffix
+  // would otherwise match every file.
   const indexParityFindings = []
-  if (indexSuffix && !indexParityOff) {
-    const suffixLower = indexSuffix.toLowerCase()
+  for (const [setting, settingFiles] of filesBySetting.entries()) {
+    const cfg = settingConfigs.get(setting)
+    if (!cfg || !cfg.indexSuffix) continue
+    // Same reasoning as the singleOwnership guard above: indexParity is also
+    // a whole-KB check the shard prompt explicitly excludes from shard
+    // evaluation (step 7), so the shard-level skip-off instruction cannot
+    // cover it either; this guard is the only thing that can. Absent is not
+    // off.
+    const off = Boolean(cfg.rules[cfg.indexParityRuleId] && cfg.rules[cfg.indexParityRuleId].enforcement === 'off')
+    if (off) continue
+    const suffixLower = cfg.indexSuffix.toLowerCase()
     const indexesByFolder = new Map()
-    for (const file of files) {
+    for (const file of settingFiles) {
       const normalized = file.replace(/\\/g, '/')
       const lastSlash = normalized.lastIndexOf('/')
       const folder = lastSlash === -1 ? '' : normalized.slice(0, lastSlash)
@@ -592,10 +761,10 @@ async function run() {
     for (const [folder, indexes] of indexesByFolder.entries()) {
       if (indexes.length <= 1) continue
       const sortedIndexes = indexes.slice().sort()
-      const folderLabel = folder || kbRoot || '(project root)'
+      const folderLabel = folder || cfg.kbRoot || '(project root)'
       indexParityFindings.push({
         file: folderLabel,
-        ruleId: indexParityRuleId,
+        ruleId: cfg.indexParityRuleId,
         description:
           'This folder holds ' +
           indexes.length +
@@ -611,13 +780,27 @@ async function run() {
   }
   for (const finding of indexParityFindings) needsJudgment.push(finding)
 
-  const proposedTagRegistry = {}
-  for (const [tag, count] of tagTotals.entries()) proposedTagRegistry[tag] = count
+  // One proposed registry per setting: a v3 project's settings each carry
+  // their own tag vocabulary and their own tagRegistryPath, so one world's
+  // tags are never proposed as an addition to another world's registry.
+  const proposedTagRegistries = []
+  for (const [setting, tagTotals] of tagTotalsBySetting.entries()) {
+    const registry = {}
+    for (const [tag, count] of tagTotals.entries()) registry[tag] = count
+    const cfg = settingConfigs.get(setting)
+    proposedTagRegistries.push({
+      setting,
+      tagRegistryPath: (cfg && cfg.tagRegistryPath) || '.professor-orb/tag-registry.json',
+      registry,
+    })
+  }
 
   log(
     'Aggregated ' +
-      validShardResults.length +
-      ' shard report(s) covering ' +
+      validShardPairs.length +
+      ' shard report(s) across ' +
+      filesBySetting.size +
+      ' setting(s), covering ' +
       allArticles.size +
       ' article(s), ' +
       catalogEntries.size +
@@ -635,19 +818,18 @@ async function run() {
   return {
     mode: 'scan',
     conventionsFound: true,
-    kbRoot,
+    settings: Array.from(settingConfigs.values()).map((cfg) => ({ setting: cfg.setting, kbRoot: cfg.kbRoot })),
     filesScanned: files.length,
     filesChecked,
-    shardsChecked: validShardResults.length,
+    shardsChecked: validShardPairs.length,
     shardsDropped: droppedShardCount,
     mechanicallyFixable,
     needsJudgment,
     singleOwnershipFindings,
     indexParityFindings,
-    proposedTagRegistry,
-    tagRegistryPath,
+    proposedTagRegistries,
     nextStep:
-      'Present the mechanically fixable bucket to the DM for one batch approval (a single yes covers the whole bucket), resolve each needs-judgment item individually (including the single-ownership and index-parity findings), then re-invoke this workflow with args.mode "fix", args.approvedFixes set to the approved subset, and, if the DM approves it, args.approvedTagRegistry set to proposedTagRegistry.',
+      'Present the mechanically fixable bucket to the DM for one batch approval (a single yes covers the whole bucket), resolve each needs-judgment item individually (including the single-ownership and index-parity findings), then re-invoke this workflow with args.mode "fix", args.approvedFixes set to the approved subset, and, if the DM approves it for one setting at a time, args.approvedTagRegistry set to that setting\'s entry from proposedTagRegistries and args.tagRegistryPath set to that entry\'s tagRegistryPath.',
   }
 }
 
