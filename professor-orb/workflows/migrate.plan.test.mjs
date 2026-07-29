@@ -978,6 +978,27 @@ const scoped = (scope, projectRoot) =>
   rmSync(root, { recursive: true, force: true });
 }
 
+console.log("\n=== scoped plans: rebuild-index ===");
+
+{
+  const r = scoped({ rebuildIndexes: [{ index: "settings/rolara/items/Items-INDEX.md" }] });
+  check("a rebuild scope plans one rebuild-index", kindsOf(r.operations), ["rebuild-index"]);
+  check("the folder is derived from the index path",
+    r.operations[0].folder, "settings/rolara/items");
+}
+
+{
+  const r = scoped({
+    rebuildIndexes: [{ index: "settings/rolara/items/Items-INDEX.md" }],
+    pathMoves: [{ from: "settings/rolara/misc/A.md", to: "settings/rolara/items/A.md", reason: "x" }],
+  });
+  // The move has to land before the rebuild reads the folder, or the rebuild
+  // lists yesterday's membership. This is APPLY_ORDER doing its job, asserted
+  // here because a planner added to SCOPED_PLANNERS in the wrong slot is the
+  // easy mistake and applyPlan would refuse the whole run rather than explain it.
+  check("moves are ordered before rebuilds", kindsOf(r.operations), ["relocate-path", "rebuild-index"]);
+}
+
 console.log(`\n${passed} passed, ${failures.length} failed`);
 if (failures.length > 0) {
   for (const f of failures) console.log(`  FAILED: ${f}`);

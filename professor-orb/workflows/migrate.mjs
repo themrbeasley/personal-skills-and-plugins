@@ -147,11 +147,13 @@ export function runPrechecks({ operations, projectRoot }) {
 
 // Operation kinds whose destination is SUPPOSED to be there already, so finding
 // it on disk is not a collision. merge-index targets the surviving index it
-// folds the others into, and tag-registry regenerates a registry an earlier run
-// wrote. Every other kind is checked, including one added later: a new kind that
-// aborts on a destination it meant to create is a louder failure than one that
-// silently overwrites the DM's file.
-const DESTINATION_MAY_EXIST = new Set(["merge-index", "tag-registry"]);
+// folds the others into, tag-registry regenerates a registry an earlier run
+// wrote, and rebuild-index edits an existing index's link list in place rather
+// than creating one; existsSync(to) is already its own precondition check, not
+// this one's job. Every other kind is checked, including one added later: a new
+// kind that aborts on a destination it meant to create is a louder failure than
+// one that silently overwrites the DM's file.
+const DESTINATION_MAY_EXIST = new Set(["merge-index", "tag-registry", "rebuild-index"]);
 
 // vault joins them for the CREATE shape ONLY, which is why this is a predicate
 // rather than a third entry in the set above.
@@ -720,6 +722,7 @@ function frontmatterHasPublish(file) {
 // negotiated scope carries and the planner that turns it into operations.
 const SCOPED_PLANNERS = [
   ["pathMoves", planPathMoves],
+  ["rebuildIndexes", planRebuildIndexes],
 ];
 
 /**
@@ -775,6 +778,29 @@ function planPathMoves(items, ctx) {
       from,
       to,
       reason: String((item && item.reason) || "Moved by a DM-approved /migrate scope."),
+    });
+  }
+  return { operations, declined };
+}
+
+function planRebuildIndexes(items, ctx) {
+  const operations = [];
+  const declined = [];
+  for (const item of items) {
+    const index = toPosix(item && item.index);
+    if (!index) {
+      declined.push({
+        op: "rebuild-index",
+        target: "(unnamed)",
+        reason: "The scope entry names no index file.",
+      });
+      continue;
+    }
+    operations.push({
+      op: "rebuild-index",
+      to: index,
+      folder: toPosix(item.folder) || path.posix.dirname(index),
+      reason: String((item && item.reason) || "Rebuilt by a DM-approved /migrate scope."),
     });
   }
   return { operations, declined };
@@ -1923,6 +1949,98 @@ function typeForSuffix(stem, ctx) {
   return null;
 }
 
+// Rebuild an EXISTING index's link list from its folder's actual contents.
+//
+// The list is replaced; everything else in the file is preserved byte for byte.
+// That split is the whole design: an index carries the DM's own frontmatter and
+// often prose explaining how the folder is organised, and regenerating the file
+// wholesale would delete both. CONTEXT.md's avoid list names "silent index
+// rewrites" for exactly this reason.
+//
+// The link list is identified as the maximal run of consecutive lines matching
+// LINK_LINE, anchored at the FIRST such line. Prose after the list survives
+// because the run stops at the first non-matching line.
+const LINK_LINE = /^[ \t]*[-*][ \t]+\[\[[^\]]+\]\][ \t]*$/;
+
+function applyRebuildIndex(op, ctx) {
+  const entry = entryFor(op);
+  const to = toPosix(op.to);
+  const folder = toPosix(op.folder) || path.posix.dirname(to);
+  entry.to = to;
+
+  if (!existsSync(path.resolve(ctx.cwd, to))) {
+    entry.detail =
+      "No index at that path. create-index is the operation that creates one; rebuilding a file that is not there would turn a stale plan into a file the DM never approved.";
+    return entry;
+  }
+  const readIndex = readText(ctx, to);
+  if (!readIndex.ok) {
+    entry.detail = `Could not read the index: ${readIndex.error}`;
+    return entry;
+  }
+
+  const suffix = indexSuffixFor(ctx.settingForPath(folder), ctx.baseRules);
+  const abs = path.resolve(ctx.cwd, folder);
+  let names = [];
+  try {
+    names = readdirSync(abs).sort();
+  } catch (err) {
+    entry.detail = `Could not read the folder: ${err.message}`;
+    return entry;
+  }
+
+  const stems = [];
+  for (const name of names) {
+    if (!name.toLowerCase().endsWith(".md")) continue;
+    let st;
+    try {
+      st = statSync(path.join(abs, name));
+    } catch {
+      continue;
+    }
+    // isFile() is the subfolder guard as well as the junk guard: a subfolder is
+    // another index's territory, and listing its articles here would put them in
+    // two indexes at once, which is the singleOwnership violation the sweep
+    // exists to find.
+    if (!st.isFile()) continue;
+    const stem = name.slice(0, -3);
+    if (suffix && stem.endsWith(suffix)) continue; // Another index, not an article.
+    stems.push(stem);
+  }
+
+  const doc = splitTextLines(readIndex.text);
+  const rendered = stems.map((s) => `- [[${s}]]`);
+  const firstLink = doc.lines.findIndex((l) => LINK_LINE.test(l));
+
+  let before;
+  let after;
+  if (firstLink === -1) {
+    // No list yet. Append one, keeping a blank line before it unless the file
+    // already ends in one, so an index whose links were all deleted by hand can
+    // still be rebuilt rather than refused.
+    before = doc.lines.slice();
+    while (before.length > 0 && before[before.length - 1].trim() === "") before.pop();
+    before.push("");
+    after = [""];
+  } else {
+    let last = firstLink;
+    while (last + 1 < doc.lines.length && LINK_LINE.test(doc.lines[last + 1])) last++;
+    before = doc.lines.slice(0, firstLink);
+    after = doc.lines.slice(last + 1);
+  }
+
+  doc.lines = [...before, ...rendered, ...after];
+  const written = writeText(ctx, to, joinTextLines(doc));
+  if (!written.ok) {
+    entry.detail = `Could not write the index: ${written.error}`;
+    return entry;
+  }
+  entry.applied = true;
+  entry.entries = stems.length;
+  entry.detail = `Rebuilt the link list from ${stems.length} article(s) on disk; frontmatter and prose were preserved.`;
+  return entry;
+}
+
 // 5. Merge a multi-index folder losslessly. Each source's FULL raw content is
 //    concatenated under a provenance heading naming it, so headings, grouping,
 //    ordering, and prose all survive; the wikilinks that named a merged-away
@@ -2317,6 +2435,7 @@ const EXECUTORS = {
   "rename-with-link-rewrite": applyRenameWithLinkRewrite,
   "create-index": applyCreateIndex,
   "merge-index": applyMergeIndex,
+  "rebuild-index": applyRebuildIndex,
   "repair-frontmatter": applyRepairFrontmatter,
   vault: applyVault,
   "tag-registry": applyTagRegistry,

@@ -1949,6 +1949,66 @@ withRepo({ "settings/rolara/A.md": article("type: Person", "Body.") }, (root) =>
     first(r.applied).applied || first(r.failed).applied, false);
 });
 
+console.log("\n=== rebuild-index ===");
+
+withRepo(
+  {
+    "settings/rolara/items/Items-INDEX.md":
+      "---\ntype: Index\npublish: false\n---\n\n# Items\n\nThe DM's own note about how this index is organised.\n\n- [[Sword]]\n- [[Gone-Article]]\n",
+    "settings/rolara/items/Sword.md": article("type: Item", "Body."),
+    "settings/rolara/items/Shield.md": article("type: Item", "Body."),
+  },
+  (root) => {
+    const r = apply(root, [
+      { op: "rebuild-index", to: "settings/rolara/items/Items-INDEX.md", folder: "settings/rolara/items", reason: "scope" },
+    ]);
+    const text = read(root, "settings/rolara/items/Items-INDEX.md");
+    check("rebuild-index applies", [r.ok, first(r.applied).applied], [true, true]);
+    check("an article present on disk but missing from the index is added", text.includes("[[Shield]]"), true);
+    check("an article listed but no longer on disk is dropped", text.includes("[[Gone-Article]]"), false);
+    check("an article that was already correct survives", text.includes("[[Sword]]"), true);
+    // The DM's frontmatter and prose are not the index's link list and are not
+    // this operation's business. A rebuild that regenerated the whole file would
+    // silently delete publish: false and the note above the list, which is
+    // exactly the "silent index rewrite" CONTEXT.md's avoid list names.
+    check("the DM's frontmatter survives verbatim", text.includes("publish: false"), true);
+    check("the DM's prose survives verbatim",
+      text.includes("The DM's own note about how this index is organised."), true);
+    check("the entries are sorted", text.indexOf("[[Shield]]") < text.indexOf("[[Sword]]"), true);
+  }
+);
+
+withRepo(
+  {
+    "settings/rolara/items/Items-INDEX.md": article("type: Index", "# Items\n\n- [[Sword]]"),
+    "settings/rolara/items/Sword.md": article("type: Item", "Body."),
+    "settings/rolara/items/weapons/Weapons-INDEX.md": article("type: Index", "# Weapons"),
+  },
+  (root) => {
+    const r = apply(root, [
+      { op: "rebuild-index", to: "settings/rolara/items/Items-INDEX.md", folder: "settings/rolara/items", reason: "scope" },
+    ]);
+    const text = read(root, "settings/rolara/items/Items-INDEX.md");
+    check("a sibling index is not listed as an article", text.includes("[[Weapons-INDEX]]"), false);
+    // A subfolder is another index's territory, and listing its contents here
+    // would put the same article in two indexes, violating singleOwnership.
+    check("a subfolder's contents are not absorbed into the parent index",
+      text.includes("[[Weapons]]"), false);
+    check("the rebuild still applied", [r.ok, first(r.applied).applied], [true, true]);
+  }
+);
+
+withRepo({ "settings/rolara/items/Sword.md": article("type: Item", "Body.") }, (root) => {
+  const r = apply(root, [
+    { op: "rebuild-index", to: "settings/rolara/items/Items-INDEX.md", folder: "settings/rolara/items", reason: "scope" },
+  ]);
+  // create-index is the operation that creates. Rebuilding a file that is not
+  // there would quietly turn a stale plan into a new file the DM never approved.
+  check("rebuilding an index that does not exist is reported, not created",
+    [first(r.applied.concat(r.failed)).applied, has(root, "settings/rolara/items/Items-INDEX.md")],
+    [false, false]);
+});
+
 console.log(`\n${passed} passed, ${failures.length} failed`);
 if (failures.length > 0) {
   for (const f of failures) console.log(`  FAILED: ${f}`);
