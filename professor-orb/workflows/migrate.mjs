@@ -1879,6 +1879,49 @@ function applyRenameWithLinkRewrite(op, ctx) {
   return entry;
 }
 
+// The article stems in a folder, sorted: every .md file that is not itself an
+// index. Subfolders are skipped, and that is load-bearing rather than
+// incidental: a subfolder's articles belong to its own index, and listing them
+// in the parent would put one article in two indexes, which is the
+// single-ownership violation the validation sweep exists to find.
+//
+// Shared by applyCreateIndex and applyRebuildIndex, which need the identical
+// membership answer: one writes a new index from it, the other refreshes an
+// existing index's list from it. The two callers disagree on what an
+// unreadable folder means for them, though: applyCreateIndex treats it as an
+// empty folder and proceeds, while applyRebuildIndex reports it as a failed
+// entry. So a readdirSync failure here is returned as { ok: false, error }
+// rather than swallowed, letting each caller keep its own behavior.
+function articleStemsIn(ctx, folder, suffix) {
+  const abs = path.resolve(ctx.cwd, folder);
+  let names;
+  try {
+    names = readdirSync(abs).sort();
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+
+  const stems = [];
+  for (const name of names) {
+    if (!name.toLowerCase().endsWith(".md")) continue;
+    let st;
+    try {
+      st = statSync(path.join(abs, name));
+    } catch {
+      continue;
+    }
+    // isFile() is the subfolder guard as well as the junk guard: a subfolder is
+    // another index's territory, and listing its articles here would put them in
+    // two indexes at once, which is the single-ownership violation the sweep
+    // exists to find.
+    if (!st.isFile()) continue;
+    const stem = name.slice(0, -3);
+    if (suffix && stem.endsWith(suffix)) continue; // Another index, not an article.
+    stems.push(stem);
+  }
+  return { ok: true, stems };
+}
+
 // 4. Create the missing index for a content-bearing folder. The type value is
 //    DERIVED from the suffix rule the generated filename satisfies rather than
 //    guessed, and publish is never written: setting a disclosure flag is the
@@ -1896,27 +1939,8 @@ function applyCreateIndex(op, ctx) {
   const type = typeForSuffix(indexStem, ctx) || "Index";
   const title = indexStem.endsWith(suffix) ? indexStem.slice(0, -suffix.length) : indexStem;
 
-  const entries = [];
-  const abs = path.resolve(ctx.cwd, folder);
-  let names = [];
-  try {
-    names = readdirSync(abs).sort();
-  } catch {
-    names = [];
-  }
-  for (const name of names) {
-    if (!name.toLowerCase().endsWith(".md")) continue;
-    let st;
-    try {
-      st = statSync(path.join(abs, name));
-    } catch {
-      continue;
-    }
-    if (!st.isFile()) continue;
-    const stem = name.slice(0, -3);
-    if (suffix && stem.endsWith(suffix)) continue; // Another index, not an article.
-    entries.push(stem);
-  }
+  const scanned = articleStemsIn(ctx, folder, suffix);
+  const entries = scanned.ok ? scanned.stems : [];
 
   const body =
     `---\ntype: ${type}\n---\n\n# ${title}\n\n` +
@@ -1980,33 +2004,12 @@ function applyRebuildIndex(op, ctx) {
   }
 
   const suffix = indexSuffixFor(ctx.settingForPath(folder), ctx.baseRules);
-  const abs = path.resolve(ctx.cwd, folder);
-  let names = [];
-  try {
-    names = readdirSync(abs).sort();
-  } catch (err) {
-    entry.detail = `Could not read the folder: ${err.message}`;
+  const scanned = articleStemsIn(ctx, folder, suffix);
+  if (!scanned.ok) {
+    entry.detail = `Could not read the folder: ${scanned.error}`;
     return entry;
   }
-
-  const stems = [];
-  for (const name of names) {
-    if (!name.toLowerCase().endsWith(".md")) continue;
-    let st;
-    try {
-      st = statSync(path.join(abs, name));
-    } catch {
-      continue;
-    }
-    // isFile() is the subfolder guard as well as the junk guard: a subfolder is
-    // another index's territory, and listing its articles here would put them in
-    // two indexes at once, which is the singleOwnership violation the sweep
-    // exists to find.
-    if (!st.isFile()) continue;
-    const stem = name.slice(0, -3);
-    if (suffix && stem.endsWith(suffix)) continue; // Another index, not an article.
-    stems.push(stem);
-  }
+  const stems = scanned.stems;
 
   const doc = splitTextLines(readIndex.text);
   const rendered = stems.map((s) => `- [[${s}]]`);
