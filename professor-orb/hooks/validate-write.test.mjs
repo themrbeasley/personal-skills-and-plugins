@@ -409,4 +409,135 @@ console.log("\n=== malformed settings entries are filtered, not fatal ===");
   check("a settings array of only malformed entries exits 0 without crashing", r.code, 0);
 }
 
+console.log("\n=== prong scoping and entry counts ===");
+
+{
+  // A session report linking to a KB article must resolve: the search root is
+  // the union of the setting's prongs, not its kbRoot alone.
+  //
+  // The link target is deliberately placed under homebrewRoot, not kbRoot.
+  // ctx.kbRootAbs is always owner.kbRoot regardless of which prong owns the
+  // file being written, so a target that happens to live directly under
+  // kbRoot (as in the brief's own worked example) resolves under the OLD
+  // single-root search too and would not actually exercise this fix; verified
+  // by running this scenario against the pre-fix hook, which still resolved a
+  // kbRoot-resident target (exit 0) but blocks on this homebrew-resident one
+  // (exit 2). Only a target outside kbRoot discriminates the fix.
+  const conventions = {
+    version: 3,
+    settings: [{
+      name: "r",
+      kbRoot: "settings/r",
+      homebrewRoot: "homebrew/r",
+      sessionReportsRoot: "session-reports/r",
+      rules: {
+        contentWikilinks: {
+          provenance: "professor-orb",
+          category: "content",
+          check: "wikilinkPolicy",
+          enforcement: "block",
+          description: "wikilink targets must exist.",
+          params: { requireExistingTarget: true, requireDisplayText: false },
+        },
+      },
+    }],
+  };
+  const r = runHook({
+    conventions,
+    files: {
+      "homebrew/r/MagicSword.md": "---\ntype: Item\n---\n\nx\n",
+      "session-reports/r/c/S1-REPORT.md": "---\ntype: Session Report\n---\n\nFound the [[MagicSword]].\n",
+    },
+    targetRel: "session-reports/r/c/S1-REPORT.md",
+  });
+  check("a report-to-homebrew wikilink resolves across prongs", r.code, 0);
+}
+
+{
+  // A folder of 3 articles plus 3 subfolders is not 6 articles.
+  const conventions = {
+    version: 3,
+    settings: [{
+      name: "r",
+      kbRoot: "settings/r",
+      homebrewRoot: null,
+      sessionReportsRoot: null,
+      rules: {
+        structuralSplitThreshold: {
+          provenance: "professor-orb",
+          category: "structural",
+          check: "splitThreshold",
+          enforcement: "block",
+          scope: "kb",
+          description: "folder is over the split threshold.",
+          params: { minEntries: 6, indexSuffix: "-INDEX" },
+        },
+      },
+    }],
+  };
+  const files = {
+    "settings/r/items/A.md": "---\ntype: Item\n---\n\nx\n",
+    "settings/r/items/B.md": "---\ntype: Item\n---\n\nx\n",
+    "settings/r/items/C.md": "---\ntype: Item\n---\n\nx\n",
+    "settings/r/items/items-INDEX.md": "---\ntype: Index\n---\n\nx\n",
+    "settings/r/items/sub1/X.md": "---\ntype: Item\n---\n\nx\n",
+    "settings/r/items/sub2/Y.md": "---\ntype: Item\n---\n\nx\n",
+    "settings/r/items/sub3/Z.md": "---\ntype: Item\n---\n\nx\n",
+  };
+  const r = runHook({ conventions, files, targetRel: "settings/r/items/C.md" });
+  check("three articles plus three subfolders does not trip the split threshold", r.code, 0);
+}
+
+// The absorb threshold's shipped description says "fewer than four articles";
+// a 3-article folder fires under both `count <= maxEntries` (the bug) and
+// `count < maxEntries` (the fix), so it cannot tell them apart. Only a folder
+// holding exactly maxEntries articles discriminates: the buggy `<=` fires on
+// it, the fixed `<` does not.
+function absorbConventions(maxEntries) {
+  return {
+    version: 3,
+    settings: [{
+      name: "r",
+      kbRoot: "settings/r",
+      homebrewRoot: null,
+      sessionReportsRoot: null,
+      rules: {
+        structuralAbsorbThreshold: {
+          provenance: "professor-orb",
+          category: "structural",
+          check: "absorbThreshold",
+          enforcement: "block",
+          scope: "kb",
+          description: "folder is under the absorb threshold.",
+          params: { maxEntries, indexSuffix: "-INDEX" },
+        },
+      },
+    }],
+  };
+}
+
+{
+  // Exactly 4 articles (plus an index, which is excluded by suffix), maxEntries 4.
+  const files = {
+    "settings/r/leaf/A.md": "---\ntype: Item\n---\n\nx\n",
+    "settings/r/leaf/B.md": "---\ntype: Item\n---\n\nx\n",
+    "settings/r/leaf/C.md": "---\ntype: Item\n---\n\nx\n",
+    "settings/r/leaf/D.md": "---\ntype: Item\n---\n\nx\n",
+    "settings/r/leaf/leaf-INDEX.md": "---\ntype: Index\n---\n\nx\n",
+  };
+  const r = runHook({ conventions: absorbConventions(4), files, targetRel: "settings/r/leaf/D.md" });
+  check("a folder holding exactly maxEntries articles is not absorbed (fewer than, not at most)", r.code, 0);
+}
+
+{
+  // One below the threshold still fires, so the fix did not neuter the rule.
+  const files = {
+    "settings/r/leaf/A.md": "---\ntype: Item\n---\n\nx\n",
+    "settings/r/leaf/B.md": "---\ntype: Item\n---\n\nx\n",
+    "settings/r/leaf/C.md": "---\ntype: Item\n---\n\nx\n",
+  };
+  const r = runHook({ conventions: absorbConventions(4), files, targetRel: "settings/r/leaf/C.md" });
+  check("a folder holding one fewer than maxEntries articles still trips the absorb threshold", r.code, 2);
+}
+
 report();

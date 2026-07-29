@@ -6,7 +6,7 @@
 // file is not a KB article, this script exits 0 silently. Unknown check
 // kinds are skipped for forward compatibility. Node.js built-ins only.
 
-import { readFileSync, existsSync, readdirSync } from "node:fs";
+import { readFileSync, existsSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
 
 function readStdin() {
@@ -373,6 +373,28 @@ function checkSingleOwnership() {
   return null;
 }
 
+// Articles only. The raw directory listing includes subfolders, images, and
+// the folder's own index, so a folder of 3 articles plus 3 subfolders would
+// otherwise read as 6 and wrongly earn a split. Shared by both threshold
+// checks: they ask the same question of the same directory and must never
+// answer it differently.
+function countArticles(dirAbs, entries, params) {
+  const indexSuffix = typeof params.indexSuffix === "string" ? params.indexSuffix.toLowerCase() : null;
+  return entries.filter((f) => {
+    if (f.startsWith(".")) return false;
+    if (!f.toLowerCase().endsWith(".md")) return false;
+    const base = f.slice(0, -3).toLowerCase();
+    if (indexSuffix && base.endsWith(indexSuffix)) return false;
+    let isDir = false;
+    try {
+      isDir = statSync(path.join(dirAbs, f)).isDirectory();
+    } catch {
+      isDir = false;
+    }
+    return !isDir;
+  }).length;
+}
+
 function checkSplitThreshold(params, ctx) {
   const { minEntries } = params;
   if (typeof minEntries !== "number") return null;
@@ -381,7 +403,7 @@ function checkSplitThreshold(params, ctx) {
   const entries = safeReaddir(dir);
   if (!entries) return null;
 
-  const count = entries.filter((f) => !f.startsWith(".")).length;
+  const count = countArticles(dir, entries, params);
   if (count >= minEntries) {
     const folderLabel = path.dirname(ctx.relPath) || ".";
     return `Folder "${folderLabel}" has ${count} entries (at least ${minEntries}); consider splitting into a sub-index.`;
@@ -397,10 +419,10 @@ function checkAbsorbThreshold(params, ctx) {
   const entries = safeReaddir(dir);
   if (!entries) return null;
 
-  const count = entries.filter((f) => !f.startsWith(".")).length;
-  if (count <= maxEntries) {
+  const count = countArticles(dir, entries, params);
+  if (count < maxEntries) {
     const folderLabel = path.dirname(ctx.relPath) || ".";
-    return `Folder "${folderLabel}" has ${count} entries (at most ${maxEntries}); consider absorbing it into its parent.`;
+    return `Folder "${folderLabel}" has ${count} entries (fewer than ${maxEntries}); consider absorbing it into its parent.`;
   }
   return true;
 }
@@ -427,9 +449,9 @@ function searchForFileStat(dir, candidateNames, depth) {
   return false;
 }
 
-function wikilinkTargetExists(kbRootAbs, target) {
+function wikilinkTargetExists(searchRoots, target) {
   const candidates = [`${target}.md`, target];
-  return searchForFileStat(kbRootAbs, candidates, 0);
+  return searchRoots.some((root) => searchForFileStat(root, candidates, 0));
 }
 
 function checkWikilinkPolicy(params, ctx) {
@@ -459,7 +481,7 @@ function checkWikilinkPolicy(params, ctx) {
     if (requireDisplayText && parts.length < 2) {
       bareLinks.push(m[0]);
     }
-    if (requireExistingTarget && !wikilinkTargetExists(ctx.kbRootAbs, target)) {
+    if (requireExistingTarget && !wikilinkTargetExists(ctx.searchRoots, target)) {
       missingTargets.push(target);
     }
   }
@@ -814,6 +836,14 @@ function main() {
   const prongRootAbs = path.resolve(projectRoot, prongRoots[prongKind] || owner.kbRoot);
   const relToProng = path.relative(prongRootAbs, absFilePath);
 
+  // Wikilink resolution searches the union of the owning setting's prong
+  // roots, not kbRoot alone, so a session report can link to a KB article
+  // (or vice versa) without the target reading as dead.
+  const searchRoots = ["kbRoot", "homebrewRoot", "sessionReportsRoot"]
+    .map((k) => owner[k])
+    .filter((r) => typeof r === "string" && r.length > 0)
+    .map((r) => path.resolve(projectRoot, r));
+
   let fileContent;
   try {
     fileContent = readFileSync(absFilePath, "utf8");
@@ -831,6 +861,7 @@ function main() {
     toolName,
     prongKind,
     kbRootAbs,
+    searchRoots,
     absFilePath,
     relPath: relToProng,
     relProjectPath: path.relative(projectRoot, absFilePath),
