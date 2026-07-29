@@ -2,31 +2,33 @@
 
 ## What this file is
 
-`.professor-orb/conventions.json` is the machine-checkable derivation of a consumer
-project's knowledge base conventions. It exists so that structural rules only have
-to be interpreted once (by the setup skill, with the DM's confirmation) and every
-downstream component can then check against a flat, deterministic file instead of
-re-reading prose.
+`.professor-orb/conventions.json` is professor-orb's rule schema instantiated for one
+consumer project: the base rule set the plugin ships, plus the extras layer setup
+discovers from that project and confirms with the DM. It exists so that structural
+rules are stated once, in one place, and every downstream component checks against a
+flat, deterministic file instead of re-reading prose.
 
 Three components consume this schema:
 
 - **The PostToolUse hook** (`validate-write.mjs`) reads it on every KB article write
   and checks the file against each rule whose `enforcement` is not `off`.
-- **The setup skill** produces it, by translating an existing human-readable
-  conventions document (e.g. `KB-CONVENTIONS.md`), by consolidating conventions
-  scattered across other files, or by interviewing the DM. See "How setup produces
-  this file" below.
+- **The setup skill** produces it, by instantiating the base rule set and layering
+  on extras drawn from an existing human-readable conventions document (e.g.
+  `KB-CONVENTIONS.md`), from conventions scattered across other files, or from an
+  interview with the DM. See "How setup produces this file" below.
 - **The validation sweep** (a KB-wide audit workflow) reads it to know what every
   sharded subagent should check, and regenerates the companion tag registry
   afterward.
 
 All three must agree on the shape of the file. This document is that agreement.
 
-The conventions file is **derived, not authoritative**. It captures the rules the
-DM confirmed during setup. If a human-readable conventions document existed at
-the KB root, it was raw material for that derivation; `conventions.json` is the
-machine-checkable result. The setup skill regenerates it; nothing else hand-edits
-it as primary.
+The conventions file is **instantiated from professor-orb's base rule set, and
+authoritative for structural checks**. It carries the base rules the plugin ships,
+at the enforcement levels the DM confirmed during setup, plus the extras setup
+derived from this project. If a human-readable conventions document existed at the
+KB root, it was raw material for the extras layer only; the structural layer does
+not come from it. The setup skill regenerates the file; nothing else hand-edits it
+as primary.
 
 A companion file, `.professor-orb/tag-registry.json`, holds the actual inventory
 of tags in use across the KB. `conventions.json` only references that the tag
@@ -34,11 +36,14 @@ registry exists and where to find it; it does not embed the tag list.
 
 ## Design principles
 
-1. **Extensible, not hardcoded.** This schema defines structure. The specific
-   article types, filename suffixes, and field names in any example below belong
-   to one consumer project (Rolara) and are illustrations, not requirements.
-   A fresh consumer project with no existing conventions still produces a valid
-   `conventions.json` using the same schema with different values.
+1. **One base set, extended rather than replaced.** Professor-orb owns the
+   structural layer and ships it at `references/base-rules.json`: folder and index
+   rules, frontmatter schema and field order, filename conventions, wikilink
+   format. Every consumer project gets the same base rules, at whatever
+   enforcement levels its DM confirmed. What differs between two consumers is the
+   extras layer: the article types that project actually uses, its tag
+   vocabulary, and any rule the base set does not cover. A project extends a base
+   rule through `extendedBy`; it does not restate, weaken, or replace one.
 2. **Per-rule enforcement, never global strictness.** There is no top-level
    "strict mode" toggle. Each rule carries its own `enforcement`. A DM can block
    on invalid `type` values while only warning on new tags, in the same file.
@@ -60,6 +65,13 @@ registry exists and where to find it; it does not embed the tag list.
   // Schema version for this file format. Bump only if the shape of a rule
   // entry changes in a way older hook versions cannot parse.
   "version": 1,
+
+  // Which version of professor-orb's base rule set this file was generated
+  // against, copied from the "schemaVersion" of references/base-rules.json.
+  // It lets a later setup run detect that the base layer has moved on.
+  // Independent of "version": that one describes the file format, this one
+  // describes the rule set the file was instantiated from.
+  "schemaVersion": 1,
 
   // Path to the KB folder, relative to the project root.
   "kbRoot": "rolara-kb",
@@ -100,6 +112,12 @@ Every entry in `rules` follows the same shape, regardless of category:
 ```jsonc
 {
   "<ruleId>": {
+    // Required. Who authored this rule: "professor-orb" for one that came from
+    // the base rule set, "project" for one setup derived from this consumer.
+    // A rule carrying no provenance at all reads as "project"; see
+    // "Reconciling a v1 file" below for how setup repairs such a file.
+    "provenance": "professor-orb",
+
     // One of: "frontmatter" | "filename" | "structural" | "content".
     // Groups rules for documentation and for sweep reporting; the hook does
     // not branch on this field, only on "check".
@@ -111,6 +129,17 @@ Every entry in `rules` follows the same shape, regardless of category:
 
     // One of: "block" | "warn" | "off". See "Enforcement levels" below.
     "enforcement": "block",
+
+    // Optional. Additional permitted values this project contributes to a base
+    // rule. They are unioned into "params.values" and into nothing else. See
+    // the note below; on a rule whose params carry no "values" array, this
+    // field has no effect.
+    "extendedBy": ["Settlement", "Landmark"],
+
+    // Optional. "kb" restricts the rule to the setting knowledge base, so it
+    // is not applied to material outside it. Absent means the rule applies
+    // wherever the checking component looks.
+    "scope": "kb",
 
     // Human-readable one-liner. This is what a DM reads directly in
     // conventions.json, and it doubles as the hook's fallback message for a
@@ -139,8 +168,57 @@ Every entry in `rules` follows the same shape, regardless of category:
 
 Rule IDs are free-form (camelCase is the convention setup uses when generating
 new files) but must be unique within the file. Nothing about a rule ID is
-semantically meaningful to the hook; it only reads `category`, `check`,
-`enforcement`, and `params`.
+semantically meaningful to the hook; it only reads `check`, `enforcement`,
+`extendedBy`, `scope`, and `params`. A base rule keeps the ID it carries in
+`references/base-rules.json`, which is how setup, the sweep, and a later resync
+recognize it as the same rule.
+
+**Note on `provenance`:** every rule carries it, and it decides who is
+accountable for the rule's content. A `professor-orb` rule came from the base
+set: the plugin authored it, and the DM's say over it is the `enforcement` level
+they confirmed at setup, including `off`. A `project` rule came from this
+consumer: the DM authored it, directly or through a document setup read. The
+distinction is load-bearing in the autofix path, where the two provenances
+answer differently the question of who pre-approved a fix; see the Autofix
+section below. A `project` rule may add a rule the base set does not cover. It
+may not restate, weaken, or remove a base rule; `enforcement` is the deliberate
+exception.
+
+**Note on `extendedBy`:** a project does not get a second rule of the same check
+kind on the same field. Each rule fails independently, so two `enum` rules on
+`type` would make every article fail one of them. A base rule instead carries
+`extendedBy`, an array of extra permitted values the project contributes, and
+the checking component evaluates the union of `params.values` and `extendedBy`.
+Both stay visible, so provenance is legible without a second rule entry.
+
+`extendedBy` unions into `params.values` and into nothing else. In particular it
+is never spliced into `params.mapping`: a `suffixByType` mapping holds
+`{ type, suffix }` objects matched by their `type` key, so a bare string added
+to that array could never match, which would silently stop enforcing the rule
+for the extended type rather than enforcing it. A project that needs a new
+type-to-suffix pair states it as its own `provenance: "project"` rule.
+
+**Note on `scope`:** the only value is `"kb"`, and it restricts the rule to the
+setting knowledge base. It is how a rule that only makes sense against KB
+articles avoids being applied to material held elsewhere in the project. A rule
+with no `scope` applies wherever the component checking it looks. Several base
+rules ship with `scope: "kb"`.
+
+**Reconciling a v1 file, whose rules carry no `provenance` at all.** Every rule
+in a v1 `conventions.json` was derived from the consumer's own project, so
+reading them all as `provenance: "project"` would leave a second rule of the
+same check kind on the same field standing beside every base rule, which is
+exactly the breakage `extendedBy` exists to prevent. Setup and resync apply this
+reconciliation instead:
+
+- A provenance-less rule whose **check kind and target match a base rule's**
+  (the same field for a `frontmatter` check, the same param target for a
+  `filename` or `structural` one) is discarded as a rule of its own. Its
+  distinct values fold into that base rule's `extendedBy`, and its
+  `enforcement` level carries onto the base rule, so the DM's earlier choices
+  survive.
+- A provenance-less rule with **no base counterpart** survives, and setup writes
+  `provenance: "project"` onto it.
 
 **Note on `description`:** this field is a terse sentence, never narrative.
 It states what the rule checks, in one clean sentence, and nothing else.
@@ -236,19 +314,19 @@ DM who does not want tag drift tracked at all.
 ## Enforcement scopes
 
 Every convention that setup considers falls into exactly one of three
-enforcement scopes, classified by where it can actually be checked. Only the
-first scope becomes an active rule in `conventions.json`.
+enforcement scopes, classified by where it can actually be checked. The first
+two are recorded in `conventions.json`; the third never is.
 
 | scope | what it can see | where it is recorded |
 |---|---|---|
 | Per-write (the hook) | Only the file just written, the folder it lives in, and cheap existence lookups (e.g. whether a wikilink target exists somewhere in the KB) | An active rule in `conventions.json`, using one of the check kinds in the catalog above |
-| Whole-KB (the validation sweep) | The entire KB: every article, every folder, the full index graph | A legitimate convention, but not a write-time gate; the hook returns "not applicable" for it (`singleOwnership` is the example already in this schema). Recorded in `conventions.json` as a sweep-scope entry carrying a non-off `enforcement`, typically `warn`. The hook stays silent on it because its check function returns "not applicable", not because of the enforcement level; `off` is reserved for a rule the DM has deliberately turned off, and giving it to a sweep-scope rule by default would make the sweep skip it too |
+| Whole-KB (the validation sweep) | The entire KB: every article, every folder, the full index graph | A legitimate convention, but not a write-time gate; the hook returns "not applicable" for it (`singleOwnership` is the example already in this schema). Recorded in `conventions.json` as a sweep-scope entry carrying a non-off `enforcement`, typically `warn`. The hook stays silent on it because its check function returns "not applicable", not because of the enforcement level; `off` is reserved for a rule the DM has deliberately turned off, and giving it to a sweep-scope rule by default would make the sweep skip it too. A base rule may be sweep scope: `structuralSingleOwnership` ships this way, carrying `provenance: "professor-orb"` and `enforcement: "warn"` |
 | Human judgment | No deterministic answer exists, for example which of two colliding filenames is "primary," or whether a prose cross-reference reads well | Never `conventions.json`. Setup routes it to the consumer project's CLAUDE.md, as guidance for a human, or a model exercising judgment, to read |
 
 Setup classifies each candidate convention by scope before proposing it to
-the DM, and only per-write-checkable conventions are emitted as active
-rules. Judgment-only conventions go to CLAUDE.md, never into
-`conventions.json`. A migration, for example "the KB used to allow X, DMs
+the DM. A base rule arrives already classified, carrying its own `scope`, and
+setup does not reclassify it. Judgment-only conventions go to CLAUDE.md, never
+into `conventions.json`. A migration, for example "the KB used to allow X, DMs
 should now write Y," is tracked only as a proposal during the setup
 conversation; it is never asserted as settled fact inside `conventions.json`,
 whether as a rule of its own or folded into a `description`.
@@ -279,8 +357,8 @@ what they turned off and turn it back on, but does not want evaluated
 anywhere: not gating individual writes, and not picked up by the sweep either.
 
 The setup skill always confirms each rule's enforcement level with the DM via
-`AskUserQuestion` rather than assuming one; the levels above are guidance, not
-defaults baked into the schema itself.
+`AskUserQuestion` rather than assuming one; the levels above are the defaults the
+base rules ship with, which the DM may change.
 
 ## Autofix
 
@@ -314,11 +392,13 @@ carries a violation-shaped character inside genuine code.
 
 ## Example conventions.json
 
-A realistic (abbreviated) file, using Rolara-shaped values as examples. A
-different consumer project would have different types, suffixes, and
-thresholds, but the same shape. Rolara is a tier 1 project with an existing
-conventions document; a tier 2 or 3 project would have
-`"sourceConventionsDoc": null`.
+A realistic (abbreviated) file in the v1 shape: `"version": 1`, and no rule
+carrying a `provenance` field. Setup reconciles a file like this against the
+base rule set on its next run, by "Reconciling a v1 file" above. The values are
+Rolara-shaped illustrations of what one project's rules look like on disk; what
+differs in another consumer is the extras layer, not the structural rules.
+Rolara is a tier 1 project with an existing conventions document; a tier 2 or 3
+project would have `"sourceConventionsDoc": null`.
 
 ```json
 {
@@ -471,31 +551,37 @@ conventions document; a tier 2 or 3 project would have
 ## How setup produces this file
 
 The setup skill runs once per consumer project (plus an on-demand resync when
-the KB has drifted). It supports three intake tiers, tried in this order of
-preference:
+the KB has drifted). Every project starts from the same base rule set, loaded
+from the plugin's `references/base-rules.json`. The three intake tiers below
+differ only in where the project-specific extras come from, tried in this order
+of preference.
 
-**Tier 1: translate an existing conventions document.** If the consumer already
-has a human-readable conventions document (e.g. Rolara's `KB-CONVENTIONS.md`),
-setup reads it section by section and proposes one or more rule entries per
-section, mapping prose like "6+ entries earns a subfolder" directly to a
-`splitThreshold` rule with `minEntries: 6`. `sourceConventionsDoc` is set to that
-file's path.
+**Tier 1: an existing conventions document.** If the consumer already has a
+human-readable conventions document (e.g. Rolara's `KB-CONVENTIONS.md`), setup
+reads it section by section for extras. A section restating something a base
+rule already covers contributes its distinct values to that base rule's
+`extendedBy` rather than a rule of its own; a section the base set does not
+cover becomes a `provenance: "project"` rule, using the matching check kind and
+params from the catalog above. `sourceConventionsDoc` is set to that file's
+path.
 
-**Tier 2: discover and consolidate.** If conventions exist but are scattered
-across `CLAUDE.md`, other project files, or inferred from patterns already
-present across multiple articles, setup gathers them into a single proposed
-rule set. Because no single document was the source, `sourceConventionsDoc` is
-set to null.
+**Tier 2: scattered prose.** If project-specific conventions exist but are
+spread across `CLAUDE.md`, other project files, or patterns visible across
+multiple articles, setup gathers them into the same extras layer by the same
+fold-or-emit rule. Because no single document was the source,
+`sourceConventionsDoc` is set to null.
 
-**Tier 3: interview and infer.** If conventions exist only in the DM's head,
-setup interviews the DM (via `AskUserQuestion`) and infers likely conventions
-from sample articles already in the KB (common frontmatter fields, filename
-patterns, folder sizes). It produces `conventions.json` only; `sourceConventionsDoc`
-is set to null.
+**Tier 3: interview and infer.** If nothing is written down, the base rule set
+still applies unchanged. Setup interviews the DM (via `AskUserQuestion`) for the
+extras and derives candidates from articles already in the KB: the distinct
+`type` values actually in use become `extendedBy` entries on the base type enum,
+and the tags already in use seed the tag registry. `sourceConventionsDoc` is set
+to null.
 
 **All tiers converge on the same step:** before writing `conventions.json`,
-setup walks the DM through every proposed rule, confirms the interpretation is
-correct, and confirms the enforcement level (`block` / `warn` / `off`) per rule.
-Nothing is written to `.professor-orb/conventions.json` without that
-confirmation. A resync re-runs this same walkthrough against whatever has
-changed, rather than silently overwriting the DM's prior choices.
+setup walks the DM through the full rule set, base and extras, confirms the
+interpretation is correct, and confirms the enforcement level
+(`block` / `warn` / `off`) per rule. Nothing is written to
+`.professor-orb/conventions.json` without that confirmation. A resync re-runs
+this same walkthrough against whatever has changed, rather than silently
+overwriting the DM's prior choices.
