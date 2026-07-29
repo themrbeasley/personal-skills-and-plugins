@@ -671,6 +671,56 @@ withRepo(
   }
 );
 
+console.log("\nA merge removes the source it names and nothing else");
+
+withRepo(
+  {
+    "settings/rolara/items/Items-INDEX.md": article("publish: false\ntype: Index", "## Items\n\n- [[Longsword]]"),
+    // The merge's only source. Its DM-chosen name carries glob characters, which
+    // is ordinary: index names come off the DM's filesystem by way of the scout
+    // and are never sanitized on the way here.
+    "settings/rolara/items/Weapons [OS]-INDEX.md": article(
+      "publish: false\ntype: Index",
+      "## Weapons\n\nSteel and star iron."
+    ),
+    // Named by NO operation in this plan, and irreplaceable. The glob [OS]
+    // matches the single character O, so a bare `git rm` pathspec swept it away
+    // with the source: measured, the folder was left holding only Items-INDEX.md
+    // and Longsword.md, this file's content had been merged nowhere, and the run
+    // still reported ok true, committed true, zero failures, zero drops, clean
+    // link integrity, and no messages. `--` stops option parsing; only
+    // `:(literal)` stops wildcard interpretation.
+    "settings/rolara/items/Weapons O-INDEX.md": article(
+      "publish: false\ntype: Index",
+      "## Weapons of Office\n\nIRREPLACEABLE CONTENT."
+    ),
+    "settings/rolara/items/Longsword.md": article("publish: false\ntype: Item", "A blade."),
+  },
+  (root) => {
+    const r = apply(root, [
+      {
+        op: "merge-index",
+        to: "settings/rolara/items/Items-INDEX.md",
+        sources: ["settings/rolara/items/Weapons [OS]-INDEX.md"],
+        reason: "multi-index folder",
+      },
+    ]);
+    check("the merge is applied", [r.applied.length, r.failed.length, r.dropped.length], [1, 0, 0]);
+    check("the source the plan named is gone", has(root, "settings/rolara/items/Weapons [OS]-INDEX.md"), false);
+    check("its content arrived in the survivor",
+      read(root, "settings/rolara/items/Items-INDEX.md").includes("Steel and star iron."), true);
+    check("the sibling the glob would otherwise have matched is still on disk",
+      has(root, "settings/rolara/items/Weapons O-INDEX.md"), true);
+    check("with its content untouched",
+      read(root, "settings/rolara/items/Weapons O-INDEX.md").includes("IRREPLACEABLE CONTENT."), true);
+    check("and still tracked by git",
+      lsFiles(root).includes("settings/rolara/items/Weapons O-INDEX.md"), true);
+    check("nothing the plan never named was removed from the folder",
+      readdirSync(path.join(root, "settings/rolara/items")).sort(),
+      ["Items-INDEX.md", "Longsword.md", "Weapons O-INDEX.md"]);
+  }
+);
+
 console.log("\nThe link-integrity rail still blocks a dropped rewrite");
 
 withRepo(
@@ -1076,34 +1126,79 @@ console.log("\nAn assertion that checks zero links is a failure, not a pass");
 
 withRepo(
   {
-    "settings/rolara/items/Sword.md": article("publish: false\ntype: Item", "A blade."),
+    // Where the knowledge base actually is, and it holds a wikilink.
+    "kb/Items-INDEX.md": article("publish: false\ntype: Index", "- [[Sword]]"),
+    "kb/Sword.md": article("publish: false\ntype: Item", "A blade."),
+    // The DECLARED prong root. It exists, so the walk does not fall back to the
+    // whole project, and nothing under it carries a wikilink.
+    "settings/rolara/Placeholder.md": article("publish: false\ntype: Concept", "No wikilinks here."),
   },
   (root) => {
     const before = head(root);
-    // Nothing in this project links to anything. A rename can orphan a wikilink,
-    // so a walk that finds none of them is either pointed at the wrong tree or
-    // has nothing to protect, and the module's own principle is that an
-    // assertion which silently checks nothing is not an assertion.
+    // The rename ran and demonstrably rewrote a wikilink, so this knowledge base
+    // has them. The walk then found zero, which can only mean the roots are
+    // pointed away from where the run put the content. That is the defect this
+    // rail exists to catch, and it must keep refusing: the module's own principle
+    // is that an assertion which silently checks nothing is not an assertion.
     const r = applyPlan(
       {
         operations: [
           {
             op: "rename-with-link-rewrite",
-            from: "settings/rolara/items/Sword.md",
-            to: "settings/rolara/items/Sword-ITEM.md",
+            from: "kb/Sword.md",
+            to: "kb/Sword-ITEM.md",
+            links: ["kb/Items-INDEX.md"],
             reason: "suffix",
           },
         ],
       },
       { cwd: root, settings: SETTINGS, baseRules: BASE_RULES, commit: true }
     );
-    check("zero links checked after a rename is reported as a coverage failure",
+    check("the rewrite landed, so a wikilink demonstrably exists in this project",
+      first(r.applied).linksRewritten, 1);
+    check("zero links checked after it is reported as a coverage failure",
       [links(r).ok, links(r).coverage, links(r).linksChecked], [false, "no-links-checked", 0]);
     check("with no dead link to blame it on", links(r).dead, []);
     check("nothing is committed on it", r.committed, false);
     check("HEAD is still the snapshot", head(root), before);
-    check("and the message says which roots were walked, so the DM can tell the two causes apart",
+    check("and the message says which roots were walked, so the DM can find the mismatch",
       /walked, in \["settings\/rolara"\]/.test(r.messages.join(" ")), true);
+  }
+);
+
+withRepo(
+  {
+    // A knowledge base that genuinely carries no wikilink anywhere, which is an
+    // ordinary shape for one early in its life, and one plain filename fix.
+    "settings/rolara/KB-INDEX.md": article("publish: false\ntype: Index", "The knowledge base. No wikilinks anywhere."),
+    "settings/rolara/The Rusty Flagon.md": article("publish: false\ntype: Location", "A tavern. Still no wikilinks."),
+  },
+  (root) => {
+    const before = head(root);
+    // Armed from the PLAN, this was a dead end rather than a warning: the run
+    // refused with dead [], refused identically with commit disabled because the
+    // guard sits before that branch, carried no override, and refused again after
+    // the documented restore. No skip, no failure, and no git-ignored file were
+    // needed to reach it. A rename that rewrote no wikilink put none at risk.
+    const r = applyPlan(
+      {
+        operations: [
+          {
+            op: "rename-with-link-rewrite",
+            from: "settings/rolara/The Rusty Flagon.md",
+            to: "settings/rolara/The-Rusty-Flagon.md",
+            reason: "filename convention",
+          },
+        ],
+      },
+      { cwd: root, settings: SETTINGS, baseRules: BASE_RULES, commit: true }
+    );
+    check("the rename applied",
+      [r.applied.length, has(root, "settings/rolara/The-Rusty-Flagon.md")], [1, true]);
+    check("a run that rewrote no wikilink does not arm the zero-link rail",
+      [links(r).ok, links(r).coverage, links(r).linksChecked], [true, "ok", 0]);
+    check("so a wikilink-free knowledge base can finish its migration", r.committed, true);
+    check("and HEAD moved off the snapshot", head(root) !== before, true);
   }
 );
 

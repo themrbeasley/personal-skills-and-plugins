@@ -1076,6 +1076,14 @@ export function gitMove(ctx, from, to) {
     return { ok: false, mode: "direct", error: `could not create the destination directory: ${err.message}` };
   }
 
+  // No `:(literal)` here, deliberately, and it is not an oversight. `git mv`
+  // takes a source PATH and a destination PATH, not pathspecs: measured against
+  // real git, `git mv -- "items/Weapons [OS]-INDEX.md" items/Renamed-INDEX.md`
+  // moved only the bracketed file and left the neighbouring `Weapons O-INDEX.md`
+  // that a glob would have matched exactly where it was. Prefixing these would
+  // instead create a file whose name literally begins `:(literal)`. The one
+  // pathspec-consuming git call in this module is the `git rm` in
+  // applyMergeIndex, and it carries the prefix.
   const direct = ctx.git(["mv", "--", from, to]);
   if (direct.ok) return { ok: true, mode: "direct" };
 
@@ -1320,15 +1328,19 @@ function scopeCandidates(root, relocations) {
  * and the snapshot intact behind it, which is recoverable. A dead link committed
  * because an unrelated file happened to share a basename is not.
  *
- * `expectLinks` says the plan carried operations that can orphan a wikilink. In
- * that case an assertion that checked ZERO links is reported as a failure rather
- * than a pass, because the module's own principle is that an assertion which
- * silently checks nothing is not an assertion, and zero links after a rename or
- * a merge is far likelier to mean the walk scope missed the content than to mean
- * the knowledge base has no wikilinks in it. The residual false alarm is a
- * knowledge base that genuinely carries no wikilink anywhere under any prong
- * root; `roots` and `filesChecked` are returned so that a caller reporting the
- * refusal can say which of the two it was.
+ * `expectLinks` says the caller has EVIDENCE that this knowledge base holds at
+ * least one wikilink. In that case an assertion that checked ZERO links is
+ * reported as a failure rather than a pass, because the module's own principle
+ * is that an assertion which silently checks nothing is not an assertion: if a
+ * wikilink is known to exist and the walk found none, the walk is pointed away
+ * from the content. `roots` and `filesChecked` are returned so that a caller
+ * reporting the refusal can name the roots it actually walked.
+ *
+ * The evidence must be evidence, not an assumption. applyPlan arms this from the
+ * wikilinks its own run rewrote, never from the operation kinds the plan carried:
+ * "this plan contains a rename" is not evidence that any wikilink exists, and
+ * arming on it turned a wikilink-free knowledge base into a migration that could
+ * never finish. See the call site.
  *
  * @returns {{ok: boolean, dead: Array<{file: string, target: string}>,
  *            filesChecked: number, linksChecked: number,
@@ -1912,9 +1924,21 @@ function applyMergeIndex(op, ctx) {
     return entry;
   }
 
+  // `--` stops OPTION parsing; it does not make what follows a literal path.
+  // `git rm` takes a PATHSPEC, so `*`, `?`, `[`, and `]` inside a DM-chosen
+  // index filename are read as wildcards, and this source arrives from the DM's
+  // filesystem by way of the scout with no sanitization in between. Measured
+  // against real git, with an unrelated `items/Weapons O-INDEX.md` sitting beside
+  // the merge's `items/Weapons [OS]-INDEX.md`: the bare pathspec removed BOTH,
+  // and the run reported ok, committed, zero failures, zero drops, and clean link
+  // integrity, because the unnamed file's content had never been merged anywhere
+  // and no rail was looking at it. `:(literal)` disables wildcard interpretation
+  // for that pathspec element; the same fix and the same reasoning as the lane
+  // pathspecs in `commands/`. Keep both: `--` and `:(literal)` fix different
+  // halves of this line and neither substitutes for the other.
   const undeleted = [];
   for (const source of folded) {
-    const removed = ctx.git(["rm", "-q", "--", source]);
+    const removed = ctx.git(["rm", "-q", "--", `:(literal)${source}`]);
     if (!removed.ok) undeleted.push(`${source} (${firstLine(removed.stderr)})`);
   }
   if (undeleted.length > 0) {
@@ -2195,11 +2219,15 @@ export function applyOperation(op, ctx) {
 // applyPlan
 // ---------------------------------------------------------------------------
 
-// The operation kinds that can orphan a wikilink, which is what makes a
-// zero-link assertion suspicious rather than merely quiet. A rename changes a
-// target's filename and a merge removes its sources outright. relocate-prong is
-// deliberately not one of them: Obsidian resolves wikilinks by basename, so a
-// folder move leaves every basename exactly where it was.
+// The operation kinds that can orphan a wikilink, and so the only ones whose
+// rewrite counts are evidence that this knowledge base holds wikilinks at all. A
+// rename changes a target's filename and a merge removes its sources outright.
+// relocate-prong is deliberately not one of them: Obsidian resolves wikilinks by
+// basename, so a folder move leaves every basename exactly where it was.
+//
+// Membership here is necessary but NOT sufficient to arm the zero-link rail; see
+// the expectLinks argument in applyPlan. A plan carrying one of these kinds says
+// only what was attempted.
 const LINK_BEARING_OPERATIONS = new Set(["rename-with-link-rewrite", "merge-index"]);
 
 // The recovery instruction, whole rather than half of one.
@@ -2483,22 +2511,53 @@ export function applyPlan(plan, options = {}) {
   //
   // The relocations are handed over because the settings above carry
   // PRE-migration prong roots, and relocate-prong has already moved them; see
-  // scopeCandidates. expectLinks is handed over because a rename or a merge that
-  // ends with zero links checked is a rail reporting on nothing.
+  // scopeCandidates. expectLinks is handed over because an assertion that walks
+  // a knowledge base known to hold wikilinks and finds none is reporting on
+  // nothing.
+  //
+  // It is armed from what the run actually DID, not from what the plan asked
+  // for, and the difference is the difference between a rail and a dead end.
+  // Armed from the plan, any plan carrying a link-bearing operation demanded a
+  // nonzero link count, so a knowledge base that genuinely holds no wikilink
+  // could never finish its migration: measured, a wikilink-free KB plus one
+  // ordinary filename fix refused with dead `[]`, refused again after the
+  // documented restore, and had no override to reach for. No skip, no failure,
+  // and no ignored file were needed to get there.
+  //
+  // What arms it now is EVIDENCE that a wikilink exists in this knowledge base:
+  // a link-bearing operation that actually rewrote at least one. Then a walk
+  // that checks zero links is demonstrably pointed away from the content, which
+  // is precisely the defect this rail exists to catch, and it still refuses. An
+  // operation that was skipped, or that ran and rewrote nothing, put no wikilink
+  // at risk and supplies no such evidence, so it does not arm the rail. Read
+  // from each entry rather than from the plan, which means a partly-failed merge
+  // whose sources are already gone and whose rewrites half landed DOES arm it:
+  // that run demonstrably touched a wikilink.
+  //
+  // This narrows the rail's scope; it does not weaken its verdict. An assertion
+  // that checks nothing is still not an assertion.
+  const rewroteAWikilink = raw.some(
+    (record) =>
+      record.outcome === "worked" &&
+      record.entry &&
+      LINK_BEARING_OPERATIONS.has(record.op.op) &&
+      Number(record.entry.linksRewritten) > 0
+  );
   result.linkIntegrity = assertLinkIntegrity({
     cwd,
     settings,
     relocations: operations.filter((o) => o.op === "relocate-prong" && o.from && o.to),
-    expectLinks: operations.some((o) => LINK_BEARING_OPERATIONS.has(o.op)),
+    expectLinks: rewroteAWikilink,
   });
   if (!result.linkIntegrity.ok) {
     result.messages.push(
       (result.linkIntegrity.coverage === "no-links-checked"
-        ? "Link integrity could NOT be asserted: this plan carries operations that can orphan a wikilink, but the " +
-          `assertion found zero wikilinks across the ${result.linkIntegrity.filesChecked} file(s) it walked, in ` +
-          `${JSON.stringify(result.linkIntegrity.roots)}. An assertion that checks nothing is not an assertion, so this is a ` +
-          "failure rather than a pass. Either those roots are not where this run put the content, or the knowledge base " +
-          "genuinely carries no wikilinks; the walked roots above say which. "
+        ? "Link integrity could NOT be asserted: this run rewrote at least one wikilink, so this knowledge base " +
+          `demonstrably has them, but the assertion then found zero wikilinks across the ${result.linkIntegrity.filesChecked} ` +
+          `file(s) it walked, in ${JSON.stringify(result.linkIntegrity.roots)}. An assertion that checks nothing is not an ` +
+          "assertion, so this is a failure rather than a pass. Those walked roots are not where this run put the content: " +
+          "check each setting's prong roots in conventions.json against where the articles actually landed. There are no " +
+          "dead links to list, because nothing was inspected. "
         : `Link integrity failed: ${result.linkIntegrity.dead.length} wikilink(s) resolve to nothing after the run. `) +
         "The migration was NOT committed. A dead wikilink is valid markdown that fails silently in Obsidian, " +
         "so this is checked before the commit rather than reported after it. " +

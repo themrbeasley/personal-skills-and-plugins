@@ -116,7 +116,14 @@ Finish this step by committing what it, Step 6, and Step 8 have written, togethe
 
 Run `migrate.mjs`'s apply phase against the plan from Step 9, with its own commit step disabled (`"commit": false` in its arguments), because the single migration commit happens at Step 15 and has to carry what Steps 12 through 14 produce as well.
 
-What the executor guarantees, and what you must carry into the report rather than restate as your own: every relocation goes through `git mv`; any operation whose source is git-ignored is skipped and reported, never moved, because the snapshot does not contain it; per-file applied true or false accounting means a dropped worker is never counted as done; and link integrity is asserted across every prong root before anything is committed. It also reports `ignoredEdits` and `ignoredMoved`, the edits and moves the snapshot cannot undo. If the link-integrity assertion fails, do not commit at Step 15: report the dead links with their containing files, and point at Step 5's snapshot hash, not the executor's.
+What the executor guarantees, and what you must carry into the report rather than restate as your own: every relocation goes through `git mv`; any operation whose source is git-ignored is skipped and reported, never moved, because the snapshot does not contain it; per-file applied true or false accounting means a dropped worker is never counted as done; and link integrity is asserted across every prong root before anything is committed. It also reports `ignoredEdits` and `ignoredMoved`, the edits and moves the snapshot cannot undo.
+
+**If the link-integrity assertion fails, do not commit at Step 15.** It fails in two different ways that need two different reports, and `linkIntegrity.coverage` is what tells them apart. Read it before writing anything.
+
+- **`coverage: "ok"` with a non-empty `dead` array.** Report the dead links with their containing files, exactly as the executor returned them.
+- **`coverage: "no-links-checked"`, with `dead` empty.** There are no dead links to report, and saying "no dead links were found" here would invert what happened. This outcome says the run rewrote at least one wikilink, so this knowledge base demonstrably has them, and the assertion then walked the roots in `linkIntegrity.roots` and found none at all. The walked roots are not where the run put the content. Report `linkIntegrity.roots` and `filesChecked` verbatim, set them against each setting's `kbRoot`, `homebrewRoot`, and `sessionReportsRoot`, and name the mismatch. Do not re-run the executor unchanged: nothing about a second run moves those roots, so it reproduces identically.
+
+In both cases point at Step 5's snapshot hash, not the executor's.
 
 **Two different commits are both called "the snapshot"; do not confuse them.** The executor's own `result.snapshot` field, and the restore instruction it prints, both name `git rev-parse HEAD` taken at the moment the executor runs, which by now is Step 9's preparation commit, because Steps 6, 8, and 9 all wrote to the tree after Step 5. That hash is not the restore point the DM wants: resetting to the preparation commit lands after Step 6 already moved `conventions.json` aside, so the DM's own conventions file is not sitting at its expected path there. Whatever the executor prints or returns as `snapshot`, do not copy it into the report; the report at Step 16 always uses the hash Step 5 captured.
 
@@ -165,7 +172,15 @@ Predecessor install artifacts are not handled here. If Step 1 found a predecesso
 
 ## Step 14: ask the large-and-sensitive-material question
 
-Ask the DM whether anything under the project should stay out of version control: large binaries, scanned handouts, audio, video, and any material they do not want in a repository at all. Apply the additions to `.gitignore`, then run `git rm --cached` on any newly ignored path the project's history already tracks, and check for pre-existing ignore rules that would swallow a file that is currently tracked.
+Ask the DM whether anything under the project should stay out of version control: large binaries, scanned handouts, audio, video, and any material they do not want in a repository at all. Apply the additions to `.gitignore`, then untrack any newly ignored path the project's history already tracks, one path per invocation:
+
+```
+git rm --cached -- ":(literal)<path>"
+```
+
+Then check for pre-existing ignore rules that would swallow a file that is currently tracked.
+
+`git rm` takes a **pathspec**, not a path. `--` stops option parsing, but git still reads `*`, `?`, `[`, and `]` inside the pathspec that follows as wildcards, so a DM-chosen folder or filename carrying one of them can untrack a neighbouring file the DM never named. Measured against real git: with `items/Weapons [OS]-INDEX.md` sitting next to an unrelated `items/Weapons O-INDEX.md`, `git rm -q -- "items/Weapons [OS]-INDEX.md"` removed both, while the same command with `:(literal)` prefixed removed only the named one. Keep the prefix even for a path that looks safe, and keep `--` as well: they fix different halves of the same line and neither substitutes for the other. This is the same rule `/scribe`, `/log`, and `/catalog` follow for their lane pathspecs.
 
 The position of this step is deliberate at both ends. It runs **after** the snapshot at Step 5, because asking what to exclude before anything is captured invites the DM to exclude exactly the material the migration is about to move, which would then be missing from the only restore point they have. It runs **before** the migration commit at Step 15, so that the `git rm --cached` removals it produces are captured by that commit rather than left sitting uncommitted in the tree.
 
