@@ -18,7 +18,7 @@ Every mutation in this workflow (conventions.json contents, enforcement levels, 
 Before anything else, check whether `.professor-orb/` already exists at the consumer project root.
 
 - **If it does not exist,** this is a first-time setup. Continue to Step 1.
-- **If it does exist,** do not clobber it. Tell the DM what you found (existing conventions, when it was last generated, whether the KB looks like it has drifted since) and offer a menu: review the current conventions, resync (re-run the intake and confirmation walkthrough against whatever has changed), or leave it alone. Only proceed past this point with the DM's direction. A resync reuses the rest of this workflow but treats the DM's prior confirmed choices as the starting draft rather than re-deriving everything from scratch, and sets `generatedBy` to `"resync"` instead of `"setup"`. If the existing file carries no `provenance` on any of its rules, reconcile those rules against the base rule set by the schema reference's "Reconciling a v1 file" section, which produces a report the DM approves item by item. The test is per rule, not per file: a file where some rules carry `provenance` and some do not is the expected shape after a DM hand-edit, which `generatedBy: "manual"` records, and its provenance-less rules need reconciling just as much as a wholly v1 file's do. Never apply a reconciliation result into the starting draft first, or the confirmation walkthrough will present changed enforcement levels as if they were the DM's own prior choices. Note: on resync, Step 1 (predecessor detection) is skipped; Step 4 regenerates only `conventions.json` and `tag-registry.json`, leaving `pipeline-state.json` and `proposals/` untouched.
+- **If it does exist,** do not clobber it. Tell the DM what you found (existing conventions, when it was last generated, whether the KB looks like it has drifted since) and offer a menu: review the current conventions, resync (re-run the intake and confirmation walkthrough against whatever has changed), or leave it alone. Only proceed past this point with the DM's direction. A resync reuses the rest of this workflow but treats the DM's prior confirmed choices as the starting draft rather than re-deriving everything from scratch, and sets `generatedBy` to `"resync"` instead of `"setup"`. If the existing file carries no `provenance` on any of its rules, reconcile those rules against the base rule set by the schema reference's "Reconciling a v1 file" section, which produces a report the DM approves item by item. The test is per rule, not per file: a file where some rules carry `provenance` and some do not is the expected shape after a DM hand-edit, which `generatedBy: "manual"` records, and its provenance-less rules need reconciling just as much as a wholly v1 file's do. Never apply a reconciliation result into the starting draft first, or the confirmation walkthrough will present changed enforcement levels as if they were the DM's own prior choices. Note: on resync, Step 1 (predecessor detection) is skipped; Step 5 regenerates only `conventions.json` and `tag-registry.json`, leaving `pipeline-state.json` and `proposals/` untouched.
 
 ## Step 1: detect predecessor installs
 
@@ -54,7 +54,11 @@ Batch these questions sensibly: group rules that share stakes or a category (all
 
 AskUserQuestion is mandatory for this confirmation. Do not write `conventions.json` from assumed defaults; every rule's enforcement level must be something the DM actually chose or explicitly approved.
 
-## Step 4: create or update the .professor-orb/ directory
+## Step 4: convert the versioning marker
+
+If `.professor-orb/catalog-versioning.json` exists and `.professor-orb/versioning.json` does not, copy its `mode` and `decided` values unchanged into the new file and mention the conversion in passing. Never rewrite `decided`: the decision was made when it was made. Do not delete the old file here; setup deletes it after its snapshot commit captures it.
+
+## Step 5: create or update the .professor-orb/ directory
 
 Once the DM has approved the rule set and every enforcement level, act based on whether this is a first-time setup or a resync.
 
@@ -67,13 +71,13 @@ Once the DM has approved the rule set and every enforcement level, act based on 
 
 **Resync.** Update only `conventions.json` and `tag-registry.json` with their new values. Leave `pipeline-state.json` and `proposals/` untouched; this preserves any in-flight pipeline breadcrumbs and pending chronicler proposals.
 
-## Step 5: copy the validation sweep workflow
+## Step 6: copy the validation sweep workflow
 
 Copy the plugin's `workflows/validation-sweep.mjs` (resolved from the plugin root) to `.claude/workflows/validation-sweep.mjs` in the consumer project, creating the destination directory if needed. Copy the file as-is; do not read its contents into the conversation and retype them, and do not reproduce or summarize its contents anywhere in this skill's own instructions. Plugins cannot ship workflow files directly into a consumer project's `.claude/workflows/`, which is why this copy step exists.
 
 If the source file is missing (for example if the plugin build has not shipped it yet), tell the DM this step could not complete and move on; do not fabricate a placeholder script.
 
-## Step 6: apply folder-index parity
+## Step 7: apply folder-index parity
 
 Check whether the KB already has articles.
 

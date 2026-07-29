@@ -44,16 +44,17 @@ If it is missing, apply professor-orb's base schema per SHARED-PRINCIPLES Princi
 
 Before writing anything, settle how this catalog records versions. This is decided once for the catalog, the first time it is used, and then followed silently on every later capture. The command never re-asks once the choice is on record.
 
+If `.professor-orb/catalog-versioning.json` exists and `.professor-orb/versioning.json` does not, copy its `mode` and `decided` values unchanged into the new file and mention the conversion in passing. Never rewrite `decided`: the decision was made when it was made. Do not delete the old file here; setup deletes it after its snapshot commit captures it.
+
 Check these in order:
 
-1. **Is the catalog folder already inside a git repository?** If yes, the mode is git: every capture is a commit, and the repository's own presence is the record of that choice. Skip the offer and carry `git` forward to Step 7.
-2. **Does a versioning marker exist at `.professor-orb/catalog-versioning.json`?** This marker lives in the project's `.professor-orb/` state folder, alongside `conventions.json` from Step 2, not in the catalog folder. If it exists, read its `mode` (`git` or `changelog`) and carry that forward to Step 7. Skip the offer.
-3. **Neither a git repository nor a marker exists.** Versioning has never been established for this catalog, so this is the moment to offer it, once. Pre-existing catalog entries do not count as "established": a catalog can already hold entries, including ones captured before this command existed, and still have never had its versioning set up. Do not read the presence of entries as a prior decision.
+1. **Does a versioning marker exist at `.professor-orb/versioning.json`?** This marker lives in the project's `.professor-orb/` state folder, alongside `conventions.json` from Step 2, not in the catalog folder. If it exists, read its `mode` (`git` or `changelog`) and carry that forward to Step 7. Skip the offer.
+2. **No marker exists.** Versioning has never been established for this catalog, so this is the moment to offer it, once. Pre-existing catalog entries do not count as "established": a catalog can already hold entries, including ones captured before this command existed, and still have never had its versioning set up. Do not read the presence of entries as a prior decision.
 
-**Making the first-time offer (case 3 only).** Use AskUserQuestion to offer setting the catalog up as a local git repository, so every capture becomes a real commit with full history and recoverable prior versions. Recommend it, but do not force it; this is a single first-run offer, not a recurring prompt.
+**Making the first-time offer (case 2 only).** Use AskUserQuestion to offer setting the catalog up as a local git repository, so every capture becomes a real commit with full history and recoverable prior versions. Recommend it, but do not force it; this is a single first-run offer, not a recurring prompt.
 
-- **If the DM accepts:** run `git init` locally in the catalog root, then write `.professor-orb/catalog-versioning.json` containing `{"mode": "git", "decided": "<today's date>"}`. The mode is git for this capture and every future one.
-- **If the DM declines, or does not answer:** write `.professor-orb/catalog-versioning.json` containing `{"mode": "changelog", "decided": "<today's date>"}`. The mode is the no-git changelog baseline. Because the choice is now recorded, the command will not offer git again for this catalog; the DM can set git up themselves later if they change their mind.
+- **If the DM accepts:** run `git init` locally in the catalog root, then write `.professor-orb/versioning.json` containing `{"mode": "git", "decided": "<today's date>"}`. The mode is git for this capture and every future one.
+- **If the DM declines, or does not answer:** write `.professor-orb/versioning.json` containing `{"mode": "changelog", "decided": "<today's date>"}`. The mode is the no-git changelog baseline. Because the choice is now recorded, the command will not offer git again for this catalog; the DM can set git up themselves later if they change their mind.
 
 Creating a private remote and pushing to it stays entirely the DM's own action. Never attempt account creation, authentication, or pushing.
 
@@ -143,7 +144,7 @@ Keep it short: a handful of facts, not a restatement of the entry's contents.
 - **Standalone**, like `homebrew` and `timeline`: runs on demand, independent of the session pipeline's state, and never writes `.professor-orb/pipeline-state.json`.
 - **Fed by:** the `homebrew` skill (`professor-orb/skills/homebrew/SKILL.md`), which points the DM here once a design is finalized, and again later once that design is implemented in Foundry, but never runs this capture itself.
 - **Reads:** `.professor-orb/conventions.json` (CLAUDE.md fallback) for KB structure and frontmatter rules, and `references/catalog-type-templates.md` (relative to this command) for the type-specific field and body-block schema.
-- **Writes:** one markdown entry in the homebrew catalog folder (new, or updated in place on a revision), the owning Homebrew index, and, on the first capture that establishes versioning, the `.professor-orb/catalog-versioning.json` marker. Nothing else.
+- **Writes:** one markdown entry in the homebrew catalog folder (new, or updated in place on a revision), the owning Homebrew index, and, on the first capture that establishes versioning, the `.professor-orb/versioning.json` marker. Nothing else.
 - **Read back by:** the `homebrew` skill, which treats catalogued entries as design precedent alongside published material when checking for design overlap.
 
 Foundry-JSON sourcing (reading an exported actor or item JSON directly, per Step 1) arrives in Phase 2 and is not available in this version.
