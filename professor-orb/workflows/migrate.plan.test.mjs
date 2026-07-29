@@ -40,6 +40,12 @@ const list = (v) => (Array.isArray(v) ? v : []);
 const kindsOf = (operations) => operations.map((o) => o.op);
 const dedupeConsecutive = (xs) => xs.filter((x, i) => i === 0 || x !== xs[i - 1]);
 const find = (operations, op) => operations.find((o) => o.op === op) || {};
+// Reaching into a field an implementation may have stopped emitting has to make
+// the case go RED, not throw and take every later case in the file down with it:
+// an exception here would hide exactly the red set that proves the suite can
+// fail. Measured, not assumed. Dropping the sourceLinks half of the plan phase
+// crashed this file at the Object.keys below until this guard went in.
+const obj = (v) => (v && typeof v === "object" ? v : {});
 
 // Written out rather than imported. Comparing the planned order against
 // OPERATION_ORDER would compare the module against itself: reorder the constant
@@ -198,6 +204,12 @@ function makeRepo() {
   // create-index destination cases.
   write("settings/rolara/items/Items-INDEX.md", "---\npublish: false\ntype: Index\n---\n\nSurvivor.\n");
   write("settings/rolara/items/Artifacts-INDEX.md", "---\npublish: false\ntype: Index\n---\n\nSource.\n");
+  // Two vaults that are ALREADY on disk, which is the ordinary state of any
+  // project that has been set up once: the reference consumer already carries
+  // rolara-kb/.obsidian. One is the create shape's destination, the other is a
+  // move shape's destination.
+  write("settings/rolara/.obsidian/app.json", "{}\n");
+  write("settings/karsk/.obsidian/app.json", "{}\n");
   const git = (...argv) =>
     execFileSync("git", argv, { cwd: root, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
   git("init", "-q");
@@ -338,6 +350,71 @@ console.log("\nDestination collisions");
   check("the merge carries every source it will consume",
     list(find(p.operations, "merge-index").sources).length, 3);
   check("a three-source merge does not read as a collision", p.prechecks.ok, true);
+}
+
+console.log("\nA merge carries the link rewrites it requires");
+
+{
+  // A merge REMOVES its sources, so every wikilink that named one dies with
+  // them. That is the same class of dead reference a rename carries `links` to
+  // prevent, and the reference consumer's items/ orphans six of them, which is
+  // why the merge has to carry its referring files the same way. Backslashes
+  // here because a survey may hand back native separators, and every path in a
+  // plan is posix so the collision key built from it stays stable.
+  const p = plan({
+    multiIndexFolders: [
+      {
+        folder: "settings\\rolara\\items",
+        survivor: "settings\\rolara\\items\\Items-INDEX.md",
+        sources: ["settings\\rolara\\items\\Artifacts-INDEX.md"],
+        sourceLinks: {
+          "settings\\rolara\\items\\Artifacts-INDEX.md": [
+            "settings\\rolara\\items\\Items-INDEX.md",
+            "settings\\rolara\\items\\Items-INDEX.md",
+          ],
+        },
+      },
+    ],
+  });
+  const merge = find(p.operations, "merge-index");
+  check("a merge carries the files referring to each source it removes, posix and deduped",
+    merge.sourceLinks,
+    { "settings/rolara/items/Artifacts-INDEX.md": ["settings/rolara/items/Items-INDEX.md"] });
+  check("and the reason states how many pairs it will rewrite",
+    /Rewrites 1 referring file\/source pair\(s\)/.test(merge.reason || ""), true);
+}
+
+{
+  // The rewrite half edits ARTICLE CONTENT rather than only moving files, so
+  // the only files it may touch are ones named against a source this operation
+  // is actually removing. A key naming anything else is dropped rather than
+  // smuggling an unrelated rewrite into the unit of work.
+  const p = plan({
+    multiIndexFolders: [
+      {
+        folder: "settings/rolara/items",
+        survivor: "settings/rolara/items/Items-INDEX.md",
+        sources: ["settings/rolara/items/Artifacts-INDEX.md"],
+        sourceLinks: {
+          "settings/rolara/items/Artifacts-INDEX.md": ["settings/rolara/items/Items-INDEX.md"],
+          "settings/rolara/items/Spells-INDEX.md": ["settings/rolara/Everything.md"],
+        },
+      },
+    ],
+  });
+  check("a sourceLinks key naming something this merge does not consume is dropped",
+    Object.keys(obj(find(p.operations, "merge-index").sourceLinks)),
+    ["settings/rolara/items/Artifacts-INDEX.md"]);
+}
+
+{
+  // Carried only when there are any, the same terms a rename carries `links`
+  // on. FULL_SURVEY's merge names no referring files.
+  const p = plan({ multiIndexFolders: FULL_SURVEY.multiIndexFolders });
+  check("a merge whose sources nothing refers to carries no sourceLinks field",
+    "sourceLinks" in find(p.operations, "merge-index"), false);
+  check("and says so in its reason rather than staying silent",
+    /Rewrites 0 referring file\/source pair\(s\)/.test(find(p.operations, "merge-index").reason || ""), true);
 }
 
 console.log("\nCase-only renames");
@@ -661,6 +738,76 @@ try {
       repo
     );
     check("a create-index onto an index that already exists is a collision", p.prechecks.ok, false);
+  }
+
+  console.log("\nA vault that is already there is a resync, not a collision");
+
+  {
+    // The reference consumer already carries rolara-kb/.obsidian, so without
+    // this exemption every resync aborts in the plan phase over a destination
+    // that legitimately exists and that applyVault is idempotent about.
+    const p = plan(
+      { vaults: [{ settingIndex: 0, setting: "rolara", to: "settings/rolara/.obsidian" }] },
+      repo
+    );
+    check("a vault CREATE onto a vault already on disk does not abort the run", p.prechecks.ok, true);
+  }
+
+  {
+    // The MOVE shape stays checked, which is why the exemption is a predicate
+    // on the operation rather than a third entry in the kind set. Measured in
+    // migrate.apply.test.mjs: git mv onto a destination that is already a
+    // directory reports success and nests the source inside it, leaving the
+    // setting with no vault where Obsidian looks for one.
+    const p = plan(
+      {
+        vaults: [
+          {
+            settingIndex: 0,
+            setting: "rolara",
+            from: "settings/rolara/.obsidian",
+            to: "settings/karsk/.obsidian",
+          },
+        ],
+      },
+      repo
+    );
+    check("a vault MOVE onto a destination that already exists still aborts", p.prechecks.ok, false);
+    check("and the collision names that destination",
+      p.prechecks.collisions.map((c) => c.to), ["settings/karsk/.obsidian"]);
+  }
+
+  {
+    // The exemption is per KIND. A rename targeting that same occupied path is
+    // a rename, not a vault, so it still aborts: this is the half the exemption
+    // must not widen into.
+    const p = plan(
+      {
+        renames: [
+          { file: "settings/rolara/Ashfall-Compact.md", to: "settings/rolara/.obsidian", ruleId: "filenameCharset" },
+        ],
+      },
+      repo
+    );
+    check("the exemption does not widen to a rename targeting that same path", p.prechecks.ok, false);
+  }
+
+  {
+    // And it suppresses only the ON-DISK half. Two operations targeting one
+    // path would overwrite one another whatever their kinds, so the in-plan
+    // half still fires for two vaults as well.
+    const p = plan(
+      {
+        vaults: [
+          { settingIndex: 0, setting: "rolara", to: "settings/rolara/.obsidian" },
+          { settingIndex: 1, setting: "karsk", to: "settings/rolara/.obsidian" },
+        ],
+      },
+      repo
+    );
+    check("two vault operations targeting one path still abort", p.prechecks.ok, false);
+    check("and that pair is reported as an in-plan collision",
+      p.prechecks.collisions.map((c) => c.kind), ["in-plan"]);
   }
 
   console.log("\nIgnored has three states, not two");

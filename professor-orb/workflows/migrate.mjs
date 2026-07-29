@@ -97,6 +97,33 @@ export function runPrechecks({ operations, projectRoot }) {
 // silently overwrites the DM's file.
 const DESTINATION_MAY_EXIST = new Set(["merge-index", "tag-registry"]);
 
+// vault joins them for the CREATE shape ONLY, which is why this is a predicate
+// rather than a third entry in the set above.
+//
+// The create shape is the one that false-aborted. A resync against a project
+// that already carries its .obsidian/ is the ordinary second run, and applyVault
+// is idempotent about it: mkdirSync is recursive, and the app.json marker is
+// written only when it is absent, so nothing of the DM's is overwritten. Without
+// the exemption that ordinary rerun aborts in the plan phase over a destination
+// that legitimately exists.
+//
+// The MOVE shape stays checked, and adding the kind wholesale would have exempted
+// it too. There, a destination already on disk is a real hazard rather than a
+// normal state, and a quiet one: measured in the vault fixture in
+// migrate.apply.test.mjs, `git mv old/.obsidian new/.obsidian` with the
+// destination already a directory does NOT fail. It reports success and moves the
+// source INSIDE the destination, leaving new/.obsidian/.obsidian and a setting
+// with no vault where Obsidian looks for one.
+//
+// Narrow in the other direction too: this suppresses only the ON-DISK half. The
+// in-plan half runs before it, so two operations targeting one path still abort
+// whatever their kinds, and a rename targeting an existing .obsidian is a rename,
+// not a vault, so it still aborts as well.
+function destinationMayExist(op) {
+  if (DESTINATION_MAY_EXIST.has(op.op)) return true;
+  return op.op === "vault" && !op.from;
+}
+
 // Collisions are scoped to each DESTINATION DIRECTORY, which is what a move can
 // actually overwrite. Two settings legitimately holding a Tavern.md is not a
 // collision, and aborting on it would abort for the exact duplication the
@@ -177,7 +204,7 @@ function findDestinationCollisions(operations, projectRoot, ignored) {
       byDir.set(key, to);
     }
 
-    if (!rootUsable || DESTINATION_MAY_EXIST.has(o.op)) continue;
+    if (!rootUsable || destinationMayExist(o)) continue;
     if (vacated.has(key)) continue;
     if (!existsSync(path.resolve(projectRoot, to))) continue;
     hits.push({
@@ -218,7 +245,7 @@ function findDestinationCollisions(operations, projectRoot, ignored) {
 //   typeMismatches     [{ file, typeFrom, typeTo }]
 //   renames            [{ file, to, ruleId, links }]
 //   missingIndexes     [{ folder, settingIndex, basename }]
-//   multiIndexFolders  [{ folder, survivor, sources }]
+//   multiIndexFolders  [{ folder, survivor, sources, sourceLinks }]
 //   frontmatterRepairs [{ file, insert, reorder }]
 //   vaults             [{ settingIndex, setting, from, to }]
 //   tagRegistries      [{ settingIndex, setting, to }]
@@ -245,12 +272,27 @@ function findDestinationCollisions(operations, projectRoot, ignored) {
 //   re-deriving the link set at apply time would be the apply phase inventing
 //   an operation.
 //
-//   merge-index carries `sources`, the indexes being merged away. It is ONE
+//   merge-index carries `sources`, the indexes being merged away, and
+//   `sourceLinks`, the files whose wikilinks point at each of them. It is ONE
 //   operation per folder, not one per source. Emitting one per source would
 //   give every source the same `to`, and findDestinationCollisions would then
 //   read a six-sub-index folder (the reference consumer's items/ is exactly
 //   that) as five collisions and abort a migration that has nothing wrong
 //   with it.
+//
+//   `sourceLinks` is to a merge what `links` is to a rename, and is carried on
+//   the same terms: only when there are any, and named by the plan rather than
+//   re-derived at apply time, because re-deriving it there would be the apply
+//   phase inventing an operation. It is a MAP from source path to referring
+//   files rather than a flat list, because each source has its own filename and
+//   so its own wikilink stem to rewrite onto the survivor.
+//
+//   Without it a merge is not link-safe. A merge REMOVES its sources, so every
+//   wikilink that named one dies the moment the merge lands, which is the same
+//   class of dead reference a rename carries `links` to prevent. The reference
+//   consumer's items/ folds six sub-indexes and orphans six wikilinks doing it,
+//   so the migration this release exists to perform cannot reach its commit
+//   without this field.
 //
 //   repair-frontmatter carries `insert`, the defaulted fields to add, and
 //   `reorder`, whether the canonical-order pass runs. Always both, even when
@@ -383,19 +425,54 @@ function planIndexCreations({ discovered, settings, baseRules }) {
 }
 
 // 5. Merge multi-index folders losslessly. One operation per folder: see the
-//    survey note above for why one per source would abort the run.
+//    survey note above for why one per source would abort the run. Each merge
+//    travels with the link rewrites it requires, the same way a rename does,
+//    because a merge removes its sources and every wikilink naming one dies with
+//    them.
 function planIndexMerges({ discovered }) {
   return list(discovered && discovered.multiIndexFolders)
     .filter((f) => f && f.survivor && list(f.sources).length > 0)
-    .map((f) => ({
-      op: "merge-index",
-      to: toPosix(f.survivor),
-      sources: list(f.sources).map(toPosix),
-      reason:
-        `Folder ${toPosix(f.folder)} carries ${list(f.sources).length + 1} indexes. ` +
-        "Merge concatenates each source's full content under a provenance heading, " +
-        "so headings, grouping, ordering, and prose all survive.",
-    }));
+    .map((f) => {
+      const sources = list(f.sources).map(toPosix);
+      const sourceLinks = normalizeSourceLinks(f.sourceLinks, sources);
+      const pairs = Object.keys(sourceLinks).reduce((n, k) => n + sourceLinks[k].length, 0);
+      const op = {
+        op: "merge-index",
+        to: toPosix(f.survivor),
+        sources,
+        reason:
+          `Folder ${toPosix(f.folder)} carries ${sources.length + 1} indexes. ` +
+          "Merge concatenates each source's full content under a provenance heading, " +
+          "so headings, grouping, ordering, and prose all survive. " +
+          `Rewrites ${pairs} referring file/source pair(s) onto the survivor in the same unit of work.`,
+      };
+      if (pairs > 0) op.sourceLinks = sourceLinks;
+      return op;
+    });
+}
+
+// The referring files a merge carries, keyed by the source they point at.
+//
+// Keys are matched against the operation's OWN sources after normalization, so a
+// key naming a file this merge does not consume is dropped rather than smuggling
+// an unrelated rewrite into the unit of work. That matters because the rewrite
+// half edits article content: the only files it may touch are the ones named
+// against a source this operation is actually removing.
+function normalizeSourceLinks(raw, sources) {
+  const out = {};
+  if (!raw || typeof raw !== "object") return out;
+  const known = new Set(sources);
+  for (const key of Object.keys(raw)) {
+    const source = toPosix(key);
+    if (!known.has(source)) continue;
+    const refs = [];
+    for (const ref of list(raw[key])) {
+      const r = toPosix(ref);
+      if (r && !refs.includes(r)) refs.push(r);
+    }
+    if (refs.length > 0) out[source] = refs;
+  }
+  return out;
 }
 
 // 6. Repair frontmatter: insert missing defaulted fields EXCEPT publish, and
@@ -747,6 +824,12 @@ function defaultIndexStem(folder) {
 //      markdown that fails silently in Obsidian, so a dropped rewrite is
 //      invisible without this, and a move reported as done while its rewrite
 //      was dropped is the failure the accounting exists to prevent.
+//
+//      A MERGE AND ITS LINK REWRITES ARE ONE UNIT on the same terms, and for
+//      the same reason. A merge REMOVES its sources, so every wikilink that
+//      named one dies with them, which is the same class of dead reference a
+//      rename carries `links` to prevent. Both take their referring files from
+//      the plan rather than re-deriving them here.
 //
 // EVERY RELOCATION GOES THROUGH git mv. Measured in
 // docs/superpowers/specs/2026-07-28-mechanism-prototypes.mjs: a worker that can
@@ -1417,20 +1500,65 @@ function typeForSuffix(stem, ctx) {
 
 // 5. Merge a multi-index folder losslessly. Each source's FULL raw content is
 //    concatenated under a provenance heading naming it, so headings, grouping,
-//    ordering, and prose all survive, and only then is the source removed.
+//    ordering, and prose all survive; the wikilinks that named a merged-away
+//    source are rewritten onto the survivor; and only then is the source
+//    removed. All of it is ONE unit of work with one accounting entry, exactly
+//    as a rename and its rewrite are, and for the same reason: a dropped rewrite
+//    is a dead wikilink, which is valid markdown that fails silently in
+//    Obsidian, so a merge reported as done while a rewrite went missing is the
+//    failure the accounting exists to prevent.
 //
-//    The plan carries no link set for a merge, so this does not rewrite links
-//    that pointed at a merged-away source. That is deliberate: re-deriving one
-//    would be the apply phase inventing an operation. The link-integrity
-//    assertion catches any link left dead by the removal and blocks the commit,
-//    which is the loud outcome rather than the silent one.
+//    REWRITTEN TO THE SURVIVOR rather than reported to the DM. That is what a
+//    merge means: the source's content now lives inside the survivor, so a link
+//    that pointed at that content still resolves to where the content actually
+//    is, and every referring line keeps its wording. The alternative was to
+//    report each orphan for the DM to resolve by hand, which was rejected on
+//    what it costs: the link-integrity rail correctly refuses to commit a run
+//    carrying dead links, so reporting leaves the whole migration blocked until
+//    every orphan is repaired one at a time. On the reference consumer that is
+//    six repairs standing between the DM and a migration with nothing wrong with
+//    it. This does change article content rather than only moving files, so it
+//    is held to the same two limits the rename path is: it touches ONLY the
+//    files the plan names, and it rewrites ONLY the wikilink target, leaving
+//    display text, anchors, path prefixes, and every other byte alone.
+//
+//    A link that named a source and now names the survivor can land in the
+//    survivor's own text as a self-link, since the survivor is usually the file
+//    listing the sub-indexes it is absorbing. That is left as a self-link rather
+//    than deleted: the line still points at the content, and removing it would
+//    be a prose edit, which is a judgment about the DM's material and not
+//    something a mechanical pass gets to make.
+//
+//    The plan carries the referring files in `sourceLinks`; re-deriving them
+//    here would be the apply phase inventing an operation. A source the plan
+//    named no referrers for gets no rewrite, and any link it orphans is caught
+//    by the link-integrity assertion, which blocks the commit. That is the same
+//    contract rename-with-link-rewrite has, and the rail is unchanged.
 function applyMergeIndex(op, ctx) {
   const entry = entryFor(op);
   const to = toPosix(op.to);
   const sources = list(op.sources).map(toPosix);
+  entry.linksRewritten = 0;
+  entry.linksExpected = 0;
   if (sources.length === 0) {
     entry.detail = "merge-index carries no sources; nothing to merge.";
     return entry;
+  }
+
+  // The referring files the plan names, grouped by the source they point at. The
+  // accounted unit is the PAIR: one article referring to two merged-away sources
+  // is two rewrites to account for, because either one going missing is one dead
+  // wikilink.
+  const named = op.sourceLinks && typeof op.sourceLinks === "object" ? op.sourceLinks : {};
+  const refsOf = new Map();
+  for (const source of sources) {
+    const refs = [];
+    for (const raw of list(named[source])) {
+      const ref = toPosix(raw);
+      if (ref && !refs.includes(ref)) refs.push(ref);
+    }
+    refsOf.set(source, refs);
+    entry.linksExpected += refs.length;
   }
 
   const survivorRead = readText(ctx, to);
@@ -1452,6 +1580,35 @@ function applyMergeIndex(op, ctx) {
     folded.push(source);
   }
 
+  const survivorStem = stemOf(to);
+  const missed = [];
+
+  // A referring file that IS the survivor or one of the sources is now text
+  // inside `merged`, so its rewrite happens there rather than on disk: on disk
+  // the survivor is about to be overwritten by this same merged text and each
+  // source is about to be removed by the git rm below, so a rewrite written to
+  // either would be discarded. This is not the corner case it sounds like. On
+  // the reference consumer every one of the six inbound links to items/'s
+  // merged-away sub-indexes lives in the survivor itself, because the survivor
+  // is precisely the index that lists them.
+  //
+  // ONE pass per SOURCE, not one per referring pair. `merged` is a single
+  // document by this point, so one pass over it rewrites every occurrence no
+  // matter which original file contributed it, and a second pass for the same
+  // source would find nothing left and report a drop that did not happen.
+  const inMerged = new Set([to, ...sources]);
+  for (const source of sources) {
+    const here = refsOf.get(source).filter((ref) => inMerged.has(ref));
+    if (here.length === 0) continue;
+    const out = rewriteWikilinks(merged, stemOf(source), survivorStem);
+    if (out.count === 0) {
+      missed.push(`${here.join(", ")} (no wikilink to ${stemOf(source)} in the merged text)`);
+      continue;
+    }
+    merged = out.text;
+    entry.linksRewritten += out.count;
+  }
+
   const written = writeText(ctx, to, merged);
   if (!written.ok) {
     entry.detail = `Could not write the merged index: ${written.error}. No source was removed.`;
@@ -1469,9 +1626,62 @@ function applyMergeIndex(op, ctx) {
       `would now duplicate it: ${undeleted.join("; ")}.`;
     return entry;
   }
-  entry.applied = true;
+
+  // Referring files outside the merged text, rewritten on disk. After the
+  // removal, the same order rename-with-link-rewrite uses: a rewrite that does
+  // not land leaves a dead wikilink for the link-integrity assertion to block
+  // the commit on, which is the loud outcome. Rewriting first and removing after
+  // would instead leave a failed merge looking link-clean and let a folder with
+  // duplicated content commit quietly.
+  const onDisk = new Map();
+  for (const source of sources) {
+    for (const ref of refsOf.get(source)) {
+      if (inMerged.has(ref)) continue;
+      if (!onDisk.has(ref)) onDisk.set(ref, []);
+      onDisk.get(ref).push(source);
+    }
+  }
+  for (const [ref, refSources] of onDisk) {
+    const read = readText(ctx, ref);
+    if (!read.ok) {
+      missed.push(`${ref} (unreadable: ${read.error})`);
+      continue;
+    }
+    let text = read.text;
+    let rewrittenHere = 0;
+    for (const source of refSources) {
+      const out = rewriteWikilinks(text, stemOf(source), survivorStem);
+      if (out.count === 0) {
+        missed.push(`${ref} (no wikilink to ${stemOf(source)} found)`);
+        continue;
+      }
+      text = out.text;
+      rewrittenHere += out.count;
+    }
+    // A file whose rewrites all missed has nothing to write back, and writing it
+    // anyway would rewrite the DM's file with its own bytes for no reason.
+    if (rewrittenHere === 0) continue;
+    const wrote = writeText(ctx, ref, text);
+    if (!wrote.ok) {
+      missed.push(`${ref} (unwritable: ${wrote.error})`);
+      continue;
+    }
+    entry.linksRewritten += rewrittenHere;
+  }
+
   entry.sources = folded;
-  entry.detail = `Folded ${folded.length} source index/indexes into ${to}, each under a provenance heading naming it, then removed them with git rm.`;
+  if (missed.length > 0) {
+    entry.detail =
+      `Content from every source was merged into ${to} and each source removed with git rm, but the link ` +
+      `rewrite half did not complete for: ${missed.join("; ")}. The merge and its rewrites are one unit of ` +
+      "work, so this entry reports applied false rather than counting the merge as done.";
+    return entry;
+  }
+  entry.applied = true;
+  entry.detail =
+    `Folded ${folded.length} source index/indexes into ${to}, each under a provenance heading naming it, ` +
+    `then removed them with git rm. Rewrote ${entry.linksRewritten} wikilink(s) across ${entry.linksExpected} ` +
+    "referring file/source pair(s) onto the survivor, in the same unit of work.";
   return entry;
 }
 

@@ -496,6 +496,182 @@ withRepo(
   }
 );
 
+console.log("\nA merge carries its link rewrites, the way a rename does");
+
+withRepo(
+  {
+    "settings/rolara/items/Items-INDEX.md": article(
+      "publish: false\ntype: Index",
+      "## Sub-indexes\n\n- [[Artifacts-INDEX]]\n- [[Materials-INDEX]]"
+    ),
+    "settings/rolara/items/Artifacts-INDEX.md": article("publish: false\ntype: Index", "## Artifacts\n\n- [[Crown]]"),
+    "settings/rolara/items/Materials-INDEX.md": article("publish: false\ntype: Index", "## Materials\n\n- [[Scale]]"),
+    "settings/rolara/items/Crown.md": article("publish: false\ntype: Item", "x"),
+    "settings/rolara/items/Scale.md": article("publish: false\ntype: Item", "x"),
+  },
+  (root) => {
+    // The reference consumer's EXACT shape, and the one that blocked the
+    // migration: surveyed read-only, all six inbound links to items/'s
+    // merged-away sub-indexes live in the survivor itself, because the survivor
+    // is precisely the index that lists them. Those referring files are text
+    // inside the merged document by the time the rewrite runs, so a rewrite
+    // aimed at the survivor on disk would be discarded by the merge's own write.
+    const before = head(root);
+    const r = applyPlan(
+      {
+        operations: [
+          {
+            op: "merge-index",
+            to: "settings/rolara/items/Items-INDEX.md",
+            sources: [
+              "settings/rolara/items/Artifacts-INDEX.md",
+              "settings/rolara/items/Materials-INDEX.md",
+            ],
+            sourceLinks: {
+              "settings/rolara/items/Artifacts-INDEX.md": ["settings/rolara/items/Items-INDEX.md"],
+              "settings/rolara/items/Materials-INDEX.md": ["settings/rolara/items/Items-INDEX.md"],
+            },
+            reason: "multi-index folder",
+          },
+        ],
+      },
+      { cwd: root, settings: SETTINGS, baseRules: BASE_RULES, commit: true }
+    );
+    const survivor = read(root, "settings/rolara/items/Items-INDEX.md");
+    check("the merge is applied", r.applied.length, 1);
+    check("no wikilink to a merged-away source survives",
+      /\[\[(Artifacts|Materials)-INDEX/.test(survivor), false);
+    check("each one points at the survivor instead",
+      (survivor.match(/\[\[Items-INDEX\]\]/g) || []).length, 2);
+    check("both rewrites are accounted on the merge's own entry, not a later pass",
+      [first(r.applied).linksExpected, first(r.applied).linksRewritten], [2, 2]);
+    check("the absorbed content still arrives under its provenance heading",
+      survivor.includes("## Merged from Artifacts-INDEX.md") && survivor.includes("- [[Crown]]"), true);
+    check("link integrity passes after the rewrite", links(r).ok, true);
+    check("so the migration this release exists to perform reaches its commit", r.committed, true);
+    check("and HEAD moved off the snapshot", head(root) !== before, true);
+  }
+);
+
+withRepo(
+  {
+    "settings/rolara/items/Items-INDEX.md": article("publish: false\ntype: Index", "## Weapons\n\n- [[Blade]]"),
+    "settings/rolara/items/Artifacts-INDEX.md": article("publish: false\ntype: Index", "## Artifacts\n\n- [[Crown]]"),
+    "settings/rolara/items/Blade.md": article("publish: false\ntype: Item", "x"),
+    "settings/rolara/items/Crown.md": article("publish: false\ntype: Item", "x"),
+    "settings/rolara/lore/Compendium.md": article(
+      "publish: false\ntype: Concept",
+      "See [[Artifacts-INDEX|the relic list]] and ![[Artifacts-INDEX#Artifacts]]."
+    ),
+  },
+  (root) => {
+    // A referring file OUTSIDE the merge, rewritten on disk. Only the wikilink
+    // target moves: display text, anchor, and the embed marker are the DM's
+    // prose and are carried across byte for byte.
+    const r = apply(root, [
+      {
+        op: "merge-index",
+        to: "settings/rolara/items/Items-INDEX.md",
+        sources: ["settings/rolara/items/Artifacts-INDEX.md"],
+        sourceLinks: {
+          "settings/rolara/items/Artifacts-INDEX.md": ["settings/rolara/lore/Compendium.md"],
+        },
+        reason: "multi-index folder",
+      },
+    ]);
+    const compendium = read(root, "settings/rolara/lore/Compendium.md");
+    check("a referring article outside the merge is rewritten too", r.applied.length, 1);
+    check("its link now names the survivor, keeping display text and anchor",
+      compendium.includes("[[Items-INDEX|the relic list]]") && compendium.includes("![[Items-INDEX#Artifacts]]"),
+      true);
+    check("and nothing still names the merged-away source",
+      compendium.includes("Artifacts-INDEX"), false);
+    check("two wikilinks in one named file count as two rewrites over one pair",
+      [first(r.applied).linksExpected, first(r.applied).linksRewritten], [1, 2]);
+    check("the rest of the sentence is untouched",
+      compendium.includes("See ") && compendium.includes(" and ") && compendium.includes("."), true);
+  }
+);
+
+withRepo(
+  {
+    "settings/rolara/items/Items-INDEX.md": article("publish: false\ntype: Index", "## Weapons\n\n- [[Blade]]"),
+    "settings/rolara/items/Artifacts-INDEX.md": article("publish: false\ntype: Index", "## Artifacts\n\n- [[Crown]]"),
+    "settings/rolara/items/Materials-INDEX.md": article("publish: false\ntype: Index", "## Materials\n\n- [[Scale]]"),
+    "settings/rolara/items/Blade.md": article("publish: false\ntype: Item", "x"),
+    "settings/rolara/items/Crown.md": article("publish: false\ntype: Item", "x"),
+    "settings/rolara/items/Scale.md": article("publish: false\ntype: Item", "x"),
+    "settings/rolara/lore/Compendium.md": article(
+      "publish: false\ntype: Concept",
+      "Both [[Artifacts-INDEX]] and [[Materials-INDEX]]."
+    ),
+    "settings/rolara/lore/Almanac.md": article("publish: false\ntype: Concept", "Only [[Artifacts-INDEX]]."),
+  },
+  (root) => {
+    // The accounted unit is the PAIR, not the file: one article referring to two
+    // merged-away sources is two rewrites, because either one going missing is
+    // one dead wikilink. Three pairs here across two files and two sources.
+    const r = apply(root, [
+      {
+        op: "merge-index",
+        to: "settings/rolara/items/Items-INDEX.md",
+        sources: [
+          "settings/rolara/items/Artifacts-INDEX.md",
+          "settings/rolara/items/Materials-INDEX.md",
+        ],
+        sourceLinks: {
+          "settings/rolara/items/Artifacts-INDEX.md": [
+            "settings/rolara/lore/Compendium.md",
+            "settings/rolara/lore/Almanac.md",
+          ],
+          "settings/rolara/items/Materials-INDEX.md": ["settings/rolara/lore/Compendium.md"],
+        },
+        reason: "multi-index folder",
+      },
+    ]);
+    check("a file referring to two merged-away sources counts as two pairs",
+      [first(r.applied).linksExpected, first(r.applied).linksRewritten], [3, 3]);
+    check("both of that file's links point at the survivor",
+      (read(root, "settings/rolara/lore/Compendium.md").match(/\[\[Items-INDEX\]\]/g) || []).length, 2);
+    check("and the second file naming the same source is rewritten as well",
+      read(root, "settings/rolara/lore/Almanac.md").includes("[[Items-INDEX]]"), true);
+    check("every link in the project resolves afterward", links(r).ok, true);
+  }
+);
+
+withRepo(
+  {
+    "settings/rolara/items/Items-INDEX.md": article("publish: false\ntype: Index", "## Weapons\n\n- [[Blade]]"),
+    "settings/rolara/items/Artifacts-INDEX.md": article("publish: false\ntype: Index", "## Artifacts\n\n- [[Crown]]"),
+    "settings/rolara/items/Blade.md": article("publish: false\ntype: Item", "x"),
+    "settings/rolara/items/Crown.md": article("publish: false\ntype: Item", "x"),
+    "settings/rolara/lore/Bystander.md": article("publish: false\ntype: Concept", "Mentions nothing."),
+  },
+  (root) => {
+    // A stale plan, the merge's version of the rename case: the named file
+    // carries no such wikilink. The merge and its rewrites are one unit, so the
+    // entry reports applied false rather than counting the merge as done.
+    const r = apply(root, [
+      {
+        op: "merge-index",
+        to: "settings/rolara/items/Items-INDEX.md",
+        sources: ["settings/rolara/items/Artifacts-INDEX.md"],
+        sourceLinks: {
+          "settings/rolara/items/Artifacts-INDEX.md": ["settings/rolara/lore/Bystander.md"],
+        },
+        reason: "multi-index folder",
+      },
+    ]);
+    check("a named referring file carrying no such wikilink fails the whole unit",
+      [r.applied.length, r.failed.length], [0, 1]);
+    check("and the entry names the file whose rewrite did not land",
+      /Bystander\.md \(no wikilink to Artifacts-INDEX found\)/.test(first(r.failed).detail || ""), true);
+    check("so the run is not reported ok", r.ok, false);
+  }
+);
+
+console.log("\nThe link-integrity rail still blocks a dropped rewrite");
+
 withRepo(
   {
     "settings/rolara/items/Items-INDEX.md": article("publish: false\ntype: Index", "## Weapons\n\n- [[Artifacts-INDEX]]"),
@@ -503,10 +679,9 @@ withRepo(
     "settings/rolara/items/Crown.md": article("publish: false\ntype: Item", "x"),
   },
   (root) => {
-    // A merge carries no link set, so this phase does not rewrite links that
-    // pointed at a merged-away source: re-deriving one would be the apply phase
-    // inventing an operation. The rail is what makes that safe rather than
-    // silent, so the run reports the dead link and refuses to commit.
+    // A plan that names no referrers for a source that HAS one. The rewrite half
+    // has nothing to do, the removal orphans the link, and the rail is what
+    // makes that loud rather than silent.
     const before = head(root);
     const r = applyPlan(
       {
@@ -525,6 +700,45 @@ withRepo(
       links(r).dead.map((d) => d.target), ["Artifacts-INDEX"]);
     check("and that run does not commit either", r.committed, false);
     check("with HEAD still at the snapshot", head(root), before);
+  }
+);
+
+withRepo(
+  {
+    "settings/rolara/items/Items-INDEX.md": article("publish: false\ntype: Index", "## Weapons\n\n- [[Blade]]"),
+    "settings/rolara/items/Artifacts-INDEX.md": article("publish: false\ntype: Index", "## Artifacts\n\n- [[Crown]]"),
+    "settings/rolara/items/Blade.md": article("publish: false\ntype: Item", "x"),
+    "settings/rolara/items/Crown.md": article("publish: false\ntype: Item", "x"),
+    "settings/rolara/lore/Compendium.md": article("publish: false\ntype: Concept", "See [[Artifacts-INDEX]]."),
+  },
+  (root) => {
+    // The plan DOES carry the rewrite and a worker drops it anyway. This is the
+    // case the rail exists for, and adding the rewrite must not disarm it: the
+    // assertion has to still block the commit when the rewrite goes missing.
+    const before = head(root);
+    const strippingWorker = (op, ctx) =>
+      applyOperation(op.op === "merge-index" ? Object.assign({}, op, { sourceLinks: undefined }) : op, ctx);
+    const r = applyPlan(
+      {
+        operations: [
+          {
+            op: "merge-index",
+            to: "settings/rolara/items/Items-INDEX.md",
+            sources: ["settings/rolara/items/Artifacts-INDEX.md"],
+            sourceLinks: {
+              "settings/rolara/items/Artifacts-INDEX.md": ["settings/rolara/lore/Compendium.md"],
+            },
+            reason: "multi-index folder",
+          },
+        ],
+      },
+      { cwd: root, settings: SETTINGS, baseRules: BASE_RULES, commit: true, worker: strippingWorker }
+    );
+    check("a rewrite the plan carried but the worker dropped still leaves the link dead",
+      links(r).dead.map((d) => `${d.file} -> ${d.target}`),
+      ["settings/rolara/lore/Compendium.md -> Artifacts-INDEX"]);
+    check("the rail still blocks the commit", [links(r).ok, r.committed], [false, false]);
+    check("and HEAD is still the snapshot to restore to", head(root), before);
   }
 );
 
@@ -1023,6 +1237,72 @@ withRepo(
     check("a vault is created", r.applied.length, 1);
     check("as a real directory Obsidian will recognize",
       has(root, "settings/rolara/.obsidian/app.json"), true);
+  }
+);
+
+withRepo(
+  {
+    "settings/rolara/a/Alpha.md": article("publish: false\ntype: Concept", "x"),
+    "settings/rolara/.obsidian/app.json": '{"theme":"obsidian"}\n',
+  },
+  (root) => {
+    // A resync against a project whose vault is already there. This is the
+    // ordinary second run, and the reference consumer is already in that state,
+    // so the create shape has to be idempotent rather than destructive: the
+    // marker is written only when absent, so the DM's own Obsidian settings
+    // survive untouched.
+    const r = apply(root, [
+      { op: "vault", to: "settings/rolara/.obsidian", reason: "one vault per setting" },
+    ]);
+    check("a resync over an existing vault is not refused", r.refused, null);
+    check("and applies as a no-op rather than failing", r.applied.length, 1);
+    check("without overwriting the DM's own Obsidian settings",
+      read(root, "settings/rolara/.obsidian/app.json"), '{"theme":"obsidian"}\n');
+  }
+);
+
+withRepo(
+  {
+    "settings/rolara/a/Alpha.md": article("publish: false\ntype: Concept", "x"),
+    "settings/rolara/.obsidian/app.json": "{}\n",
+    "settings/karsk/.obsidian/app.json": '{"theme":"obsidian"}\n',
+  },
+  (root) => {
+    // The MEASUREMENT behind keeping the vault MOVE shape checked in the plan
+    // phase, driven through applyOperation so the plan-phase abort does not
+    // stand in front of it. git mv onto a destination that is already a
+    // directory does NOT fail: it reports success and moves the source INSIDE
+    // the destination. That is why the destination-may-exist exemption covers
+    // the create shape only; exempting the kind wholesale would let this land
+    // silently and leave the setting with no vault where Obsidian looks.
+    const entry = applyOperation(
+      {
+        op: "vault",
+        from: "settings/rolara/.obsidian",
+        to: "settings/karsk/.obsidian",
+        reason: "move the vault",
+      },
+      {
+        cwd: root,
+        git: (argv) => {
+          try {
+            return { ok: true, stdout: git(root, argv), stderr: "" };
+          } catch (err) {
+            return { ok: false, stdout: "", stderr: String((err && (err.stderr || err.message)) || err) };
+          }
+        },
+        settings: SETTINGS,
+        baseRules: BASE_RULES,
+        ruleSources: [BASE_RULES],
+        settingForPath: () => SETTINGS[0],
+      }
+    );
+    check("git mv onto an existing directory reports success rather than failing",
+      entry.applied, true);
+    check("while actually nesting the source inside the destination",
+      has(root, "settings/karsk/.obsidian/.obsidian/app.json"), true);
+    check("so the destination the setting needs is not the vault that moved",
+      read(root, "settings/karsk/.obsidian/app.json"), '{"theme":"obsidian"}\n');
   }
 );
 
