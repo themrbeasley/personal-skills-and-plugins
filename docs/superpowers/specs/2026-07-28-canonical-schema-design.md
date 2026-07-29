@@ -149,6 +149,28 @@ rule) are not supported. That is the point of imposing a schema.
 or remove a base rule. `enforcement` is the deliberate exception: the DM sets levels on base
 rules freely, including `off`.
 
+**Reconciling an existing v1 file, which has no provenance at all.** Every rule in a v1
+`conventions.json` was derived from the consumer's project, so reading them all as
+`provenance: "project"` would produce a second rule of the same check kind on the same field
+alongside every base rule, which is exactly the duplicate-enum breakage `extendedBy` exists
+to prevent. The reconciliation rule, applied by setup and resync:
+
+- A provenance-less rule whose **check kind and target field or param match a base rule** is
+  discarded as a rule. Its distinct values fold into that base rule's `extendedBy`, and its
+  `enforcement` level carries onto the base rule, so the DM's earlier choices survive.
+- A provenance-less rule with **no base counterpart** survives as `provenance: "project"`.
+
+For the reference consumer this means its `frontmatterTypeEnum` disappears as a rule, its
+`Settlement`, `Landmark`, `Species`, `Ethnicity`, `Material`, `Vehicle`, `Technology`,
+`Spell`, `Article`, `Myth`, `Natural-Law`, and `Law` values land in `extendedBy`, and its
+`block` level carries onto the base enum.
+
+**No base rule ships at `block` against a condition the migration deliberately declines to
+correct.** A `block` rule the plugin itself refuses to fix leaves the DM unable to edit their
+own article with no path forward. This governs `suffixByType` (phase 2 declines `-TIMELINE`
+and `-HISTORY` renames), `publish` (never auto-inserted, above), and any rule a later phase
+demotes to a report item. Those ship at `warn`.
+
 **Field order is extensible in place.** Rolara's confirmed order is
 `publish, type, category, tags` (`conventions-schema.md:325-329`), which includes a field
 the base does not define. A project may insert its own fields into the base sequence as long
@@ -219,13 +241,42 @@ Three consequences, all deliberate:
   sentences saying example values are illustrations, is the exact error this spec set exists
   to stop. It was caught for the `type` enum and missed for the field beside it.
 
-**Base article types.** `Person`, `Location`, `Organization`, `Item`, `Creature`,
-`Concept`, `Index`, `Homebrew`, `Session Report`, `Session Prep`, `Chronology`.
+**Base article types**, in two groups:
+
+- **KB articles**, capitalized: `Person`, `Location`, `Organization`, `Item`, `Creature`,
+  `Concept`, `Index`, `Session Report`, `Session Prep`, `Chronology`.
+- **Homebrew catalog artifacts**, lowercase, the ten keys `/catalog` already offers at
+  `commands/catalog.md:64`: `spell`, `magic-item`, `feat`, `feature`, `monster`, `npc`,
+  `species`, `subclass`, `class`, `other`.
+
+**`Homebrew` is not a `type` value.** An earlier draft listed it as one, on the strength of
+`CONTEXT.md:91` and `validation-sweep.mjs:190`. The real catalog disagrees. Surveyed across
+all 71 entries in the reference consumer's catalog: 36 carry `type: magic-item`, 12
+`type: monster`, 7 `type: spell`, 5 `type: npc`, 4 `type: other`, 2 each `feature` and
+`species`, 1 `feat`, plus one `type: Index` for the folder's index and one file with no
+frontmatter. Every entry additionally carries `category: Homebrew`. So
+`catalog-type-templates.md:21` is right that `type` holds "the artifact type key," and the
+detectors are wrong.
+
+**A catalog entry is an article whose `type` is one of the ten artifact keys.** No new field,
+no reliance on `category` (which is a per-project field), and no migration of existing
+entries, which are already correct. Three detectors are corrected to match:
+`validation-sweep.mjs:190`, `agents/kb-validator.md:65`, and `CONTEXT.md:91`.
+
+**This is a live defect, not only a spec concern.** The sweep currently identifies catalog
+entries by `type` being exactly `Homebrew`, which matches none of the 71 real entries, so the
+exemption that spares them wikilink and orphan checks has never fired. Every sweep run to
+date has reported the entire homebrew catalog as orphaned articles.
+
+**Case distinguishes two legitimately different things.** A KB article about a species
+(`type: Species`, a project extension) and a homebrew species entry (`type: species`, base)
+coexist. Comparison is case-sensitive, so they do not collide, but the enum must not be
+case-folded.
 
 **This list is canonical here and nowhere else.** Phase 2 cites it rather than restating it.
-An earlier draft restated a shorter list in phase 2, which would have regenerated Rolara's
-`conventions.json` without five types it actually uses, on a rule enforced at `block`,
-breaking every subsequent write to those articles.
+An earlier draft restated a shorter list in phase 2, which would have regenerated the
+reference consumer's `conventions.json` without five types it actually uses, on a rule
+enforced at `block`, breaking every subsequent write to those articles.
 
 **A project's extras are derived from its KB, not hand-listed.** At setup or resync, the
 distinct `type` values actually present in the consumer's articles become `extendedBy`
@@ -246,7 +297,8 @@ deferred from the 1.3.0 plan, now unavoidable because the base enum makes the mi
 
 | Rule | Value | Default |
 | --- | --- | --- |
-| Suffix by type | `Index` to `-INDEX`, `Session Report` to `-REPORT`, `Session Prep` to `-PREP`, `Chronology` to `-CHRONOLOGY` | `block` |
+| Suffix by type | `Index` to `-INDEX`, `Session Report` to `-REPORT`, `Session Prep` to `-PREP` | `block` |
+| Suffix by type, `Chronology` to `-CHRONOLOGY` | Separate entry, `warn`, because phase 2 declines to rename existing `-TIMELINE` and `-HISTORY` files | `warn` |
 | Charset | `^[A-Za-z0-9-]+$` | `warn` |
 
 `-CHRONOLOGY` matches what `timeline/SKILL.md:22` already documents as its default. Files
@@ -266,7 +318,7 @@ actually renames, once, with the link rewrite paired to it.
 | --- | --- |
 | Style | Obsidian filename-based, not path-based. Moves within one search root are link-safe; renames are not |
 | Table escaping | Inside tables the separator is `\|`; escaped and bare forms are the same separator, never a malformed link |
-| Catalog entries | `type: Homebrew` articles carry no outgoing wikilinks and are never flagged for having none, nor for not being linked to from other article **bodies**. They remain subject to index ownership |
+| Catalog entries | An article whose `type` is one of the ten artifact keys carries no outgoing wikilinks and is never flagged for having none, nor for not being linked to from other article **bodies**. It remains subject to index ownership |
 
 The catalog-entry wording is `validation-sweep.mjs:190` verbatim in substance. An earlier
 draft compressed it to "never flagged as orphans," which contradicted the same table's

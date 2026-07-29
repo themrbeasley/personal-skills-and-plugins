@@ -68,37 +68,46 @@ would have folded the migration into it.
 
 The order is the safety design.
 
-1. **Convert the versioning marker.** If `catalog-versioning.json` exists and
-   `versioning.json` does not, write the new file with `mode` and `decided` unchanged. Do
-   **not** delete the old one yet; that happens at step 11, after the snapshot.
-2. **Detect repository state** (Part 4).
-3. **Require a clean tree.** If `git status --porcelain` is non-empty, report and stop, or
-   offer to commit the DM's existing work under its own message first. An unscoped snapshot
-   would otherwise sweep in unrelated uncommitted work.
-4. **Establish git** and write `.gitignore` **additions only** (Part 6). No ignore-list
-   interview yet.
-5. **Commit the snapshot**: `chore: pre-migration snapshot before professor-orb setup`.
-   Then **assert** `git status --porcelain` is empty and capture the commit hash. If either
-   fails, abort before any mutation. Print the hash and the undo command to the DM now, not
-   only in the closing report.
-6. **Move any existing `conventions.json` aside** to `conventions.json.pre-migration`,
-   tracked and already captured in the snapshot. This is what makes the hook genuinely
-   silent (`setup/SKILL.md:10`: it degrades gracefully until the file exists) on **resync**
-   as well as first run. Read its extras layer and enforcement choices into memory first.
-7. **Discover the prongs and confirm the mapping** (Part 7). The one gate.
-8. **Write the migration manifest** to a tracked path (Part 7), then run the prechecks. A
-   precheck failure stops before any mutation.
-9. **Execute the migration** via `workflows/migrate.mjs`.
-10. **Write `.professor-orb/` artifacts**: `conventions.json` (v3), `pipeline-state.json`,
-    `tag-registry.json`, `proposals/`. Delete `conventions.json.pre-migration`.
-11. **Handle deletions**: the old `catalog-versioning.json`, predecessor plugin artifacts,
-    source conventions doc retirement. All irreversible-by-nature, all now after the
-    snapshot. Predecessor removal and conventions-doc retirement **keep their approval
-    gates** (Part 8).
-12. **Ask the large-and-sensitive-material question**, apply any further ignore additions,
-    and `git rm --cached` any newly ignored path that the consumer's history already tracks.
-13. **Commit the migration**, then push if GitHub is configured.
-14. **Report** (Part 10).
+| # | Step | Setup step | Runs in |
+| --- | --- | --- | --- |
+| 1 | **Detect repository state** (Part 4), including a scan of every candidate prong root and the project root for a nested `.git` below the project root. A nested repository's contents are invisible to the outer snapshot, so if one exists, stop here and resolve it (absorb its history, or have the DM archive and remove it) before anything else. | 2 | main |
+| 2 | **Require a clean tree.** If `git status --porcelain` is non-empty, report and stop, or offer to commit the DM's existing work under its own message first. Nothing has been written yet, so this gate is reachable. | 2 | main |
+| 3 | **Establish git** and write `.gitignore` **additions only** (Part 6). No ignore-list interview yet. | 2 | main |
+| 4 | **Convert the versioning marker.** If `catalog-versioning.json` exists and `versioning.json` does not, write the new file with `mode` and `decided` unchanged. Both files exist at this point; the old one is deleted at step 12, after the snapshot captures it. | 2 | main |
+| 5 | **Commit the snapshot**: `chore: pre-migration snapshot before professor-orb setup`. Then **assert** `git status --porcelain` is empty and capture the hash. If either fails, abort before any mutation. Print the hash and the undo command now, not only in the closing report. | 2 | main |
+| 6 | **Move any existing `conventions.json` aside** to `conventions.json.pre-migration`, already captured by the snapshot. Read its rules, extras, and enforcement levels into memory first. This is what makes the hook silent (`setup/SKILL.md:10`) on **resync** as well as first run. | 2 | main |
+| 7 | **Discover the prongs and confirm the mapping** (Part 7). The one gate. | 2 | main |
+| 8 | **Copy the workflows** into `.claude/workflows/`, including `migrate.mjs`, which step 10 needs. | 6 | main |
+| 9 | **Write the migration manifest** to a tracked path and run the prechecks. A precheck failure stops before any mutation. | 3 | main |
+| 10 | **Execute the migration.** | 3 | `migrate.mjs` |
+| 11 | **Derive the extras layer, draft the rule set, and confirm enforcement levels** with the DM via AskUserQuestion. Both gates survive (Part 8) and both belong here, after the migration, because the migration runs at base defaults and because the extras are derived from the KB's post-migration state. | 4, 5 | main |
+| 12 | **Write `.professor-orb/` artifacts**: `conventions.json` (v3), `pipeline-state.json`, per-setting `tag-registry`, `proposals/`. Delete `conventions.json.pre-migration` and the old `catalog-versioning.json`. | 5 | main |
+| 13 | **Handle remaining deletions**: predecessor plugin artifacts, source conventions doc retirement. Both **keep their approval gates** (Part 8). | 5 | main |
+| 14 | **Ask the large-and-sensitive-material question**, apply further ignore additions, and `git rm --cached` any newly ignored path the consumer's history already tracks. | 7 | main |
+| 15 | **Commit the migration**, then push if GitHub is configured. | 7 | main |
+| 16 | **Report** (Part 10). | 7 | main |
+
+**The step column is normative and replaces the earlier renumbering shorthand.** An earlier
+draft said only "Existing Steps 2 through 6 become 3 through 7," which left setup's own
+ordering writing `conventions.json` before the migration and so arming the hook for the
+entire run, contradicting this table. `setup/SKILL.md`'s steps are restated in full against
+this mapping rather than shifted by one.
+
+**`conventions.json` exists on disk at no point between steps 6 and 12.** That is the
+hook-storm mitigation, and it holds identically on first run and on resync. Verification
+asserts it on both paths.
+
+**A live predecessor plugin arms its own hook.** `setup/SKILL.md:27-29` detects the Cowork
+edition. Its `Write|Edit` hook fires throughout the migration regardless of what
+professor-orb does with its own conventions file, so detection happens at step 1 and removal
+is required before migrating. This is a mutation-safety matter, not tidiness.
+
+**Without a verified snapshot there is no carve-out.** Part 8 exempts setup's migration from
+Principle 2 on the grounds that git is the gate. That reasoning is conditional on step 5
+having produced a verified hash. On `changelog` mode, or if the snapshot assertion fails, the
+migration falls back to the old contract: the manifest from step 9 is presented as a
+proposal, and execution happens only on approval. It never runs unattended without a restore
+point.
 
 **A live predecessor plugin arms its own hook.** `setup/SKILL.md:27-29` detects the Cowork
 edition. If one is installed, its `Write|Edit` hook fires throughout the migration
@@ -370,19 +379,30 @@ staged through a temporary sibling path.
 already establishes for index mutation:
 
 1. Relocate prongs to the canonical layout. Pure moves, link-safe.
-2. For each rename required by a suffix or charset rule: rename **and** rewrite every
+2. Normalize known base-type value mismatches, including `chronology` to `Chronology`.
+   **Before the rename pass**, because a file's required suffix is derived from its `type`,
+   so renaming first would compute suffixes from stale values and leave the corrected files
+   permanently mis-suffixed.
+3. For each rename required by a suffix or charset rule: rename **and** rewrite every
    wikilink to it, as one unit of work with its own applied true/false accounting. Not two
    batched passes.
-3. Create missing indexes for content-bearing KB folders.
-4. Merge multi-index folders losslessly.
-5. Split folders per the threshold rules, using a corrected entry count.
-6. Normalize known base-type value mismatches, including `chronology` to `Chronology`.
-7. Repair frontmatter: insert missing defaulted fields **except `publish`**, and reorder to
+4. Create missing indexes for content-bearing KB folders.
+5. Merge multi-index folders losslessly.
+6. Repair frontmatter: insert missing defaulted fields **except `publish`**, and reorder to
    canonical order. `publish` is never inserted or changed by any unattended process
    (phase 1, Part 2): articles missing it are reported, because setting a disclosure flag is
    the DM's call and guessing wrong leaks unmarked secret lore into their public wiki.
-8. Create or move `.obsidian/` per setting.
-9. Regenerate the per-setting tag registries.
+7. Create or move `.obsidian/` per setting.
+8. Regenerate the per-setting tag registries.
+
+**Split is reported, not executed, on the first run**, for the same reason absorb is.
+Crossing the threshold tells you a folder should divide; it does not tell you *how*. Choosing
+the partition and naming the resulting subfolders is a judgment about the DM's own material,
+and `commands/catalog.md:136`'s AskUserQuestion gate on sub-index splits survives (Part 8).
+The migration proposes a partition per over-threshold folder and reports it; `/migrate`
+(spec 4) executes it once the DM has chosen. An earlier draft executed splits unattended with
+no partition rule specified anywhere, while simultaneously stating that the split gate
+survives.
 
 **Absorb is not executed on the first run.** It is reported. `absorbThreshold` dissolves
 folders holding fewer than four entries, which would dissolve the very prong, setting, and
@@ -392,10 +412,18 @@ permanently; absorb applies only to leaf KB folders; and on an established KB th
 movement it would produce makes it a report item rather than an unattended move.
 
 **Enforcement levels and the migration.** The migration applies base rules at their default
-enforcement, before the DM has adjusted levels. This is stated plainly rather than papered
-over: the DM's chosen levels take effect from the next write onward. Phase 1's grounding of
-unattended autofix in "the level they confirmed at setup" refers to ongoing operation, not
-to this one run, whose authority comes from the snapshot commit and the after-action report.
+enforcement, because the DM confirms levels at run-order step 11, after it. This is stated
+plainly rather than papered over: the DM's chosen levels take effect from the next write
+onward. Phase 1's grounding of unattended autofix in "the level they confirmed at setup"
+refers to ongoing operation, not to this one run, whose authority comes from the snapshot
+commit and the after-action report.
+
+**Both operations the migration defers, split and absorb, are structural judgments rather
+than structural facts.** The threshold detects that a folder should divide or dissolve; it
+does not determine how to partition it or where its contents belong. That is the same line
+`validation-sweep.mjs:544-546` already draws for multi-index folders. Deferred items go to
+the report and then to `/migrate` (spec 4), which exists to execute exactly this class of
+work once the DM has scoped it.
 
 **Safety rails.**
 
@@ -464,13 +492,19 @@ project to the canonical layout, and how to undo it.
 
 `pipeline-state.json`, `proposals/`, and `versioning.json` are untouched.
 
-**Rolara's specifics.** Its layout moves to `settings/rolara/`,
-`session-reports/rolara/<campaign>/`, and `homebrew/rolara/`, with the sources determined by
-step 7's discovery rather than by either document's current claim. Its `conventions.json`,
-produced by the old derive-everything setup, is regenerated with the base layer plus extras
-derived from the `type` values actually present in its articles (phase 1, Part 2), not from
-a hand-written list. Its `items/` folder holds six sub-index files (`CONTEXT.md:118`), so it
-is a certain multi-index merge case.
+**Rolara's specifics, now measured rather than assumed.** Its `homebrew/` sits at the project
+root as a sibling of `rolara-kb/`, not inside it: `CONTEXT.md:90`'s `rolara-kb/homebrew/` is
+stale. All three prong moves are therefore clean sibling relocations, and the
+folder-into-its-own-child hazard that motivated step 7's confirmation does not arise here.
+Step 7 still runs, because the confirmation exists for the consumer whose layout has not been
+measured.
+
+Its 71 catalog entries already carry correct `type` values and `publish: false`, so neither
+the type normalization nor the `publish` reporting touches them. Its `conventions.json`,
+produced by the old derive-everything setup, is reconciled by phase 1's rule (v1 rules
+matching a base rule fold into `extendedBy`, carrying their enforcement level). Its `items/`
+folder holds six sub-index files (`CONTEXT.md:118`), so it is a certain multi-index merge
+case.
 
 ### Part 10: the after-action report
 
@@ -537,7 +571,13 @@ automatically.
 - **Exercise the resync path specifically**, asserting the hook is silent throughout because
   `conventions.json` was moved aside, and that extras and enforcement levels survive.
 - Exercise the four repository-state cases, including archived remotes that must not be
-  pushed to.
+  pushed to, and a fixture carrying a **nested** `.git` inside a prong root, asserting the
+  run stops at step 1 rather than taking a snapshot that cannot capture it.
+- **Assert no `conventions.json` exists on disk at any point during step 10**, on both the
+  first-run and the resync path. This is the hook-storm mitigation and it is the claim an
+  earlier draft got wrong.
+- Assert the `changelog` path never runs the migration unattended: with no snapshot hash, the
+  manifest must be presented as a proposal and execution must wait for approval.
 - Exercise the marker conversion; confirm `decided` survives and the old file is deleted
   only after the snapshot.
 - Run a debrief after a migration and confirm it writes to the canonical path.
