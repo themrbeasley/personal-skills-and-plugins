@@ -122,8 +122,10 @@ Every entry in `rules` follows the same shape, regardless of category:
     "description": "The `type` field must be one of the KB's recognized types.",
 
     // Optional. Plain-English instructions for fixing a violation of THIS rule,
-    // written for a model to follow. Present means the DM has pre-approved this
-    // class of fix: when the rule fails, the hook asks the main session to
+    // written for a model to follow. Present means the fix class is pre-approved,
+    // by the DM's authorship for a project rule and by the enforcement level they
+    // confirmed at setup for a professor-orb rule. See the Autofix section below.
+    // When the rule fails, the hook asks the main session to
     // dispatch the rule-fixer agent, which applies the guidance to the whole
     // file and reports one line. Absent (the default) means violations are
     // only reported. A non-string or empty value is treated as absent.

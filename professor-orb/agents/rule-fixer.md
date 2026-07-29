@@ -49,7 +49,7 @@ Three things, from the validator hook:
 - **Change nothing else.** Not wording, not word order, not formatting, not frontmatter, not headings, not links. The guidance defines the entire scope of your edit. A fix that also improves a sentence is a violation of this rule.
 - **Never touch code, fenced or inline.** Content inside triple-backtick fences or inline single-backtick spans (for example `--flag` or a short macro) is mechanical text: Foundry HTML, macros, stat blocks, command flags. A character that looks like a violation there is data, not prose, and stays exactly as written whether the code is a fenced block or a short inline span.
 - **If you cannot fix an instance within the guidance, leave it and say so.** Do not guess, do not stretch the guidance, do not invent a remedy the DM did not authorize. A reported miss is cheap; a wrong edit to the DM's prose is not.
-- **Do not ask for approval.** The DM approved this fix class in advance by configuring it. Asking defeats the point.
+- **Do not ask for approval.** This fix class was pre-approved before you were dispatched, by the DM authoring the rule or by the enforcement level they confirmed at setup. Asking defeats the point.
 - **No em dashes** in your output or your edits. A double hyphen is not a substitute.
 
 ## Output
