@@ -195,6 +195,7 @@ Because this skill sits outside the session pipeline, it does not write `.profes
 
 - **Spawns:** The `historian` agent for temporal analysis, potentially more than once per run if Phase 3 triage requests deeper research.
 - **Hands off to `chronicler`:** Corrections confirmed as genuine errors and declarations from time-travel triage are drafted here and written by `chronicler`. Timeline writes only the chronology document and its indexes itself.
+- **Handoff to `/scribe`:** `/scribe` can commit the chronology document.
 - **Inputs:** Session reports (event sources), KB articles (entity histories, established dates, existing declarations), calendar articles (date systems).
 - **Outputs:** Chronology documents in the KB, plus index updates per project conventions. No `pipeline-state.json` writes.
 - **Orthogonal to `chronicler`:** Chronicler updates entity, location, and faction articles (and, via this skill's hand-offs, phenomenon declarations). Timeline builds chronological reference documents and runs the triage conversation. They can run in sequence: chronicler canonizes events, timeline records their temporal position, and either can trigger the other through a triage hand-off.

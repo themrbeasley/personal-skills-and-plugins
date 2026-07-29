@@ -133,3 +133,4 @@ Apply any additional writing style rules from `conventions.json` or the project'
 - **Spawns:** The `lore` agent at the start of Phase 4 for KB cross-referencing, fanned out per entity.
 - **Handoff to `prep`:** After the report is written, suggest the DM run `prep` to plan the next session.
 - **Handoff to `chronicler`:** The `lore` agent's proposal is the input the `chronicler` skill uses to propose and execute KB updates.
+- **Handoff to `/log`:** `/log` can commit the session report.

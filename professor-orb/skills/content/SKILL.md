@@ -252,3 +252,4 @@ For `sessionDate`: if `.professor-orb/pipeline-state.json` already exists (typic
 - **Spawns:** the `historian` agent when a timeline visualization is in the work list.
 - **Downstream of `prep`:** reads the session brief's handout and setpiece candidates as its default work list.
 - **Orthogonal to `chronicler`:** content never modifies KB articles. If writing content reveals a canonical detail worth memorializing, note it in the final summary; do not touch KB articles.
+- **Handoff to `/log`:** `/log` can commit the recap and handouts.

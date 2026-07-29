@@ -200,4 +200,5 @@ For `sessionDate`: if `.professor-orb/pipeline-state.json` already exists (typic
 - **Outputs:** The proposal file in `.professor-orb/proposals/`, new and edited KB articles, index updates, log entries. No changes to session reports or prep files.
 - **Downstream of `debrief`:** This is the designated follow-up for the Lore Candidates section and the `lore` agent's proposal.
 - **Handoff to `kb-validator`:** After execution, the `kb-validator` agent can audit the touched articles' frontmatter, cross-references, and index ownership as a post-write QA pass.
+- **Handoff to `/scribe`:** `/scribe` can commit the KB changes.
 - **Orthogonal to `prep` and `content`:** This skill does not write prep briefs or player-facing content.
