@@ -66,11 +66,15 @@ export function buildPlan({ projectRoot, settings, baseRules, discovered }) {
  * @returns {{ok: boolean, collisions: Array, caseRenames: Array, ignored: Array|null}}
  */
 export function runPrechecks({ operations, projectRoot }) {
-  const collisions = findDestinationCollisions(operations, projectRoot);
+  // ignored has to be computed FIRST. findDestinationCollisions needs to know
+  // which operations the apply phase will skip, because a skipped operation
+  // does not vacate its source; see the vacated comment inside that function
+  // for what goes wrong when the order is the other way around.
+  const ignored = findIgnoredSources(operations, projectRoot);
+  const collisions = findDestinationCollisions(operations, projectRoot, ignored);
   const caseRenames = list(operations).filter(
     (o) => o.from && o.to && o.from.toLowerCase() === o.to.toLowerCase() && o.from !== o.to
   );
-  const ignored = findIgnoredSources(operations, projectRoot);
   // Only collisions abort. An ignored file is skipped and reported, never moved,
   // so it must not fail the run: one ignored file inside a prong would otherwise
   // stop the whole migration. ignored still rides along because the after-action
@@ -106,7 +110,7 @@ const DESTINATION_MAY_EXIST = new Set(["merge-index", "tag-registry"]);
 // folded because the filesystem is case-insensitive; settings/Rolara/items and
 // settings/rolara/items are one directory on that same filesystem, so folding
 // half the key let through a pair that is one file.
-function findDestinationCollisions(operations, projectRoot) {
+function findDestinationCollisions(operations, projectRoot, ignored) {
   const ops = list(operations).filter((o) => o && typeof o === "object");
   const foldKey = (p) => `${path.dirname(p)}::${path.basename(p)}`.toLowerCase();
   const rootUsable = Boolean(projectRoot) && existsSync(projectRoot);
@@ -116,9 +120,36 @@ function findDestinationCollisions(operations, projectRoot) {
   // Only an operation carrying BOTH from and to vacates anything: an in-place
   // edit carries from and no to exactly because it leaves the file where it is,
   // so its source must not count as freed.
+  //
+  // A vacating operation only frees its source if the apply phase actually
+  // runs it. prechecks.ignored names every operation whose source is
+  // git-ignored, and the apply phase's own contract is to SKIP those (see
+  // findIgnoredSources): the source stays exactly where it is. Crediting a
+  // skipped operation with vacating its destination is the hole this fix
+  // closes: an ignored op1 (from Ignored.md, to Moved.md) would otherwise mark
+  // Ignored.md free, and an unrelated op2 targeting that same path would then
+  // overwrite the file op1 left behind, unrecoverably, since a git-ignored
+  // file has no pre-migration snapshot either.
+  //
+  // ignored is Array OR null. null means the question could not be answered
+  // (no projectRoot, no repository, or a failed git call; see
+  // findIgnoredSources). Undetermined is not "nothing is ignored", so it
+  // needs its own decision, not a silent fallback to either array behavior.
+  // Chosen: while undetermined, NO operation is credited with vacating its
+  // source. The two ways this can be wrong are not symmetric. Crediting an
+  // operation that turns out to have been ignored reproduces the exact
+  // silent, unrecoverable overwrite above. Withholding credit from one that
+  // turns out NOT to have been ignored only produces a false-positive
+  // collision abort, which costs a rerun and nothing else. Given that
+  // asymmetry, undetermined takes the conservative reading rather than
+  // today's permissive one.
+  const ignoredFroms =
+    ignored === null ? null : new Set(list(ignored).map((i) => i.from).filter(Boolean));
   const vacated = new Set();
   for (const o of ops) {
-    if (o.from && o.to) vacated.add(foldKey(toPosix(o.from)));
+    if (!o.from || !o.to) continue;
+    if (ignoredFroms === null || ignoredFroms.has(o.from)) continue;
+    vacated.add(foldKey(toPosix(o.from)));
   }
 
   const byDir = new Map();

@@ -162,13 +162,17 @@ function makeRepo() {
     mkdirSync(path.dirname(abs), { recursive: true });
     writeFileSync(abs, body);
   };
-  // The last two entries are paths git C-quotes in its default porcelain
+  // The middle two entries are paths git C-quotes in its default porcelain
   // output, one for a byte above 0x7F and one for a space. The reference
   // consumer's character class already holds 18 markdown files with non-ASCII
-  // names.
+  // names. The last entry is the largest-blast-radius shape: an ignored
+  // DIRECTORY whose own name is non-ASCII, so every file beneath it is hidden
+  // in one stroke if the parser regresses, exactly the way editor-state/
+  // (ASCII) already proves the directory-rule mechanism itself.
   write(
     ".gitignore",
-    "settings/rolara/editor-state/\nsettings/rolara/éclair-notes.md\nsettings/rolara/two words.md\n"
+    "settings/rolara/editor-state/\nsettings/rolara/éclair-notes.md\nsettings/rolara/two words.md\n" +
+      "settings/rolara/Café/\n"
   );
   // Missing publish. Reported, never inserted.
   write("settings/rolara/Ashfall-Compact.md", "---\ntype: Organization\ntags: [faction]\n---\n\nBody.\n");
@@ -183,6 +187,13 @@ function makeRepo() {
   // same reason scratch.md does.
   write("settings/rolara/éclair-notes.md", "---\npublish: false\ntype: Concept\n---\n\nBody.\n");
   write("settings/rolara/two words.md", "---\npublish: false\ntype: Concept\n---\n\nBody.\n");
+  // A file beneath a non-ASCII ignored directory: the shape with the largest
+  // blast radius, since one directory rule hides every file beneath it.
+  write("settings/rolara/Café/Secret-Recipe.md", "---\npublish: false\ntype: Concept\n---\n\nBody.\n");
+  // A prefix sibling that must NOT match the Café/ rule. Only the trailing
+  // slash on the ignore entry keeps "Café-Rouge" from being read as starting
+  // with "Café"; drop that slash and this file wrongly reads as ignored too.
+  write("settings/rolara/Café-Rouge/Menu.md", "---\npublish: false\ntype: Concept\n---\n\nBody.\n");
   // A folder holding an index that already exists, for the merge-index and
   // create-index destination cases.
   write("settings/rolara/items/Items-INDEX.md", "---\npublish: false\ntype: Index\n---\n\nSurvivor.\n");
@@ -450,6 +461,43 @@ try {
     check("and neither aborts the run", p.prechecks.ok, true);
   }
 
+  console.log("\nAn ignored directory whose own name is non-ASCII");
+
+  {
+    // The flat-file non-ASCII fixture above (éclair-notes.md) is a file rule.
+    // Under the old line-oriented, JSON-decode parser, a single ignored
+    // directory whose name needs quoting would have hidden EVERY file
+    // beneath it, which is the largest blast radius of the two shapes: the
+    // reference consumer's ignore rules are directory rules, not flat-file
+    // ones. Café-Rouge/ shares the "Café" prefix and must NOT match; only the
+    // trailing slash on the ignore entry, preserved end to end by -z, keeps
+    // the two apart.
+    const p = plan(
+      {
+        renames: [
+          {
+            file: "settings/rolara/Café/Secret-Recipe.md",
+            to: "settings/rolara/Café/Secret-Recipe-CONCEPT.md",
+            ruleId: "filenameSuffixByType",
+          },
+          {
+            file: "settings/rolara/Café-Rouge/Menu.md",
+            to: "settings/rolara/Café-Rouge/Menu-CONCEPT.md",
+            ruleId: "filenameSuffixByType",
+          },
+        ],
+      },
+      repo
+    );
+    check("a file beneath a non-ASCII ignored directory is reported ignored",
+      p.prechecks.ignored.some((i) => i.source === "settings/rolara/Café/Secret-Recipe.md"), true);
+    check("a prefix sibling directory does not match the ignored directory rule",
+      p.prechecks.ignored.some((i) => i.source.startsWith("settings/rolara/Café-Rouge")), false);
+    check("only the directory's own file is reported, nothing from its prefix sibling",
+      p.prechecks.ignored.map((i) => i.source), ["settings/rolara/Café/Secret-Recipe.md"]);
+    check("and neither aborts the run", p.prechecks.ok, true);
+  }
+
   console.log("\nDestinations already occupied on disk");
 
   {
@@ -484,6 +532,73 @@ try {
     );
     check("a destination another operation renames away from is free: A -> B, B -> C is legal",
       p.prechecks.ok, true);
+  }
+
+  console.log("\nAn ignored source does not vacate its destination");
+
+  {
+    // scratch.md is git-ignored (an editor-state/ directory rule) and stays
+    // exactly where it is: the apply phase skips any operation whose source is
+    // ignored (prechecks.ignored's own contract). op1 here proposes to move it
+    // away, but since apply will never run op1, scratch.md still occupies its
+    // path when op2 tries to write Ashfall-Compact.md there. Before this fix,
+    // op1's `from` unconditionally vacated that path regardless of whether
+    // apply would ever run it, so op2 read as collision-free and would have
+    // overwritten a file with no pre-migration snapshot, unrecoverably.
+    const p = plan(
+      {
+        renames: [
+          {
+            file: "settings/rolara/editor-state/scratch.md",
+            to: "settings/rolara/editor-state/Scratch-Moved.md",
+            ruleId: "filenameSuffixByType",
+          },
+          {
+            file: "settings/rolara/Ashfall-Compact.md",
+            to: "settings/rolara/editor-state/scratch.md",
+            ruleId: "filenameSuffixByType",
+          },
+        ],
+      },
+      repo
+    );
+    check("a rename whose source is ignored does not free its destination for another operation",
+      p.prechecks.ok, false);
+    check("the collision names the path the skipped, ignored-source operation would have vacated",
+      p.prechecks.collisions.map((c) => c.to), ["settings/rolara/editor-state/scratch.md"]);
+    check("the ignored-source operation is still reported as ignored, not silently dropped",
+      p.prechecks.ignored.some((i) => i.source === "settings/rolara/editor-state/scratch.md"), true);
+  }
+
+  {
+    // ignored undetermined (no repository at all): the conservative choice
+    // means no operation is credited with vacating its source, so a same-path
+    // A -> B, B -> C chain that is legal once the ignored question is
+    // answered (proved just above with a real repo) instead reads as a
+    // collision while the question cannot be answered at all. This is the
+    // deliberate tradeoff: crediting an unverified vacate would reproduce the
+    // silent overwrite; withholding credit only costs a false-positive abort.
+    const bare = mkdtempSync(path.join(os.tmpdir(), "orb-migrate-plan-norepo-vacate-"));
+    try {
+      mkdirSync(path.join(bare, "settings", "rolara"), { recursive: true });
+      writeFileSync(path.join(bare, "settings", "rolara", "A.md"), "body\n");
+      writeFileSync(path.join(bare, "settings", "rolara", "B.md"), "body\n");
+      const pre = runPrechecks({
+        operations: [
+          { op: "rename-with-link-rewrite", from: "settings/rolara/A.md", to: "settings/rolara/B.md" },
+          { op: "rename-with-link-rewrite", from: "settings/rolara/B.md", to: "settings/rolara/C.md" },
+        ],
+        projectRoot: bare,
+      });
+      check("with ignored undetermined, a same-path chain legal under a determined verdict reads as a collision instead",
+        pre.ok, false);
+    } finally {
+      try {
+        rmSync(bare, { recursive: true, force: true, maxRetries: 5 });
+      } catch {
+        /* Same Windows handle caveat as the fixture repo below. */
+      }
+    }
   }
 
   {
