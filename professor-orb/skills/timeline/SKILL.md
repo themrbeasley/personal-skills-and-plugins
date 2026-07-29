@@ -13,15 +13,13 @@ This skill is **standalone**, like `homebrew`. It is not part of the debrief, pr
 
 ## First: learn the user's system
 
-Check for `.professor-orb/conventions.json` first. If it exists, it is authoritative for the KB folder structure, frontmatter schema, filename suffixes, and cross-reference format. Read it rather than re-deriving these rules from prose (Principle 9).
+Check for `.professor-orb/conventions.json` first. If it exists, it is authoritative for the KB folder structure and paths, frontmatter schema (required fields, valid `type` values), filename suffixes, and cross-reference format. Read it rather than re-deriving these rules from prose (Principle 9). Note the `type` value it uses for chronology documents and the matching `filenameSuffixByType` entry; the base schema pairs `type: Chronology` with a `-CHRONOLOGY` suffix, so `[SCOPE]-CHRONOLOGY.md` is the default filename shape when nothing narrower is documented.
 
-If it is missing, apply professor-orb's base schema per SHARED-PRINCIPLES Principle 11 and note that setup has not run. For everything else, fall back to reading the project's `CLAUDE.md` (or equivalent project instructions file) directly. Extract:
+If it is missing, apply professor-orb's base schema per SHARED-PRINCIPLES Principle 11 and note that setup has not run.
 
-- **KB folder structure and paths.** Where articles live.
+Either way, `conventions.json` only covers frontmatter, filename, and structural rules. For everything else, read `CLAUDE.md` and the project's existing files:
+
 - **Where chronology documents live (if a convention exists).** Look for a `chronologies/`, `timelines/`, or `history/` folder, or a `type: chronology` value. If no convention exists, establish a minimal one with the DM in Phase 1.
-- **Filename conventions for timeline documents.** Look for suffix patterns like `-CHRONOLOGY`, `-TIMELINE`, `-HISTORY`. Default if no convention: `[SCOPE]-CHRONOLOGY.md`.
-- **YAML frontmatter schema.** Required fields, valid `type` values.
-- **Cross-reference format.** Wikilinks, markdown links, or plain text. Match it.
 - **Writing style rules.** Tone, prohibited patterns, voice. Apply them in the draft.
 - **Content exclusions.** Tags or categories marked off limits. Honor them when scoping.
 

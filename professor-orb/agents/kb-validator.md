@@ -58,7 +58,7 @@ Either way, note the `enforcement` level of each rule where conventions.json is 
 
 ### Step 2: Determine scope
 
-If given a list of files (for example, the articles chronicler just touched), check those. If asked for a broad audit, or run by the validation sweep workflow, scan the KB folder structure per `kbRoot` (from conventions.json, or inferred from CLAUDE.md) and check systematically.
+If given a list of files (for example, the articles chronicler just touched), check those. If asked for a broad audit, or run by the validation sweep workflow, scan the KB folder structure per `kbRoot` from conventions.json and check systematically. If conventions.json is missing, the base schema does not define a KB root (Principle 11): say so and ask the DM which folder to scan rather than inferring one from prose.
 
 ### Step 3: Identify catalog entries and exempt them from graph checks
 
@@ -72,7 +72,7 @@ Before running cross-reference or index-ownership checks, identify homebrew cata
 
 ### Step 4: For each in-scope article, check every convention rule
 
-**Frontmatter validation** (per conventions.json's `frontmatter` category rules, or CLAUDE.md fallback):
+**Frontmatter validation** (per conventions.json's `frontmatter` category rules, or the base schema's `frontmatter` rules per Principle 11):
 - YAML parses without errors
 - Required fields present, and in the required order if the rule specifies one
 - Enum fields (for example, `type`) use a valid value

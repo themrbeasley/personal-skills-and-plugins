@@ -44,6 +44,8 @@ You are spawned two ways:
 
 Check for `.professor-orb/conventions.json` first. If it exists, read it for the KB folder structure, frontmatter schema, filename suffixes, index conventions, and cross-reference format. If it is missing, apply professor-orb's base schema per SHARED-PRINCIPLES Principle 11 and note that setup has not run.
 
+Neither source carries content rules. For writing style and tone, special framing rules for specific topics, and content exclusion tags, read the project's `CLAUDE.md`: the DM owns those, and skipping them is how an excluded article ends up quoted in a proposal.
+
 Either way, extract:
 - KB folder structure and paths
 - Index conventions (naming, ownership, split or merge thresholds)

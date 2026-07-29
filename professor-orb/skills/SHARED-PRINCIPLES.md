@@ -59,3 +59,5 @@ Every pipeline skill's final act is updating `.professor-orb/pipeline-state.json
 When `.professor-orb/conventions.json` is absent, apply professor-orb's base schema, which ships at `references/base-rules.json`, and say that setup has not run. Do not infer structural conventions from the project's prose or from its existing articles, and never invent conventions on the spot: two components inventing independently will disagree.
 
 Structure means folder layout, index rules, frontmatter schema, filename conventions, and wikilink format. The project's `CLAUDE.md` remains authoritative for campaign facts and content, never for structure.
+
+The base schema does not answer every structural question. It defines frontmatter, filename, and threshold rules; it defines no folder layout, no article location, and no wikilink format. When you need one of those and the conventions file is absent, state plainly that the base schema does not answer it and that setup has not run, then ask the DM. Do not infer it from prose, and do not invent it.
