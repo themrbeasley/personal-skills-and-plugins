@@ -13,11 +13,11 @@ You are helping a D&D DM build a session brief for the next game. A session brie
 
 Check for `.professor-orb/conventions.json` first. If it exists, it is authoritative for the session brief's frontmatter schema, filename suffix, and any structural rules (index parity, wikilink policy) that apply to where you save the brief. Read it rather than re-deriving these rules from prose (Principle 9). Note the `type` value it uses for session prep files (for example "Session Prep") and the matching `filenameSuffixByType` and `frontmatterRequiredFields` entries so the file you write will pass the project's write-time validator hook on the first try.
 
-**If `.professor-orb/conventions.json` is missing,** fall back to reading the project's `CLAUDE.md` (or equivalent project instructions file) directly and infer the schema and filename convention from it and from existing prep files, the way you would with no conventions file at all.
+If it is missing, apply professor-orb's base schema per SHARED-PRINCIPLES Principle 11 and note that setup has not run.
 
 Either way, `conventions.json` only covers frontmatter, filename, and structural rules. For everything else, read `CLAUDE.md` and the project's existing files:
 
-- **Where session reports and prep files live.** Look for folder paths, naming conventions, suffix conventions.
+- **Where session reports and prep files live.** Resolve `sessionReportsRoot` from `.professor-orb/conventions.json`'s `settings` array per SHARED-PRINCIPLES Principle 12; the brief saves alongside the session report, in `<sessionReportsRoot>/<campaign>/`. For anything the conventions file does not cover, look at naming and suffix conventions in existing files.
 - **Report structure.** What sections does the session report use? You will draw from these sections when building the brief.
 - **VTT platform.** Does the user run a virtual tabletop? Which one? This informs the Work Review conversation but does not generate its own section.
 - **Writing style rules.** Match the project's conventions in your output.
@@ -26,8 +26,6 @@ Either way, `conventions.json` only covers frontmatter, filename, and structural
 - **Index conventions.** How indexes are structured and owned. You will need this in Phase 3.
 
 If `CLAUDE.md` points to other reference documents, read those too.
-
-**If the project has neither a conventions file nor `CLAUDE.md`,** work with what exists (prior prep files, folder structure). If nothing exists, establish minimal conventions as you go.
 
 ## Inputs
 

@@ -1,6 +1,6 @@
 ---
 name: orb
-description: "Menu and orientation skill for professor-orb: shows every skill, agent, command, workflow, and hook the plugin ships, and helps the DM pick what to run next. Use when the user runs /orb, asks what tools are available, what this plugin can do, or what should I run next. Reads .professor-orb/pipeline-state.json (if present) to recommend the next session-pipeline step (debrief, then prep, then content and/or chronicler, then the kb-validator agent) and suggests running setup first when no professor-orb install is found yet. Standalone components (setup after first install, homebrew, timeline, /catalog, the validation-sweep workflow) are always available on demand and never presented as a required next step. This skill only reads pipeline state; it never writes pipeline-state.json, conventions.json, or any KB file. It is the on-demand counterpart to the Stop hook's automatic next-step suggestion, not a replacement for it."
+description: "Menu and orientation skill for professor-orb: shows every skill, agent, command, workflow, and hook the plugin ships, and helps the DM pick what to run next. Use when the user runs /orb, asks what tools are available, what this plugin can do, or what should I run next. Reads .professor-orb/pipeline-state.json (if present) to recommend the next session-pipeline step (debrief, then prep, then content and/or chronicler, then the kb-validator agent) and suggests running setup first when no professor-orb install is found yet. Standalone components (setup after first install, homebrew, timeline, /catalog, /scribe, /log, the validation-sweep workflow) are always available on demand and never presented as a required next step. This skill only reads pipeline state; it never writes pipeline-state.json, conventions.json, or any KB file. It is the on-demand counterpart to the Stop hook's automatic next-step suggestion, not a replacement for it."
 ---
 
 > **Before you begin:** read `../SHARED-PRINCIPLES.md` and apply its rules throughout this workflow.
@@ -15,11 +15,11 @@ This skill does not need `.professor-orb/conventions.json`. Conventions govern K
 
 ## What professor-orb is
 
-Professor Orb is a post-session workflow plugin for D&D DMs. Every skill drafts its output and waits for your approval before writing files; `chronicler` and `/catalog` are the only components that write anything to the knowledge base, and only after explicit approval.
+Professor Orb is a post-session workflow plugin for D&D DMs. Every skill drafts its output and waits for your approval before writing files. `debrief`, `prep`, `content`, `chronicler`, `timeline`, and `/catalog` write to the knowledge base; each does so only after explicit approval. `/scribe` and `/log` are not on that list: they commit knowledge base content to version control without authoring any of it.
 
 **Session pipeline:** debrief > prep > content / chronicler > kb-validator (agent)
 
-**Standalone, on demand, never part of pipeline state:** setup (after the first install), homebrew, timeline, `/catalog`, the validation-sweep workflow, and orb itself.
+**Standalone, on demand, never part of pipeline state:** setup (after the first install), homebrew, timeline, `/catalog`, `/scribe`, `/log`, the validation-sweep workflow, and orb itself.
 
 ## Components
 
@@ -37,6 +37,8 @@ Professor Orb is a post-session workflow plugin for D&D DMs. Every skill drafts 
 | historian | Agent (read-only) | Chronological indexing, calendar conversion, temporal consistency checks | Spawned by `timeline` (and by `content` for timeline visualizations), or on demand for a temporal query |
 | kb-validator | Agent (read-only) | Audits KB article frontmatter, cross-references, index ownership, and filenames against `conventions.json` | After a `chronicler` pass, or on demand for a KB health check |
 | /catalog | Command | Capture a finalized piece of homebrew as a type-specific, versioned catalog entry across its playtest life | Invoking `/catalog` once a design is finalized, optionally pasting it or naming what to catalog |
+| /scribe | Command | Commit the setting KB lane (`settings/<setting>/`): what `chronicler` and `timeline` wrote, plus the DM's own Obsidian edits. Authors no KB content itself | `/scribe`, "commit the lore," "commit the KB changes" |
+| /log | Command | Commit the session-reports lane (`session-reports/<setting>/<campaign>/`): reports, prep briefs, recaps, handouts. Sets an unfinished report aside by name and commits the rest | `/log`, "commit the session report," "commit the recap" |
 | validation-sweep | Workflow | Whole-KB convention audit at scale: a read-only scan phase, then an approved fix phase | Via the Workflow tool, from `.claude/workflows/validation-sweep.mjs` (copied there by `setup`) |
 | write-time validator | Hook (PostToolUse) | Validates a just-written KB article's frontmatter against `conventions.json` | Automatic on every Write/Edit; silent on success |
 | pipeline-next | Hook (Stop) | Suggests the next session-pipeline step after a pipeline skill finishes | Automatic; silent when there is nothing to suggest |
@@ -53,7 +55,7 @@ Read `.professor-orb/pipeline-state.json` if it exists, and check its `lastStep`
 - **`lastStep` is `"chronicler"`.** Suggest running the `kb-validator` agent to audit what changed, and `timeline` if chronology needs updating.
 - **Any other or unrecognized `lastStep`.** Say what state you found and ask the DM directly rather than guessing.
 
-Mention `sessionDate` when you report the suggestion, so the DM knows which session's progress this reflects. Standalone components (`homebrew`, `timeline`, `/catalog`, the validation-sweep workflow) never count as a required next step; note that they remain available at any time regardless of pipeline state.
+Mention `sessionDate` when you report the suggestion, so the DM knows which session's progress this reflects. Standalone components (`homebrew`, `timeline`, `/catalog`, `/scribe`, `/log`, the validation-sweep workflow) never count as a required next step; note that they remain available at any time regardless of pipeline state.
 
 This is the on-demand version of the Stop hook's automatic suggestion. The Stop hook already prints a next-step line after a pipeline skill finishes; orb exists for when the DM asks directly, mid-conversation, or wants the fuller menu alongside the same answer. Neither replaces the other.
 

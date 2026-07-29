@@ -11,9 +11,13 @@ You are writing **content the DM will read aloud or hand to players at the table
 
 ## First: learn the user's system
 
-Check `.professor-orb/conventions.json` first. If it defines rules for content files (a `type` value such as "Content," matching filename suffix, required frontmatter), follow those so anything you write passes the project's write-time validator hook on the first try. Many projects never formalize content-file conventions in `conventions.json`, since content is player-facing craft rather than KB canon; if it does not cover content files, fall back to the project's `CLAUDE.md` (or equivalent instructions file) the same way debrief and prep do for everything `conventions.json` doesn't reach. Extract:
+Check `.professor-orb/conventions.json` first. If it defines rules for content files (a `type` value such as "Content," matching filename suffix, required frontmatter), follow those so anything you write passes the project's write-time validator hook on the first try. If the file is missing entirely, apply professor-orb's base schema per SHARED-PRINCIPLES Principle 11 and note that setup has not run.
 
-- **Where content files live.** Look for a content subdirectory, naming convention, or file pattern. If not specified, default to a `content/` subdirectory inside the campaign's session-reports folder.
+Many projects never formalize content-file conventions in `conventions.json`, since content is player-facing craft rather than KB canon. If the file exists but is silent on content files, say that it does not cover them, follow the project's content conventions from `CLAUDE.md`, and do not invent structural rules for content files. Setup has run in that case, so do not report otherwise, and do not force content output into the base schema's `type` enum, which has no content value.
+
+For everything else, fall back to the project's `CLAUDE.md` (or equivalent instructions file) the same way debrief and prep do for everything `conventions.json` doesn't reach. Extract:
+
+- **Where content files live.** Resolve `sessionReportsRoot` per SHARED-PRINCIPLES Principle 12; look for a content subdirectory, naming convention, or file pattern within `<sessionReportsRoot>/<campaign>/`. If not specified, default to a `content/` subdirectory inside that campaign folder.
 - **Content filename conventions.** Look for prefix patterns (for example `RECAP-`, `HANDOUT-`). If not specified, default to `[TYPE]-YYYY-MM-DD-[Title].md` for markdown, with `-FRAGMENT.html`, `-PRINT.html`, and `-IMAGE-PROMPT.md` suffixes for the Foundry fragment, printable page, and prompt sidecar variants described below.
 - **Writing style rules.** Especially important for this skill, since any tone, phrasing, or formatting rules affect how content reads aloud. Check for prohibited patterns, required voice, cultural sensitivity notes.
 - **Cross-reference format.** Match the project's link conventions. Cross-references are optional in read-aloud content (it is meant to be spoken, not navigated) and pointless in HTML outputs bound for Foundry or print, but useful if a markdown file will be referenced from the KB.
@@ -248,3 +252,4 @@ For `sessionDate`: if `.professor-orb/pipeline-state.json` already exists (typic
 - **Spawns:** the `historian` agent when a timeline visualization is in the work list.
 - **Downstream of `prep`:** reads the session brief's handout and setpiece candidates as its default work list.
 - **Orthogonal to `chronicler`:** content never modifies KB articles. If writing content reveals a canonical detail worth memorializing, note it in the final summary; do not touch KB articles.
+- **Handoff to `/log`:** `/log` can commit the recap and handouts.

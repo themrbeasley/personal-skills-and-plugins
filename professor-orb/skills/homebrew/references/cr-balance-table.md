@@ -1,8 +1,8 @@
-# Monster Statistics by CR — 2014 DMG Reference
+# Monster Statistics by CR: 2014 DMG Reference
 
 Source: Dungeon Master's Guide (2014), "Creating a Monster" chapter.
 
-This table provides the baseline defensive and offensive statistics for monsters at each CR. Use it as a benchmark when building or evaluating homebrew monsters. A monster can exceed one column meaningfully — that's a design choice. Exceeding two or more columns without a compensating weakness usually means the CR is underrated.
+This table provides the baseline defensive and offensive statistics for monsters at each CR. Use it as a benchmark when building or evaluating homebrew monsters. A monster can exceed one column meaningfully, and that's a design choice. Exceeding two or more columns without a compensating weakness usually means the CR is underrated.
 
 **Note:** These values are guidelines, not hard constraints. A high-AC monster might have lower HP to compensate, and vice versa. The table represents a balanced average.
 
@@ -66,4 +66,4 @@ This table provides the baseline defensive and offensive statistics for monsters
 - **Damage/Round is the most critical column.** An encounter becomes dangerous or trivial faster through DPR than through AC or HP.
 - **Defensive CR vs. Offensive CR**: The 2014 DMG calculates CR by averaging the defensive CR (based on HP/AC) and offensive CR (based on DPR/attack bonus/save DC). A monster with very high HP but low damage may have a misleading final CR.
 - **Legendary Actions and Resistances**: These push effective CR up meaningfully and are not fully captured in the raw stat ranges. Factor them in qualitatively.
-- **Verify against the 2014 DMG** if precision matters — these values are drawn from training data and should be accurate, but the original source is authoritative.
+- **Verify against the 2014 DMG** if precision matters. These values are drawn from training data and should be accurate, but the original source is authoritative.

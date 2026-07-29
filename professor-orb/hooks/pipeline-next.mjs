@@ -5,13 +5,35 @@
 // and, if the last completed step is recent, prints a one-line suggestion for
 // what to run next. Purely mechanical: no model judgment, no conversation
 // parsing. Never blocks (always exits 0).
+//
+// A second, independent read of .professor-orb/versioning.json (or the legacy
+// .professor-orb/catalog-versioning.json, when versioning.json does not yet
+// exist) decides whether a lane-command clause is appended to that base
+// message. The base message always emits on its own; only the appended clause
+// is conditional on the versioning marker. Both reads share the same
+// fail-silent contract: a missing file, unreadable JSON, or unrecognized
+// shape is treated as "no clause," never as a crash and never as a reason to
+// suppress the base suggestion. This hook never writes or converts the
+// versioning marker; it only reads it.
 
 import { readFileSync } from "node:fs";
 import path from "node:path";
 
 const STALE_MS = 2 * 60 * 60 * 1000; // 2 hours
 
+// Both maps below are built with a null prototype (the "__proto__: null"
+// object-literal key sets the object's own [[Prototype]] to null; it does
+// not create an own "__proto__" property). This is structural, not a guard:
+// a plain object literal inherits from Object.prototype, so a corrupted or
+// crafted lastStep such as "__proto__", "toString", "constructor", or
+// "hasOwnProperty" would resolve to a truthy inherited value (an object or a
+// native function) on an ordinary "{}"-style map, defeating the truthiness
+// checks below and printing that inherited value's string coercion instead
+// of staying silent. With no prototype chain to inherit from, a lookup by
+// any name that is not one of this map's own keys returns undefined, no
+// matter what Object.prototype happens to expose.
 const NEXT_STEP_MESSAGES = {
+  __proto__: null,
   debrief:
     "Next: /prep can build a session brief, or /chronicler can update the KB from the session report.",
   prep: "Next: /content can write recaps and handouts, or /chronicler can update the KB.",
@@ -22,6 +44,58 @@ const NEXT_STEP_MESSAGES = {
   // "timeline" and any unrecognized lastStep intentionally have no entry;
   // absence means stay silent.
 };
+
+// Appended to the base message above only when a versioning marker exists and
+// its mode is "git" or "github". Never appended on its own; a lastStep with
+// no NEXT_STEP_MESSAGES entry stays silent regardless of this map. There is
+// no "timeline" entry: timeline never writes pipeline-state.json, so
+// NEXT_STEP_MESSAGES has no "timeline" key and this hook can never reach
+// this map with that lastStep in the first place. The chronology-document
+// lane wording belongs to timeline/SKILL.md's own handoff line, not here.
+const LANE_CLAUSES = {
+  __proto__: null,
+  debrief: " /log can commit the session report.",
+  content: " /log can commit the recap and handouts.",
+  chronicler: " /scribe can commit the KB changes.",
+};
+
+// Reads the versioning decision, fail-silent. Tries versioning.json first;
+// falls back to the legacy catalog-versioning.json only when versioning.json
+// itself is absent (ENOENT or similar). Never converts or writes either
+// file; that conversion belongs to setup and /catalog alone. Returns the
+// mode string on success, or null if no usable marker could be read.
+function readVersioningMode(cwd) {
+  const primaryPath = path.resolve(cwd, ".professor-orb", "versioning.json");
+  const legacyPath = path.resolve(
+    cwd,
+    ".professor-orb",
+    "catalog-versioning.json"
+  );
+
+  let raw;
+  try {
+    raw = readFileSync(primaryPath, "utf8");
+  } catch {
+    try {
+      raw = readFileSync(legacyPath, "utf8");
+    } catch {
+      return null;
+    }
+  }
+
+  let marker;
+  try {
+    marker = JSON.parse(raw);
+  } catch {
+    return null;
+  }
+
+  if (!marker || typeof marker !== "object" || Array.isArray(marker)) {
+    return null;
+  }
+
+  return typeof marker.mode === "string" ? marker.mode : null;
+}
 
 function main() {
   const statePath = path.resolve(
@@ -72,10 +146,20 @@ function main() {
   }
 
   const message = NEXT_STEP_MESSAGES[lastStep];
-  if (message) {
-    process.stdout.write(message + "\n");
+  if (!message) {
+    process.exit(0);
   }
 
+  let output = message;
+  const mode = readVersioningMode(process.cwd());
+  if (mode === "git" || mode === "github") {
+    const clause = LANE_CLAUSES[lastStep];
+    if (clause) {
+      output += clause;
+    }
+  }
+
+  process.stdout.write(output + "\n");
   process.exit(0);
 }
 

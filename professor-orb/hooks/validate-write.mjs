@@ -6,7 +6,7 @@
 // file is not a KB article, this script exits 0 silently. Unknown check
 // kinds are skipped for forward compatibility. Node.js built-ins only.
 
-import { readFileSync, existsSync, readdirSync } from "node:fs";
+import { readFileSync, existsSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
 
 function readStdin() {
@@ -373,6 +373,28 @@ function checkSingleOwnership() {
   return null;
 }
 
+// Articles only. The raw directory listing includes subfolders, images, and
+// the folder's own index, so a folder of 3 articles plus 3 subfolders would
+// otherwise read as 6 and wrongly earn a split. Shared by both threshold
+// checks: they ask the same question of the same directory and must never
+// answer it differently.
+function countArticles(dirAbs, entries, params) {
+  const indexSuffix = typeof params.indexSuffix === "string" ? params.indexSuffix.toLowerCase() : null;
+  return entries.filter((f) => {
+    if (f.startsWith(".")) return false;
+    if (!f.toLowerCase().endsWith(".md")) return false;
+    const base = f.slice(0, -3).toLowerCase();
+    if (indexSuffix && base.endsWith(indexSuffix)) return false;
+    let isDir = false;
+    try {
+      isDir = statSync(path.join(dirAbs, f)).isDirectory();
+    } catch {
+      isDir = false;
+    }
+    return !isDir;
+  }).length;
+}
+
 function checkSplitThreshold(params, ctx) {
   const { minEntries } = params;
   if (typeof minEntries !== "number") return null;
@@ -381,10 +403,10 @@ function checkSplitThreshold(params, ctx) {
   const entries = safeReaddir(dir);
   if (!entries) return null;
 
-  const count = entries.filter((f) => !f.startsWith(".")).length;
+  const count = countArticles(dir, entries, params);
   if (count >= minEntries) {
     const folderLabel = path.dirname(ctx.relPath) || ".";
-    return `Folder "${folderLabel}" has ${count} entries (at least ${minEntries}); consider splitting into a sub-index.`;
+    return `Folder "${folderLabel}" has ${count} articles (at least ${minEntries}); consider splitting into a sub-index.`;
   }
   return true;
 }
@@ -397,10 +419,10 @@ function checkAbsorbThreshold(params, ctx) {
   const entries = safeReaddir(dir);
   if (!entries) return null;
 
-  const count = entries.filter((f) => !f.startsWith(".")).length;
-  if (count <= maxEntries) {
+  const count = countArticles(dir, entries, params);
+  if (count < maxEntries) {
     const folderLabel = path.dirname(ctx.relPath) || ".";
-    return `Folder "${folderLabel}" has ${count} entries (at most ${maxEntries}); consider absorbing it into its parent.`;
+    return `Folder "${folderLabel}" has ${count} articles (fewer than ${maxEntries}); consider absorbing it into its parent.`;
   }
   return true;
 }
@@ -427,9 +449,9 @@ function searchForFileStat(dir, candidateNames, depth) {
   return false;
 }
 
-function wikilinkTargetExists(kbRootAbs, target) {
+function wikilinkTargetExists(searchRoots, target) {
   const candidates = [`${target}.md`, target];
-  return searchForFileStat(kbRootAbs, candidates, 0);
+  return searchRoots.some((root) => searchForFileStat(root, candidates, 0));
 }
 
 function checkWikilinkPolicy(params, ctx) {
@@ -459,7 +481,7 @@ function checkWikilinkPolicy(params, ctx) {
     if (requireDisplayText && parts.length < 2) {
       bareLinks.push(m[0]);
     }
-    if (requireExistingTarget && !wikilinkTargetExists(ctx.kbRootAbs, target)) {
+    if (requireExistingTarget && !wikilinkTargetExists(ctx.searchRoots, target)) {
       missingTargets.push(target);
     }
   }
@@ -486,7 +508,7 @@ function checkTagVocabulary(params, ctx) {
 
   const registryPath = path.resolve(
     ctx.projectRoot,
-    ctx.conventions.tagRegistryPath || path.join(".professor-orb", "tag-registry.json")
+    ctx.tagRegistryPath || path.join(".professor-orb", "tag-registry.json")
   );
 
   if (!existsSync(registryPath)) return null;
@@ -630,6 +652,11 @@ function checkFrontmatterImpliesFrontmatter(params, ctx) {
   return `Frontmatter matches ${JSON.stringify(when)}, so ${failures.join("; ")}.`;
 }
 
+// Check semantics are duplicated four ways: skills/setup/references/conventions-schema.md's
+// check catalog (normative), this CHECKS table, the checkerPrompt in
+// workflows/validation-sweep.mjs, and agents/kb-validator.md Step 4. The base rule data
+// is single-sourced at references/base-rules.json; the semantics are not. Changing one
+// requires changing the other three.
 const CHECKS = {
   requiredFields: checkRequiredFields,
   enum: checkEnum,
@@ -664,8 +691,52 @@ function formatAutofixRequest(ruleId, guidance, ctx) {
     `  file: ${ctx.relProjectPath}`,
     `  rule: ${ruleId}`,
     `  guidance: ${guidance}`,
-    "The DM pre-approved this fix class by setting autofix on the rule, so apply it without asking.",
+    "This fix class is pre-approved, by the DM authoring the rule or by the enforcement level they confirmed at setup, so apply it without asking.",
   ].join("\n");
+}
+
+// ---------------------------------------------------------------------------
+// Settings resolution
+// ---------------------------------------------------------------------------
+
+// Normalizes v1, v2, and v3 conventions files to one shape. A v1 or v2 file
+// has a bare kbRoot and a top-level rules object; it reads as a single unnamed
+// setting whose other prong roots are unknown. That is enough for validation
+// and deliberately not enough for lane resolution, which refuses this shape.
+function resolveSettings(conventions) {
+  if (Array.isArray(conventions.settings) && conventions.settings.length > 0) {
+    return conventions.settings.filter((s) => s && typeof s.kbRoot === "string");
+  }
+  if (typeof conventions.kbRoot === "string" && conventions.rules) {
+    return [
+      {
+        name: null,
+        kbRoot: conventions.kbRoot,
+        homebrewRoot: null,
+        sessionReportsRoot: null,
+        rules: conventions.rules,
+        tagRegistryPath: conventions.tagRegistryPath,
+      },
+    ];
+  }
+  return [];
+}
+
+// Which prong of a setting contains this path, if any. Returns "kb",
+// "homebrew", "session-reports", or null.
+function prongContaining(projectRoot, setting, absFilePath) {
+  const prongs = [
+    ["kb", setting.kbRoot],
+    ["homebrew", setting.homebrewRoot],
+    ["session-reports", setting.sessionReportsRoot],
+  ];
+  for (const [kind, root] of prongs) {
+    if (typeof root !== "string" || root.length === 0) continue;
+    const rootAbs = path.resolve(projectRoot, root);
+    const rel = path.relative(rootAbs, absFilePath);
+    if (rel !== "" && !rel.startsWith("..") && !path.isAbsolute(rel)) return kind;
+  }
+  return null;
 }
 
 // ---------------------------------------------------------------------------
@@ -714,19 +785,62 @@ function main() {
     process.exit(0);
   }
 
-  if (!conventions || typeof conventions !== "object" || !conventions.kbRoot || !conventions.rules) {
+  if (!conventions || typeof conventions !== "object") {
     process.exit(0);
   }
 
-  const kbRootAbs = path.resolve(projectRoot, conventions.kbRoot);
+  // v3 carries a settings array; v1 and v2 carry a bare kbRoot. Both shapes
+  // must resolve, because a consumer's file is only rewritten when setup next
+  // runs. A v3 file reaching the old guard exited 0 and silently disabled all
+  // validation, which is why this accepts either shape explicitly.
+  const settings = resolveSettings(conventions);
+  if (settings.length === 0) {
+    process.exit(0);
+  }
+
   const absFilePath = path.resolve(projectRoot, filePath);
 
-  const relToKb = path.relative(kbRootAbs, absFilePath);
-  const isInsideKb =
-    relToKb !== "" && !relToKb.startsWith("..") && !path.isAbsolute(relToKb);
-  if (!isInsideKb) {
+  // The owning setting is the one whose prong roots contain this file. Rules
+  // are per setting, so the wrong owner means the wrong rule set.
+  let owner = null;
+  let prongKind = null;
+  for (const s of settings) {
+    const kind = prongContaining(projectRoot, s, absFilePath);
+    if (kind) {
+      owner = s;
+      prongKind = kind;
+      break;
+    }
+  }
+  if (!owner || !owner.rules) {
     process.exit(0);
   }
+
+  // The deleted block was the only definition of relToKb, and the ctx literal
+  // still reads it as relPath. It must be reintroduced here or main() throws an
+  // uncaught ReferenceError on every write: main() is invoked bare at the bottom
+  // of the file, and the only try/catch in the check loop wraps individual check
+  // functions, not this.
+  //
+  // Anchor it to the prong root that owns the file rather than to kbRoot.
+  // relPath feeds only the human-readable folder label in the three structural
+  // checks, and a homebrew or session-reports file measured from kbRoot would
+  // render as a "../" label.
+  const prongRoots = {
+    kb: owner.kbRoot,
+    homebrew: owner.homebrewRoot,
+    "session-reports": owner.sessionReportsRoot,
+  };
+  const prongRootAbs = path.resolve(projectRoot, prongRoots[prongKind] || owner.kbRoot);
+  const relToProng = path.relative(prongRootAbs, absFilePath);
+
+  // Wikilink resolution searches the union of the owning setting's prong
+  // roots, not kbRoot alone, so a session report can link to a KB article
+  // (or vice versa) without the target reading as dead.
+  const searchRoots = ["kbRoot", "homebrewRoot", "sessionReportsRoot"]
+    .map((k) => owner[k])
+    .filter((r) => typeof r === "string" && r.length > 0)
+    .map((r) => path.resolve(projectRoot, r));
 
   let fileContent;
   try {
@@ -743,14 +857,18 @@ function main() {
   const ctx = {
     projectRoot,
     toolName,
-    kbRootAbs,
+    prongKind,
+    searchRoots,
     absFilePath,
-    relPath: relToKb,
+    relPath: relToProng,
     relProjectPath: path.relative(projectRoot, absFilePath),
     fileName: path.basename(absFilePath),
     frontmatter: parsed.data,
     frontmatterOrder: parsed.order,
     body: parsed.body,
+    // A v3 setting carries its own tag vocabulary, so the owning setting's
+    // registry wins over any top-level one a v1 or v2 file supplied.
+    tagRegistryPath: owner.tagRegistryPath || conventions.tagRegistryPath,
     conventions,
   };
 
@@ -758,16 +876,40 @@ function main() {
   const warnings = [];
   const autofixRequests = [];
 
-  for (const ruleId of Object.keys(conventions.rules)) {
-    const rule = conventions.rules[ruleId];
+  for (const ruleId of Object.keys(owner.rules)) {
+    const rule = owner.rules[ruleId];
     if (!rule || rule.enforcement === "off") continue;
 
     const checkFn = CHECKS[rule.check];
     if (!checkFn) continue; // unrecognized check kind: forward-compatible skip
 
+    // A base rule may be extended by the project: extra permitted enum values
+    // live in rule.extendedBy, unioned into the rule's enum values only, so
+    // the project never needs a second rule of the same check kind on the
+    // same field, which would fail every article against one of the two.
+    // Mapping-based rules (suffixByType) are deliberately not extended here:
+    // params.mapping holds {type, suffix} objects, matched by
+    // mapping.find((m) => m.type === type), so splicing a bare string from
+    // extendedBy in would create an entry that can never match, silently
+    // disabling the rule for the extended type instead of enforcing it.
+    let effectiveParams = rule.params || {};
+    if (Array.isArray(rule.extendedBy) && rule.extendedBy.length > 0) {
+      if (Array.isArray(effectiveParams.values)) {
+        effectiveParams = {
+          ...effectiveParams,
+          values: [...effectiveParams.values, ...rule.extendedBy],
+        };
+      }
+    }
+
+    // scope "kb" restricts a rule to the setting knowledge base. ctx.prongKind
+    // now carries the prong that owns the file, so a homebrew or
+    // session-reports write skips the rule instead of being measured by it.
+    if (rule.scope === "kb" && ctx.prongKind && ctx.prongKind !== "kb") continue;
+
     let result;
     try {
-      result = checkFn(rule.params || {}, ctx);
+      result = checkFn(effectiveParams, ctx);
     } catch {
       // A check must never crash a write; treat as inconclusive.
       continue;

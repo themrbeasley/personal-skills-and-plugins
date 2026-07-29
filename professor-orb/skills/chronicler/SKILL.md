@@ -11,24 +11,18 @@ You are the DM's KB editor. Your job is to take a just-played session (as captur
 
 ## First: learn the user's system
 
-Check for `.professor-orb/conventions.json` first. If it exists, it is authoritative for the KB's folder structure, frontmatter schema, filename suffixes, index conventions, and cross-reference format (Principle 9). Read it rather than re-deriving these rules from prose. Note the required frontmatter fields, `filenameSuffixByType` entries, and any index parity or wikilink rules so every file you write passes the project's write-time validator hook on the first try.
+Check for `.professor-orb/conventions.json` first. If it exists, it is authoritative for the KB's folder structure, frontmatter schema (required fields, valid `type` values, field formats), filename suffixes and casing, index conventions (naming, the ownership model, and the split and absorb thresholds), and cross-reference format (Principle 9). Read it rather than re-deriving these rules from prose. When the conventions file defines more than one setting, resolve which one owns this report's campaign per SHARED-PRINCIPLES Principle 12, and use that setting's `kbRoot`, `tagRegistryPath`, and `rules` for the rest of this workflow. Note the required frontmatter fields, `filenameSuffixByType` entries, and any index parity or wikilink rules so every file you write passes the project's write-time validator hook on the first try. When a threshold or an ownership rule comes up in your proposal, cite the rule and its `params` from the conventions rather than paraphrasing: paraphrasing is how thresholds drift.
 
-**If `.professor-orb/conventions.json` is missing,** fall back to reading the project's `CLAUDE.md` (or equivalent instructions file) in full, every time, even if you think you remember it. Standards drift and CLAUDE.md is the authoritative source in that case. Extract:
+If it is missing, apply professor-orb's base schema per SHARED-PRINCIPLES Principle 11 and note that setup has not run.
 
-- **KB folder structure.** Where do articles live? What are the category folders?
-- **YAML frontmatter schema.** What fields are required? What are the valid `type` values? What field formats are expected?
-- **Index conventions.** How are indexes named? What is the ownership model? Are there thresholds for when to create a sub-index versus absorb entries? When these rules come up in your proposal, quote the exact phrasing from CLAUDE.md rather than paraphrasing: paraphrasing is how thresholds drift.
-- **Cross-reference format.** Wikilinks, markdown links, or plain text? What is the display-text convention?
-- **Single-ownership rule (if any).** Does each article belong to exactly one index? How are cross-references handled across indexes?
+Either way, `conventions.json` only covers frontmatter, filename, and structural rules. For everything else, read `CLAUDE.md` and the project's existing files, in full, every time, even if you think you remember them. Standards drift, and `CLAUDE.md` is the authoritative source for the content side. Extract:
+
 - **Writing style and tone.** Encyclopedia? Narrative? What phrasing is prohibited? What voice rules apply?
 - **Special framing rules.** Does the project define specific writing frames for certain topics (cosmological concepts, cultural conventions)? Note these: you must apply them when writing or editing relevant articles.
-- **Filename conventions.** Suffixes, casing, separator characters.
 - **Content exclusions.** Tags or categories marked off-limits. Check article metadata before reading or editing any unfamiliar article.
 - **Artifact cleanup patterns.** Does the project document import artifacts to clean up opportunistically when editing (export artifacts from WorldAnvil, Notion, and similar)?
 
 If CLAUDE.md points to other reference documents, read those too.
-
-**If the project has neither a conventions file nor CLAUDE.md,** work from existing articles. Read two or three representative articles per category to learn the de facto conventions. Ask the user about anything ambiguous before proposing edits.
 
 **Check whether `.professor-orb/` exists at all.** If it does not (setup never ran for this project), there is nowhere to write a proposal file or pipeline state. Say so, then run this entire workflow with the proposal presented directly in chat instead of written to a file, and skip the final pipeline-state step silently. Do not create `.professor-orb/` yourself: that is the setup skill's job.
 
@@ -44,7 +38,7 @@ If CLAUDE.md points to other reference documents, read those too.
 2. **Read the report end-to-end.** The lore candidates section is your backbone, but also read the narrative, new canon, discovered canon, and open threads sections.
 3. **Read the matching prep file from `prep` if it exists.** If it has a lore resolution section, treat P0 items as priority for this pass.
 4. **Check for a lore agent proposal.** If the `lore` agent was spawned during `debrief`'s Phase 4 in the same conversation, read its structured proposal. The agent's contradiction checks, temporal flags, and update proposals are pre-validated analysis you can incorporate directly. Cross-reference against your own reading of the report: the agent may have caught things you would not, and vice versa. (If this is a fresh session without a prior lore run, the proposal will not be available in the chat history; mark the lore proposal as "not available" in your proposal template at line 70. You may optionally suggest the DM re-run a lore analysis if they want that analysis incorporated.)
-5. **Read the conventions** (`.professor-orb/conventions.json`, or CLAUDE.md if that file is missing). The conventions are what you enforce during execution.
+5. **Read the conventions** (`.professor-orb/conventions.json`, or the base schema per Principle 11 if that file is missing). The conventions are what you enforce during execution.
 6. **Check relevant category indexes.** For each proposed new article, read the target index to confirm ownership per the project's rules, see neighbors for tone and length benchmarking, and avoid creating duplicates.
 
 #### Step 1b: Draft the proposal
@@ -125,7 +119,7 @@ Update the file's "Status" line to "Executing" before you begin, so a re-read mi
 
 #### Step 2c: Enforce the project's conventions
 
-For every article touched, follow `.professor-orb/conventions.json` (CLAUDE.md fallback only if that file is missing) so the PostToolUse validator hook passes silently:
+For every article touched, follow `.professor-orb/conventions.json` (the base schema per Principle 11 only if that file is missing) so the PostToolUse validator hook passes silently:
 
 - **Frontmatter is mandatory** and must match the schema from the conventions and from neighbors.
 - **Cross-reference aggressively** but only to entities with actual articles (or articles you are creating in the same pass). No dead links in lore articles. (Session reports may have dead links; lore articles may not.)
@@ -191,7 +185,7 @@ For `sessionDate`: if `.professor-orb/pipeline-state.json` already exists (typic
 - **Never re-derive the plan from conversation memory at execution time.** Phase 2 re-reads the proposal file. If the DM edited it, the file's current text is what executes.
 - **Never touch excluded content.** Not to read, link, or edit.
 - **Never invent canon.** If a candidate says "X is a Y" and that is all you have, write what the report says and no more.
-- **Never skip reading the conventions fresh.** Read `.professor-orb/conventions.json` (or CLAUDE.md) every run.
+- **Never skip reading the conventions fresh.** Read `.professor-orb/conventions.json` (or the base schema) every run.
 - **Never do a "while I'm in there" rewrite outside of documented artifact cleanup.** Fix documented artifacts. Do not rewrite paragraphs, retitle sections, or reformat tables beyond what the proposal specifies (Principle 8).
 - **Never leave dead cross-references in lore articles.**
 - **Never edit session reports or prep files.** Those are historical records belonging to `debrief` and `prep`.
@@ -206,4 +200,5 @@ For `sessionDate`: if `.professor-orb/pipeline-state.json` already exists (typic
 - **Outputs:** The proposal file in `.professor-orb/proposals/`, new and edited KB articles, index updates, log entries. No changes to session reports or prep files.
 - **Downstream of `debrief`:** This is the designated follow-up for the Lore Candidates section and the `lore` agent's proposal.
 - **Handoff to `kb-validator`:** After execution, the `kb-validator` agent can audit the touched articles' frontmatter, cross-references, and index ownership as a post-write QA pass.
+- **Handoff to `/scribe`:** `/scribe` can commit the KB changes.
 - **Orthogonal to `prep` and `content`:** This skill does not write prep briefs or player-facing content.

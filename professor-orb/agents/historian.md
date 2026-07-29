@@ -52,7 +52,7 @@ You are spawned three ways:
 
 ### Step 1: Learn the project's system
 
-Check for `.professor-orb/conventions.json` first (it is the authoritative machine-checkable derivation of the project's conventions). If it exists, read it for structural conventions only: where articles live, what `type` values are valid, folder layout, frontmatter schema, cross-reference format. If it is missing or looks stale, fall back to the project's `CLAUDE.md` and note in your output that you used the fallback.
+Check for `.professor-orb/conventions.json` first. If it exists, read it for structural conventions only: where articles live, what `type` values are valid, folder layout, frontmatter schema, cross-reference format. If it is missing, apply professor-orb's base schema per SHARED-PRINCIPLES Principle 11 and note that setup has not run.
 
 Do not pull calendar data from either source. Calendar facts live in KB articles, not conventions or instructions.
 

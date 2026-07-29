@@ -100,7 +100,7 @@ export function runHook({ conventions, files, targetRel }) {
   });
 
   try {
-    const out = execFileSync("node", [HOOK], { input: payload, encoding: "utf8" });
+    const out = execFileSync("node", [HOOK], { input: payload, encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] });
     return { code: 0, out: out.trim(), err: "" };
   } catch (e) {
     return { code: e.status, out: (e.stdout || "").trim(), err: (e.stderr || "").trim() };
@@ -166,7 +166,7 @@ Expected: `2/2 expectations met.` and exit 0.
 
 ```bash
 git add professor-orb/hooks/validate-write.test.mjs
-git commit -m "test(professor-orb): add a regression harness for the write-time hook
+git commit -m "feat(professor-orb): add a regression harness for the write-time hook
 
 Drives the real hook with real PostToolUse payloads against a disposable
 fixture. Node built-ins only, matching the existing standalone test script
@@ -207,7 +207,7 @@ Write to `professor-orb/references/base-rules.json`. Values come from the phase 
       "provenance": "professor-orb",
       "category": "structural",
       "check": "singleOwnership",
-      "enforcement": "off",
+      "enforcement": "warn",
       "scope": "kb",
       "description": "An article's wikilink appears in exactly one index. Checked by the validation sweep, not at write time.",
       "params": {}
@@ -219,7 +219,7 @@ Write to `professor-orb/references/base-rules.json`. Values come from the phase 
       "enforcement": "warn",
       "scope": "kb",
       "description": "A folder holding six or more articles earns its own subfolder and index.",
-      "params": { "minEntries": 6 }
+      "params": { "minEntries": 6, "indexSuffix": "-INDEX" }
     },
     "structuralAbsorbThreshold": {
       "provenance": "professor-orb",
@@ -228,18 +228,37 @@ Write to `professor-orb/references/base-rules.json`. Values come from the phase 
       "enforcement": "warn",
       "scope": "kb",
       "description": "A leaf folder holding fewer than four articles is absorbed into its parent.",
-      "params": { "maxEntries": 4 }
+      "params": { "maxEntries": 4, "indexSuffix": "-INDEX" }
     },
-    "frontmatterRequiredFields": {
+    "frontmatterRequiredSubset": {
       "provenance": "professor-orb",
       "category": "frontmatter",
       "check": "requiredFields",
       "enforcement": "block",
-      "description": "Frontmatter must include type, and lists publish, type, tags in that order when present.",
+      "description": "Frontmatter must include type.",
+      "params": {
+        "requiredSubset": ["type"]
+      }
+    },
+    "frontmatterFieldOrder": {
+      "provenance": "professor-orb",
+      "category": "frontmatter",
+      "check": "requiredFields",
+      "enforcement": "warn",
+      "description": "Frontmatter lists publish, type, tags in that order when present.",
       "params": {
         "fields": ["publish", "type", "tags"],
-        "requiredSubset": ["type"],
         "orderMatters": true
+      }
+    },
+    "frontmatterPublishPresence": {
+      "provenance": "professor-orb",
+      "category": "frontmatter",
+      "check": "requiredFields",
+      "enforcement": "warn",
+      "description": "publish should be present and explicit.",
+      "params": {
+        "requiredSubset": ["publish"]
       }
     },
     "frontmatterTypeEnum": {
@@ -308,7 +327,9 @@ Write to `professor-orb/references/base-rules.json`. Values come from the phase 
 }
 ```
 
-Note the deliberate omissions, each required by the phase 1 spec: no `publish` default rule (never auto-inserted), no `autofix` string on either filename rule (the sweep's fix workers cannot rename a file), and `singleOwnership` at `off` because it is sweep scope.
+Note the deliberate omissions, each required by the phase 1 spec: no `publish` **default** rule (nothing in the plugin ever inserts or changes a `publish` value), no `autofix` string on either filename rule (the sweep's fix workers cannot rename a file), and `singleOwnership` at `warn` rather than `off`. Its check function returns `null` unconditionally at write time, since only the validation sweep has enough context to run it, so the hook is silent on this rule by function, not by enforcement level. That leaves `off` free to mean checked by nothing at all, and recording a sweep-scope rule as `off` would now silence it everywhere, including in the sweep that is supposed to catch it.
+
+`frontmatterPublishPresence` is not an exception to the first omission. It reports at `warn` when the field is absent and stops there; it never supplies a value. Those are two different things and the spec asks for both: `canonical-schema-design.md:218` carries `publish` should be present and explicit at `warn`, never auto-inserted. That is also why the spec's frontmatter table becomes three rules rather than one: `frontmatterRequiredSubset` blocks, while `frontmatterFieldOrder` and `frontmatterPublishPresence` only warn, and a single rule cannot hold two enforcement levels.
 
 - [ ] **Step 2: Add a loader case to the harness**
 
@@ -331,8 +352,17 @@ console.log("\n=== base rules artifact ===");
   check("no base rule ships an autofix on a filename rule",
     ids.filter((id) => base.rules[id].category === "filename")
        .every((id) => base.rules[id].autofix === undefined), true);
-  check("publish is not in the required subset",
-    base.rules.frontmatterRequiredFields.params.requiredSubset, ["type"]);
+  check("publish is not in the blocking required subset",
+    base.rules.frontmatterRequiredSubset.params.requiredSubset, ["type"]);
+  // The three frontmatter required-fields rules exist separately because they
+  // sit at two different enforcement levels. Pin each one: a later edit that
+  // folds them back together would silently promote publish to blocking.
+  check("the required subset blocks",
+    base.rules.frontmatterRequiredSubset.enforcement, "block");
+  check("field order only warns",
+    base.rules.frontmatterFieldOrder.enforcement, "warn");
+  check("publish presence only warns",
+    base.rules.frontmatterPublishPresence.enforcement, "warn");
   check("the type enum carries both groups",
     base.rules.frontmatterTypeEnum.params.values.includes("Person") &&
     base.rules.frontmatterTypeEnum.params.values.includes("magic-item"), true);
@@ -342,7 +372,7 @@ console.log("\n=== base rules artifact ===");
 - [ ] **Step 3: Run and confirm**
 
 Run: `node professor-orb/hooks/validate-write.test.mjs`
-Expected: `7/7 expectations met.`
+Expected: `10/10 expectations met.`
 
 - [ ] **Step 4: Commit**
 
@@ -352,10 +382,20 @@ git commit -m "feat(professor-orb): ship the base rule set as a machine-readable
 
 The schema stops being prose in a reference document and becomes
 references/base-rules.json, which setup writes out, the hook reads, and every
-fallback path can point at. Three deliberate omissions: no publish default rule
-because publish is never auto-inserted, no autofix on the filename rules because
-the sweep's workers cannot rename a file, and singleOwnership at off because it
-is sweep scope.
+fallback path can point at. Three deliberate omissions: no publish default rule,
+because nothing in the plugin ever inserts or changes a publish value, no autofix
+on the filename rules because the sweep's workers cannot rename a file, and
+singleOwnership at warn rather than off. Its check function returns null
+unconditionally at write time, so the hook is silent on it by function, not by
+enforcement level. That leaves off free to mean checked by nothing at all, and
+recording a sweep-scope rule as off would now silence it everywhere.
+
+frontmatterPublishPresence is not a fourth exception to the first of those. It
+reports at warn when publish is absent and supplies nothing, which is exactly
+what the spec's frontmatter table asks: present and explicit, warn, never
+auto-inserted. That table is also why required-fields ships as three rules rather
+than one. frontmatterRequiredSubset blocks, frontmatterFieldOrder and
+frontmatterPublishPresence warn, and one rule cannot carry two levels.
 
 Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 ```
@@ -444,20 +484,20 @@ with:
 
 ```js
     // A base rule may be extended by the project: extra permitted enum values
-    // live in rule.extendedBy so the project never needs a second rule of the
-    // same check kind on the same field, which would fail every article
-    // against one of the two.
+    // live in rule.extendedBy, unioned into the rule's enum values only, so
+    // the project never needs a second rule of the same check kind on the
+    // same field, which would fail every article against one of the two.
+    // Mapping-based rules (suffixByType) are deliberately not extended here:
+    // params.mapping holds {type, suffix} objects, matched by
+    // mapping.find((m) => m.type === type), so splicing a bare string from
+    // extendedBy in would create an entry that can never match, silently
+    // disabling the rule for the extended type instead of enforcing it.
     let effectiveParams = rule.params || {};
     if (Array.isArray(rule.extendedBy) && rule.extendedBy.length > 0) {
       if (Array.isArray(effectiveParams.values)) {
         effectiveParams = {
           ...effectiveParams,
           values: [...effectiveParams.values, ...rule.extendedBy],
-        };
-      } else if (Array.isArray(effectiveParams.mapping)) {
-        effectiveParams = {
-          ...effectiveParams,
-          mapping: [...effectiveParams.mapping, ...rule.extendedBy],
         };
       }
     }
@@ -475,7 +515,7 @@ with:
 - [ ] **Step 5: Run tests to verify they pass**
 
 Run: `node professor-orb/hooks/validate-write.test.mjs`
-Expected: `10/10 expectations met.`
+Expected: `13/13 expectations met.`
 
 - [ ] **Step 6: Commit**
 
@@ -498,10 +538,15 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 
 **Files:**
 - Modify: `professor-orb/workflows/validation-sweep.mjs:174-203` (`checkerPrompt`)
+- Modify: `professor-orb/workflows/validation-sweep.mjs` (the `phase('Aggregate')` section: `singleOwnershipFindings` and `indexParityFindings`)
+- Modify: `professor-orb/workflows/validation-sweep.ownership.test.mjs` (enforcement-off regression case)
+- Modify: `professor-orb/skills/setup/references/conventions-schema.md:257` (the `off` row)
+- Modify: `professor-orb/hooks/validate-write.mjs` (the check-semantics duplication note)
+- Modify: `professor-orb/agents/kb-validator.md` (the check-semantics duplication note)
 
 **Interfaces:**
 - Consumes: rules carrying `enforcement` and `extendedBy` from Tasks 2 and 3.
-- Produces: no finding from an `off` rule ever reaches `mechanicallyFixable`.
+- Produces: no finding from an `off` rule ever reaches `mechanicallyFixable` or `needsJudgment`, including the whole-KB `singleOwnership` and `indexParity` checks computed centrally in the Aggregate phase, not only the per-shard checks the checker prompt covers.
 
 - [ ] **Step 1: Add the enforcement filter to the checker prompt**
 
@@ -512,7 +557,15 @@ In `professor-orb/workflows/validation-sweep.mjs`, in the `checkerPrompt` array,
     'A rule may carry extendedBy, an array of additional permitted values contributed by the project. Treat params.values and extendedBy as one combined list; a value in either is valid.',
 ```
 
-- [ ] **Step 2: Record the four-way duplication obligation**
+- [ ] **Step 2: Bring the normative reference into line**
+
+Step 1 makes `off` mean fully silent. The reference document says otherwise. `professor-orb/skills/setup/references/conventions-schema.md:257` is the `off` row of the enforcement table, and its third column currently reads "Documented for the DM's and the sweep's benefit only. The sweep may still choose to report `off` rules informationally, but never fails on them."
+
+Rewrite that third column so it matches: an `off` rule is not evaluated at write time and is not checked by the sweep either, so it produces no finding of any kind and in particular never enters `mechanicallyFixable`. It stays in the file so the DM can see what they turned off and turn it back on.
+
+The phase 1 spec (`canonical-schema-design.md:379-388`) permits either behavior, so Step 1's choice of full silence is legitimate and this file is what moves. Do this in the same task rather than later: Step 3 declares this document normative for check semantics, and a normative document contradicting the prompt it governs is worse than either behavior alone.
+
+- [ ] **Step 3: Record the four-way duplication obligation**
 
 Check semantics exist in four places and must agree. Add this note near the top of each, adjusting the wording to the file:
 
@@ -520,28 +573,68 @@ Check semantics exist in four places and must agree. Add this note near the top 
 
 Add it to `workflows/validation-sweep.mjs` above `checkerPrompt`, to `hooks/validate-write.mjs` above the `CHECKS` table at `:633`, to `agents/kb-validator.md` above Step 4, and to `conventions-schema.md` above its check catalog. This mirrors the existing precedent at `workflows/validation-sweep.ownership.test.mjs:7-9`, which already carries a byte-alignment obligation.
 
-- [ ] **Step 3: Verify the surrounding numbering still reads correctly**
+- [ ] **Step 4: Verify the surrounding numbering still reads correctly**
 
 Run: `grep -n "Check every frontmatter category rule" professor-orb/workflows/validation-sweep.mjs`
 Expected: the numbered step list still runs 1 through 8 with the two new unnumbered lines above step 4.
 
-- [ ] **Step 4: Run the existing ownership guard**
+- [ ] **Step 5: Run the existing ownership guard**
 
 Run: `node professor-orb/workflows/validation-sweep.ownership.test.mjs`
 Expected: PASS. This task does not touch aggregation, so it must be unaffected.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
-git add professor-orb/workflows/validation-sweep.mjs
+git add professor-orb/workflows/validation-sweep.mjs professor-orb/hooks/validate-write.mjs professor-orb/agents/kb-validator.md professor-orb/skills/setup/references/conventions-schema.md
 git commit -m "fix(professor-orb): make enforcement off actually silence the sweep
 
 The hook honored off at validate-write.mjs:763; the sweep did not. It handed
 workers rulesJson verbatim and told them to check every frontmatter and filename
 rule with no enforcement filter, so findings from a rule the DM had turned off
 still landed in mechanicallyFixable, the bucket one yes applies wholesale.
-conventions-schema.md:240 already documented the intended behavior. Under a
-plugin-owned schema, off is the DM's only lever, so it has to work everywhere.
+conventions-schema.md:257 previously permitted the sweep to report off rules
+informationally. This release makes off mean fully silent, and that row is
+rewritten to say so, so the hook, the sweep, and the normative reference now
+agree. Under a plugin-owned schema, off is the DM's only lever, so it has to work
+everywhere.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
+```
+
+- [ ] **Step 7: Aggregation also honors enforcement**
+
+Step 1 only reached the shard-level checker prompt. The scan phase also computes two whole-KB checks centrally, outside any shard: the `singleOwnershipFindings` loop and the `indexParityFindings` loop in `professor-orb/workflows/validation-sweep.mjs`'s `phase('Aggregate')` section. The checker prompt's step 7 explicitly tells shards NOT to evaluate these two ("handled centrally after every shard reports back"), so the skip-off instruction Step 1 adds to that prompt can never reach them. Neither loop read `rules[ruleId].enforcement`, so a DM who set `structuralIndexParity` or `structuralSingleOwnership` to `off` still received sweep findings for it: the exact defect Steps 1 and 2 exist to close, surviving in the half of the file nobody looked at.
+
+Add a `singleOwnershipOff` guard, read from `rules[singleOwnershipRuleId] && rules[singleOwnershipRuleId].enforcement === 'off'`, and wrap the `singleOwnershipFindings` loop in `if (!singleOwnershipOff)`. Add the matching `indexParityOff` guard keyed on `indexParityRuleId` and fold it into the existing `if (indexSuffix)` condition that guards the `indexParityFindings` loop. Both guards must be robust to a missing rule entry: `rules[ruleId]` being absent is not the same as `enforcement: "off"`, only the literal string suppresses. Comment each guard with why it exists, since the reasoning is not obvious from the code alone: the shard-level skip-off instruction cannot cover these two checks, because shards are told not to evaluate them.
+
+Add a regression case to `professor-orb/workflows/validation-sweep.ownership.test.mjs`: a fixture carrying a genuine single-ownership violation with that rule's `enforcement` set to `"off"`, asserting no finding is emitted, plus a case confirming an absent rule entry does NOT suppress findings. Run the new case before the source fix to confirm it fails, and after to confirm it passes; a case that never failed proves nothing.
+
+Run: `node professor-orb/workflows/validation-sweep.ownership.test.mjs`
+Expected: all assertions PASS, including the new off-enforcement and absent-rule-entry cases.
+
+Run: `node professor-orb/hooks/validate-write.test.mjs` and `node docs/superpowers/specs/2026-07-28-mechanism-prototypes.mjs`
+Expected: both suites unaffected by this change, since it touches only the sweep's Aggregate phase, not the hook.
+
+- [ ] **Step 8: Commit**
+
+```bash
+git add professor-orb/workflows/validation-sweep.mjs professor-orb/workflows/validation-sweep.ownership.test.mjs professor-orb/skills/setup/references/conventions-schema.md docs/superpowers/plans/2026-07-28-professor-orb-1.6.0.md
+git commit -m "fix(professor-orb): sweep aggregation also honors enforcement off
+
+Step 1 taught the shard checker prompt to skip off rules, but the scan
+phase's Aggregate section computes singleOwnership and indexParity
+centrally, precisely because shards are told not to evaluate either one
+themselves. That path never read rules[ruleId].enforcement, so an off
+structuralSingleOwnership or structuralIndexParity rule still produced
+sweep findings, the exact bug Task 4 exists to fix, surviving in the half
+of the file the shard-level fix could not reach.
+
+Both aggregation loops now check the resolved rule's enforcement before
+emitting anything, skipping entirely on the literal string off and never
+treating an absent rule entry as off. A regression case in
+validation-sweep.ownership.test.mjs exercises both: it fails against the
+prior aggregation and passes after this fix.
 
 Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 ```
@@ -611,6 +704,7 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 **Files:**
 - Modify: `professor-orb/workflows/validation-sweep.mjs:190`
 - Modify: `professor-orb/agents/kb-validator.md:65`
+- Modify: `professor-orb/agents/kb-validator.md:155`
 - Modify: `professor-orb/CONTEXT.md:89-91`
 
 **Interfaces:**
@@ -639,6 +733,8 @@ In `professor-orb/workflows/validation-sweep.mjs:190`, replace `'3. Decide wheth
 - [ ] **Step 3: Fix the validator agent and CONTEXT**
 
 In `professor-orb/agents/kb-validator.md:65`, replace the `type: Homebrew` identification with the same artifact-key rule, in prose.
+
+Apply the identical correction at `professor-orb/agents/kb-validator.md:155`, in the never-do list, which today reads "**Catalog entries are exempt from graph checks by design**, not by an exception you are inventing. `type: Homebrew` entries have no wikilinks in or out; that is correct." Whatever detection wording you settle on at `:65` is the wording `:155` must use, so the agent cannot identify an entry one way in its procedure and another way in its rules. This is not optional cleanup: `:155` matches Step 4's grep verbatim, so skipping it fails this task's own gate.
 
 In `professor-orb/CONTEXT.md:89-91`, replace "(`type: Homebrew`, `publish: false` default)" with "(`type` holds the artifact key: `spell`, `magic-item`, `monster` and the rest; `publish: false` default)".
 
@@ -672,14 +768,14 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 ### Task 7: One fallback statement replacing ten
 
 **Files:**
-- Modify: `professor-orb/skills/SHARED-PRINCIPLES.md` (add Principle 11)
+- Modify: `professor-orb/skills/SHARED-PRINCIPLES.md` (add Principle 11; rewrite Principle 9's framing at `:51`)
 - Modify: `professor-orb/skills/debrief/SKILL.md:16`, `:29`
 - Modify: `professor-orb/skills/prep/SKILL.md:16`, `:30`
 - Modify: `professor-orb/skills/content/SKILL.md:14`
 - Modify: `professor-orb/skills/chronicler/SKILL.md:16`, `:31`
 - Modify: `professor-orb/skills/timeline/SKILL.md:18`, `:30`
 - Modify: `professor-orb/skills/homebrew/SKILL.md:18`
-- Modify: `professor-orb/commands/catalog.md:41`
+- Modify: `professor-orb/commands/catalog.md:41`, `:110`, `:112`
 - Modify: `professor-orb/agents/lore.md:45`
 - Modify: `professor-orb/agents/historian.md:55`
 - Modify: `professor-orb/agents/kb-validator.md:55`
@@ -699,7 +795,19 @@ When `.professor-orb/conventions.json` is absent, apply professor-orb's base sch
 Structure means folder layout, index rules, frontmatter schema, filename conventions, and wikilink format. The project's `CLAUDE.md` remains authoritative for campaign facts and content, never for structure.
 ```
 
-- [ ] **Step 2: Replace each of the ten fallback paragraphs**
+- [ ] **Step 2: Correct Principle 9's framing at `SHARED-PRINCIPLES.md:51`**
+
+The phase 1 spec lists this line explicitly among the sites that move (`canonical-schema-design.md:482`): "| `skills/SHARED-PRINCIPLES.md` | Shared fallback statement; Principle 9's \"derivation\" framing at `:51` |". `:51` currently reads:
+
+> For structural checks, skills read `.professor-orb/conventions.json` rather than re-deriving rules from CLAUDE.md each time. The conventions file is a machine-checkable derivation maintained by the setup skill; when it exists, prefer it over re-inferring structure from prose. If it is missing or looks stale, say so and suggest running setup rather than guessing.
+
+Rewrite it so the conventions file is described as instantiated from professor-orb's base rule set and authoritative for structural checks, not derived from the consumer's prose. Keep the rest of the principle's practical guidance intact: prefer the file over re-inferring structure, and if it is missing or looks stale, say so and suggest running setup rather than guessing.
+
+This is not cosmetic. Every pipeline skill reads `SHARED-PRINCIPLES.md` at the start of every run, so shipping 1.6.0 with Principle 9 still calling `conventions.json` a "derivation" puts the contradiction in front of every component on every run, and it contradicts Task 8 directly: Task 8 rewrites `conventions-schema.md:25` to say "instantiated from professor-orb's base rule set, and authoritative for structural checks".
+
+It has to be corrected here because nothing else in the plan would catch it. Task 8's verification greps for the phrase "derived, not authoritative", and `:51` does not use those words.
+
+- [ ] **Step 3: Replace each of the ten fallback paragraphs**
 
 In each file listed above, replace the sentence that routes to `CLAUDE.md` for schema inference with: "If it is missing, apply professor-orb's base schema per SHARED-PRINCIPLES Principle 11 and note that setup has not run."
 
@@ -707,7 +815,17 @@ Delete outright the four "establish conventions as you go" sentences at `debrief
 
 Preserve in every file any adjacent sentence about campaign facts, VTT platform, or content craft. Those are content-side deference and stay.
 
-- [ ] **Step 3: Verify no component still infers structure from prose**
+- [ ] **Step 4: Take structural deference out of `commands/catalog.md:110` and `:112`**
+
+The phase 1 spec groups these two lines with `:41` as one unit (`canonical-schema-design.md:489`): "| `commands/catalog.md` | Fallback at `:41`; index format and ownership deference at `:110`; the split-threshold clause of `:112` only, since its AskUserQuestion gate survives |". The governing principle is at `:418-420`: "**Deference on structure is wrong and changes.** Folder layout, index naming and ownership, split and absorb thresholds, frontmatter schema and field order, filename conventions, wikilink format." Both lines defer exactly those things.
+
+At `:110`, replace "following whatever index format and ownership rule the project already uses" with a statement that the index format and the single-ownership rule come from the conventions file's structural rules, which professor-orb owns. Leave the rest of the line standing: the sentence establishing that an entry's link belongs in exactly one index and is never duplicated across indexes, and the revision behavior that adds the link only if it is not already listed and does not duplicate the index line on re-capture.
+
+At `:112`, replace "per the project's split threshold convention, if one exists" with a reference to the `structuralSplitThreshold` rule, and delete the "Absent a clear threshold or an obvious existing split pattern" fallback outright. That fallback existed to cover a project with no threshold; `structuralSplitThreshold` is a base rule, so a threshold always exists.
+
+**Leave the AskUserQuestion gate intact.** The phase 2 spec confirms it survives (`apply-the-schema-design.md:474-477`): `catalog.md:136`'s "Never invent a new sub-index split without proposing it to the DM first via AskUserQuestion" stands, and only the split-threshold clause of `:112` changes, never the gate. Where the threshold comes from is a structural question and moves; whether the DM is asked before a split happens is an approval question and does not.
+
+- [ ] **Step 5: Verify no component still infers structure from prose**
 
 Run: `grep -rn "establish conventions as you go\|establish minimal conventions\|infer the schema" professor-orb/`
 Expected: no hits.
@@ -715,11 +833,11 @@ Expected: no hits.
 Run: `grep -rn "Principle 11" professor-orb/ | wc -l`
 Expected: 11 or more (the principle itself plus ten references).
 
-- [ ] **Step 4: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
 git add professor-orb/skills professor-orb/agents professor-orb/commands/catalog.md
-git commit -m "refactor(professor-orb): fold ten copies of the fallback paragraph into one principle
+git commit -m "docs(professor-orb): fold ten copies of the fallback paragraph into one principle
 
 Ten components carried near-identical text telling them to derive the schema
 from the consumer's CLAUDE.md and existing articles when conventions.json is
@@ -748,7 +866,9 @@ At `setup/SKILL.md:12`, delete "This skill discovers and derives; it never impos
 
 At `:33`, `:37`, `:38`, `:39`: the three tiers stop being three ways to derive a rule set. Rewrite the tier intro as: "Every project starts from the same base rule set. The tiers differ only in where the project-specific extras come from: an existing conventions document is the richest source, scattered prose is next, and an interview is the fallback when nothing is written down."
 
-At `:43`, keep the enforcement-scope classification and add: "A base rule may be whole-KB scope; `structuralSingleOwnership` ships that way, recorded with `enforcement: \"off\"` for the write-time hook and checked by the sweep."
+At `:43`, keep the enforcement-scope classification and add: "A base rule may be whole-KB scope; `structuralSingleOwnership` ships that way, carrying `enforcement: \"warn\"` and a check function that returns not applicable at write time. The hook is therefore silent on it by function rather than by level, and the validation sweep is what actually checks it."
+
+Do not write `enforcement: "off"` here. A sweep-scope rule recorded as `off` is skipped by the sweep too, which would leave it checked by nothing at all. Task 4 made `off` mean exactly that, deliberately, because `off` is the DM's only lever over a rule professor-orb ships rather than one they wrote.
 
 At `:47`, change "present the full derived rule set" to "present the full rule set, base and extras". Keep the single-markup-pass mechanics and the DM-wins rule for content, and delete "you never argue that the DM's structure is wrong".
 
@@ -766,7 +886,7 @@ At `:228-246`, the Enforcement scopes section, add that a base rule may be sweep
 
 - [ ] **Step 3: Document `provenance`, `extendedBy`, `schemaVersion`, and `scope`**
 
-Add to `conventions-schema.md`'s rule-entry documentation: `provenance` (required, `professor-orb` or `project`), `extendedBy` (optional array of project-contributed values unioned into the rule's `values` or `mapping`), `scope` (optional, `kb` restricts to the setting KB), and top-level `schemaVersion` (which base rule set version the file was generated against). Include the reconciliation rule for a v1 file: a provenance-less rule matching a base rule's check kind and target folds into that base rule's `extendedBy` and carries its enforcement level; one with no base counterpart survives as `provenance: "project"`.
+Add to `conventions-schema.md`'s rule-entry documentation: `provenance` (required, `professor-orb` or `project`), `extendedBy` (optional array of project-contributed values unioned into the rule's enum `values`, and ONLY into `values`), `scope` (optional, `kb` restricts to the setting KB), and top-level `schemaVersion` (which base rule set version the file was generated against). Include the reconciliation rule for a v1 file: a provenance-less rule matching a base rule's check kind and target folds into that base rule's `extendedBy` and carries its enforcement level; one with no base counterpart survives as `provenance: "project"`.
 
 - [ ] **Step 4: Verify**
 
@@ -807,7 +927,7 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 - Modify: `professor-orb/CONTEXT.md:28`, `:34-35`, `:44`, `:49`, `:52`, `:95-96`, `:118-119`, `:125-127`
 - Modify: `professor-orb/.claude-plugin/plugin.json:3`
 - Modify: `.claude-plugin/marketplace.json` (description only, not version)
-- Modify: `professor-orb/skills/timeline/SKILL.md:34`, `:191`
+- Modify: `professor-orb/skills/timeline/SKILL.md:34`, `:128`, `:191`
 - Modify: `professor-orb/skills/orb/SKILL.md:18`
 - Modify: `professor-orb/agents/kb-validator.md:11-12`, `:46`, `:61`, `:116`
 - Modify: `professor-orb/agents/lore.md:30`, `:181`
@@ -832,15 +952,23 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 
 `skills/timeline/SKILL.md:34` says the skill "never writes a KB article itself even after approval: chronicler is always the writer", and `:191` says "Never write KB articles itself." Phase 6 at `:177-178` writes the document and updates indexes, and `:203` confirms it. Make Phase 6's behavior the stated rule: timeline writes chronology documents and their indexes, after DM approval, and hands other article types to chronicler.
 
-- [ ] **Step 4: Fix kb-validator's orchestration claim**
+- [ ] **Step 4: Capitalize the type in timeline's document template**
+
+`skills/timeline/SKILL.md:128` emits `type: chronology` in the template for the document timeline writes, lowercase and inconsistent with every other capitalized type. The base enum Task 2 ships carries `Chronology`, and `frontmatterTypeEnum` is `enforcement: "block"`. Comparison is case-sensitive, which the phase 1 spec states outright. So the first chronology document written after this release would be blocked by professor-orb's own hook, on output professor-orb's own skill produced.
+
+Change `:128` to emit `type: Chronology`.
+
+The phase 1 spec requires this (`canonical-schema-design.md:289-294`) and identifies it as the `chronology` to `Chronology` item deferred from the 1.3.0 plan, now unavoidable because the base enum makes the mismatch a `block` violation. This change covers newly written documents only; lowercase values already on disk are normalized by phase 2's migration.
+
+- [ ] **Step 5: Fix kb-validator's orchestration claim**
 
 `agents/kb-validator.md:46` claims the sweep "orchestrates you at scale across the whole KB, sharding the work and consolidating your reports". The sweep builds its own `checkerPrompt` and dispatches anonymous agents; `validation-sweep.mjs:45` names kb-validator only as the lighter alternative. Correct `:46`, the description at `:11-12`, and the two dependent sentences at `:61` and `:116`.
 
-- [ ] **Step 5: Rewrite the marketplace descriptions**
+- [ ] **Step 6: Rewrite the marketplace descriptions**
 
 `professor-orb/.claude-plugin/plugin.json:3` currently ends "Reads your project's conventions for campaign-specific rules." Replace that sentence with "Applies its own knowledge base structure and keeps your campaign in version control." Copy the same description into `.claude-plugin/marketplace.json`. **Do not change either version field in this task.**
 
-- [ ] **Step 6: Verify**
+- [ ] **Step 7: Verify**
 
 Run: `for f in professor-orb/README.md professor-orb/CONTEXT.md professor-orb/skills/timeline/SKILL.md professor-orb/agents/kb-validator.md; do echo "$f: $(grep -c '—' $f)"; done`
 Expected: 0 for each. `CONTEXT.md` has eleven em dashes today (lines 46, 76, 104, 115, 138, 152, 164, 182, 183, 194, 204) and this task removes them.
@@ -848,7 +976,7 @@ Expected: 0 for each. `CONTEXT.md` has eleven em dashes today (lines 46, 76, 104
 Run: `grep -n "only chronicler and /catalog write\|Only the chronicler skill mutates" professor-orb/`
 Expected: no hits.
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 8: Commit**
 
 ```bash
 git add professor-orb/README.md professor-orb/CONTEXT.md professor-orb/.claude-plugin/plugin.json .claude-plugin/marketplace.json professor-orb/skills professor-orb/agents
@@ -881,7 +1009,7 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 - Modify: `professor-orb/hooks/validate-write.test.mjs`
 
 **Interfaces:**
-- Produces: `resolveSettings(conventions)` returning an array of `{ name, kbRoot, homebrewRoot, sessionReportsRoot, rules, tagRegistryPath }`. A v1 or v2 file yields one entry from its bare `kbRoot` with the other prong roots `null`. Tasks 11, 12, and 16 consume it.
+- Produces: `resolveSettings(conventions)` returning an array of `{ name, kbRoot, homebrewRoot, sessionReportsRoot, campaigns, rules, tagRegistryPath }`. A v3 file yields its setting objects unchanged, so `campaigns` is present. A v1 or v2 file yields one entry from its bare `kbRoot` with the other prong roots `null` and no `campaigns` at all, which is part of why lane resolution refuses that shape rather than guessing at it. Tasks 11, 12, 16, and 17 consume it, and Task 17's Principle 12 reads `settings[].campaigns` specifically.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -991,9 +1119,29 @@ with:
   }
 
   const kbRootAbs = path.resolve(projectRoot, owner.kbRoot);
+
+  // The deleted block was the only definition of relToKb, and the ctx literal
+  // still reads it as relPath. It must be reintroduced here or main() throws an
+  // uncaught ReferenceError on every write: main() is invoked bare at the bottom
+  // of the file, and the only try/catch in the check loop wraps individual check
+  // functions, not this.
+  //
+  // Anchor it to the prong root that owns the file rather than to kbRoot.
+  // relPath feeds only the human-readable folder label in the three structural
+  // checks, and a homebrew or session-reports file measured from kbRoot would
+  // render as a "../" label.
+  const prongRoots = {
+    kb: owner.kbRoot,
+    homebrew: owner.homebrewRoot,
+    "session-reports": owner.sessionReportsRoot,
+  };
+  const prongRootAbs = path.resolve(projectRoot, prongRoots[prongKind] || owner.kbRoot);
+  const relToProng = path.relative(prongRootAbs, absFilePath);
 ```
 
 Then replace every later use of `conventions.rules` in `main()` with `owner.rules`, and every later use of `conventions.tagRegistryPath` with `owner.tagRegistryPath || conventions.tagRegistryPath`.
+
+Also change `relPath: relToKb,` in the `ctx` literal to `relPath: relToProng,`. `relToKb` does not survive this replacement, and leaving the reference is the ReferenceError described above. Leave `kbRootAbs` in the `ctx` literal alone: `wikilinkTargetExists` still resolves link targets against it.
 
 Add these two functions above `main()`:
 
@@ -1055,7 +1203,7 @@ Finally, add `prongKind` to the `ctx` object so Task 3's `scope` gate has a valu
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `node professor-orb/hooks/validate-write.test.mjs`
-Expected: `12/12 expectations met.` All earlier v1 and v2 cases must still pass.
+Expected: `15/15 expectations met.` All earlier v1 and v2 cases must still pass.
 
 - [ ] **Step 5: Flip the prototype expectation**
 
@@ -1188,26 +1336,23 @@ Change `wikilinkTargetExists(kbRootAbs, target)` to `wikilinkTargetExists(search
     .map((r) => path.resolve(projectRoot, r));
 ```
 
-- [ ] **Step 4: Narrow the entry counts**
+- [ ] **Step 4: Narrow the entry counts, in one shared helper**
 
-In both `checkSplitThreshold` and `checkAbsorbThreshold`, replace:
-
-```js
-  const count = entries.filter((f) => !f.startsWith(".")).length;
-```
-
-with:
+The line `const count = entries.filter((f) => !f.startsWith(".")).length;` occurs **twice**, at `:384` inside `checkSplitThreshold` and at `:400` inside `checkAbsorbThreshold`. Do not paste the replacement into both. Define the counting logic once, as a helper named `countArticles`, above both checks:
 
 ```js
-  // Articles only. The raw directory listing includes subfolders, images, and
-  // the folder's own index, so a folder of 3 articles plus 3 subfolders would
-  // otherwise read as 6 and wrongly earn a split.
+// Articles only. The raw directory listing includes subfolders, images, and
+// the folder's own index, so a folder of 3 articles plus 3 subfolders would
+// otherwise read as 6 and wrongly earn a split. Shared by both threshold
+// checks: they ask the same question of the same directory and must never
+// answer it differently.
+function countArticles(dirAbs, entries, params) {
   const indexSuffix = typeof params.indexSuffix === "string" ? params.indexSuffix.toLowerCase() : null;
-  const count = entries.filter((f) => {
+  return entries.filter((f) => {
     if (f.startsWith(".")) return false;
     if (!f.toLowerCase().endsWith(".md")) return false;
     const base = f.slice(0, -3).toLowerCase();
-    if (indexSuffix && base.endsWith(indexSuffix.toLowerCase())) return false;
+    if (indexSuffix && base.endsWith(indexSuffix)) return false;
     let isDir = false;
     try {
       isDir = statSync(path.join(dirAbs, f)).isDirectory();
@@ -1216,16 +1361,33 @@ with:
     }
     return !isDir;
   }).length;
+}
 ```
 
-Two details to check against the file rather than assume. First, `dirAbs` is a placeholder for whatever the surrounding function already calls the directory it read with `readdirSync`; use the existing variable name. Second, confirm `statSync` is in the `node:fs` import list at the top of the file and add it if not. A `.md` extension check is safe here because `readdirSync` returns names, and a directory named `foo.md` would still be excluded by the `isDirectory` test.
+Then in each check, replace the filter line with a call:
 
-- [ ] **Step 5: Run tests to verify they pass**
+```js
+  const count = countArticles(dir, entries, params);
+```
+
+Two details to check against the file rather than assume. First, `dir` above is a placeholder for whatever the surrounding function already calls the directory it read with `readdirSync`; use the existing variable name at both call sites. Second, confirm `statSync` is in the `node:fs` import list at the top of the file and add it if not. A `.md` extension check is safe here because `readdirSync` returns names, and a directory named `foo.md` would still be excluded by the `isDirectory` test.
+
+- [ ] **Step 5: Fix the absorb threshold's comparison and its message**
+
+In `checkAbsorbThreshold`, change `if (count <= maxEntries)` to `if (count < maxEntries)`.
+
+With `maxEntries: 4` the `<=` fires on a folder holding exactly four articles. The rule's own shipped description says "A leaf folder holding fewer than four articles is absorbed into its parent", and the phase 1 spec says "Under 4 entries dissolves the folder". Four is not under four, so the operator is off by one against both.
+
+The violation message built just below it currently reads `(at most ${maxEntries})`, which after this change states a threshold the code no longer uses. Rewrite it to state the real one, so the message agrees with the description sitting beside it in `base-rules.json`.
+
+Leave `checkSplitThreshold`'s `count >= minEntries` alone. With `minEntries: 6` and a description saying "six or more", that one is already correct.
+
+- [ ] **Step 6: Run tests to verify they pass**
 
 Run: `node professor-orb/hooks/validate-write.test.mjs`
-Expected: `14/14 expectations met.`
+Expected: `17/17 expectations met.`
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
 git add professor-orb/hooks/validate-write.mjs professor-orb/hooks/validate-write.test.mjs
@@ -1272,6 +1434,8 @@ const toOwnershipKey = (raw, setting) => {
 }
 ```
 
+**Then update the three call sites inside the test's own `aggregateNew`.** This file deliberately does not import `validation-sweep.mjs`, for the reason its header at `:3-9` gives: the module uses top-level await and workflow-runtime globals, so importing it would execute `run()` and throw. The test therefore mirrors the logic locally, which means changing the source file cannot affect it. `aggregateNew` calls `toOwnershipKey` with one argument at three places (`:57`, `:63`, `:76`); thread the owning setting through each. Skip this and the second parameter is `undefined` everywhere, the key comes out unprefixed exactly as before, and Step 4's expected PASS is unreachable no matter what Step 3 does to the source.
+
 Add a case: two shards from different settings, each with a `Tavern.md` owned by its own index, must produce two distinct keys and zero multi-owner findings.
 
 - [ ] **Step 2: Run to verify the new case fails**
@@ -1289,7 +1453,7 @@ Run: `node professor-orb/workflows/validation-sweep.ownership.test.mjs`
 Expected: PASS including the cross-setting case.
 
 Run: `node professor-orb/hooks/validate-write.test.mjs`
-Expected: still `14/14`.
+Expected: still `17/17`.
 
 - [ ] **Step 5: Commit**
 
@@ -1460,7 +1624,11 @@ export function runPrechecks({ operations, projectRoot }) {
     (o) => o.from && o.to && o.from.toLowerCase() === o.to.toLowerCase() && o.from !== o.to
   );
   const ignored = findIgnoredSources(operations, projectRoot);
-  return { ok: collisions.length === 0 && ignored.length === 0, collisions, caseRenames, ignored };
+  // Only collisions abort. An ignored file is skipped and reported, never moved,
+  // so it must not fail the run: one ignored file inside a prong would otherwise
+  // stop the whole migration. ignored still rides along because the after-action
+  // report has to name every file the run declined to touch.
+  return { ok: collisions.length === 0, collisions, caseRenames, ignored };
 }
 
 // Collisions are scoped to each DESTINATION DIRECTORY, which is what a move can
@@ -1538,12 +1706,22 @@ Frontmatter reordering is a line-move on the raw text, never parse-and-regenerat
 
 Reuse `validation-sweep.mjs:276-289`'s dropped-worker accounting so a half-applied run is never reported as complete.
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [ ] **Step 4: Assert link integrity before the migration commit**
+
+The phase 2 spec makes this a safety rail (`apply-the-schema-design.md:447`): "| Post-migration link-integrity assertion must pass before the migration commit | Catches any rename whose rewrite was dropped |". It pairs with `:437`, "| Rename and its link rewrite are one unit of work | A dead wikilink is valid markdown and fails silently |", and the verification fixture at `:567-568` asserts that every wikilink resolves after the run, including report-to-report and report-to-article.
+
+The spec names the rail but specifies no mechanism, so the mechanism below is derived from the rail rather than quoted from the spec. An implementer who finds a better one may substitute it, provided the assertion still gates the commit.
+
+Run it after every rename and every link rewrite has been applied and before the migration commit is made. Walk every markdown file under every prong root of every setting, extract every wikilink target, and assert that each one resolves to a file that exists. Resolution is filename-based, not path-based, because Obsidian wikilinks are filename-based, which is the same property that makes the folder moves safe in the first place. On any unresolved link the run does not commit: report the dead links with their containing files and point at the snapshot for restoration.
+
+The rail exists precisely because the dropped-worker accounting reused in Step 3 reports a drop only after the fact: by that point the repository already carries dead wikilinks, and a dead wikilink is valid markdown that fails silently in Obsidian rather than erroring. Reuse that same accounting here rather than building a parallel one alongside it.
+
+- [ ] **Step 5: Run tests to verify they pass**
 
 Run: `node professor-orb/workflows/migrate.apply.test.mjs`
 Expected: all cases PASS.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
 git add professor-orb/workflows/migrate.mjs professor-orb/workflows/migrate.apply.test.mjs
@@ -1569,6 +1747,7 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 
 **Files:**
 - Modify: `professor-orb/skills/setup/SKILL.md` (substantial rewrite)
+- Modify: `professor-orb/skills/setup/references/conventions-schema.md:56-91` (the `## Top-level shape` section) and its `## Example conventions.json` block
 - Modify: `professor-orb/skills/SHARED-PRINCIPLES.md` (Principle 2 and 8 carve-outs)
 - Modify: `professor-orb/CONTEXT.md:118-119`
 
@@ -1601,7 +1780,11 @@ Ignored: `.professor-orb/pipeline-state.json`, `.professor-orb/proposals/`, `.pr
 
 Tracked: `.professor-orb/conventions.json`, `.professor-orb/versioning.json`, the migration manifest.
 
-The large-and-sensitive-material interview runs **after** the migration commit, and `git rm --cached` handles paths the consumer's history already tracks.
+The large-and-sensitive-material interview runs at step 14, **before** the migration commit at step 15, so that the `git rm --cached` removals it produces are captured by that commit rather than left sitting uncommitted in the tree.
+
+It must still run **after** the snapshot at step 5. That is the genuine constraint: asking the DM what to exclude before anything is captured invites them to exclude exactly the material the migration is about to move, and it would then be excluded from the only restore point they have.
+
+Note that the phase 2 spec's Part 6 prose at `:339-340` is stale here. It says step 12, after the migration commit, which contradicts the Part 1 table and names the wrong step number besides, since step 12 is writing the `.professor-orb/` artifacts. `apply-the-schema-design.md:90` declares the table normative, so the table governs and the prose does not.
 
 - [ ] **Step 4: Write the after-action report section**
 
@@ -1618,7 +1801,42 @@ The DM approved the prong mapping and nothing else, so the report is the whole a
 
 On the no-version-control path the undo instruction is replaced by a plain statement that the restructure cannot be reversed automatically.
 
-- [ ] **Step 5: Verify**
+- [ ] **Step 5: Rewrite the schema reference's top-level shape to v3**
+
+`professor-orb/skills/setup/references/conventions-schema.md:56-91` is a `## Top-level shape` section documenting v1: `"version": 1` with a flat `"kbRoot"`, a top-level `"rules"` object, and a top-level `"tagRegistryPath"`. Nothing else in this release touches it. At release the hook, the sweep, setup, the path consumers, and both new lane commands all consume a v3 settings array, while setup's own normative reference, the document setup generates `conventions.json` from, still documents only v1.
+
+The same applies to that file's `## Example conventions.json` block, which is also still a v1 file. Update both in this step, to the same shape.
+
+While rewriting the example, do not carry across its `structuralSingleOwnership` description. It currently runs three sentences of mechanism narration with an enforcement instruction embedded in it, which violates the description discipline stated in the same document and repeated in `setup/SKILL.md`: a terse sentence naming what the rule checks and nothing else. The artifact already ships the correct terse form at `references/base-rules.json`; use that. The example block is the style setup copies from, so a bad description there propagates into every consumer's file. Task 8 deliberately left the example at `"version": 1` and labelled it as a v1 file rather than bumping it to 2, because the phase 1 spec's "version goes to 2 at this phase, and to 3 in phase 2" would have meant churning the same example twice within one release that never ships those phases separately. Going straight to v3 here is the intended end state. If you leave the example behind, the document contradicts itself: a v3 top-level shape above a v1 example, in the file every consumer's `conventions.json` is generated from.
+
+Replace that section with the v3 shape the phase 2 spec gives at `apply-the-schema-design.md:159-180`:
+
+```json
+{
+  "version": 3,
+  "schemaVersion": 1,
+  "settings": [
+    {
+      "name": "rolara",
+      "kbRoot": "settings/rolara",
+      "homebrewRoot": "homebrew/rolara",
+      "sessionReportsRoot": "session-reports/rolara",
+      "campaigns": ["ashes-of-the-first-crown"],
+      "tagRegistryPath": ".professor-orb/tag-registry.rolara.json",
+      "rules": {}
+    }
+  ],
+  "generatedBy": "setup",
+  "generatedAt": "2026-07-28T00:00:00Z",
+  "sourceConventionsDoc": null
+}
+```
+
+Carry the spec's two explanations across with it. At `:182-187`: "**`rules` and `tagRegistryPath` move inside each setting.** A second world must be able to carry its own article types and its own tag vocabulary." At `:229-231`: "**`campaigns` is a cache, not the authority.** Lane resolution enumerates the filesystem under `sessionReportsRoot`; the array disambiguates and orders."
+
+The documented shape must match `resolveSettings` from Task 10 field for field. Check the two side by side rather than trusting that both were written from the same spec: a mismatch between what the generator's reference documents and what the resolver accepts is exactly the class of defect this release exists to remove.
+
+- [ ] **Step 6: Verify**
 
 Run: `grep -c '—' professor-orb/skills/setup/SKILL.md professor-orb/skills/SHARED-PRINCIPLES.md professor-orb/CONTEXT.md`
 Expected: 0 for each.
@@ -1626,10 +1844,10 @@ Expected: 0 for each.
 Run: `grep -n 'Every mutation in this workflow' professor-orb/skills/setup/SKILL.md`
 Expected: the sentence now enumerates which mutations keep their gate.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
-git add professor-orb/skills/setup/SKILL.md professor-orb/skills/SHARED-PRINCIPLES.md professor-orb/CONTEXT.md
+git add professor-orb/skills/setup/SKILL.md professor-orb/skills/setup/references/conventions-schema.md professor-orb/skills/SHARED-PRINCIPLES.md professor-orb/CONTEXT.md
 git commit -m "feat(professor-orb/setup): git first, migrate second, report after
 
 The run order is the safety design. git init alone provides zero revertibility,
@@ -1738,6 +1956,8 @@ const LANE_CLAUSES = {
 };
 ```
 
+A `timeline` entry was briefly added here during a plan repair and has been REMOVED. It was unreachable: `NEXT_STEP_MESSAGES` has no timeline key, `timeline/SKILL.md` never writes `lastStep: timeline`, and the phase 3 spec's Part 6 table lists exactly three rows and says two messages gain a lane command and one gains the other. Three modifications, full stop. The DM's settled wording, The phase 3 spec names timeline as a `/scribe` feeder but its clause table omits the row. The DM settled it: "/scribe can commit the chronology document", chosen to parallel the other three in form and to match Part 3's statement that `/scribe` owns "the chronology documents `timeline` writes". Task 19 Step 4 applies the identical wording to `timeline/SKILL.md`; the two must not drift.
+
 Read `.professor-orb/versioning.json` with the same fail-silent contract the hook already uses for `pipeline-state.json`. Treat a lone `catalog-versioning.json` as a valid marker for reading; the hook never performs the conversion, because it must stay silent, non-interactive, and non-mutating.
 
 - [ ] **Step 4: Run to verify it passes**
@@ -1768,6 +1988,9 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 - Create: `professor-orb/commands/scribe.md`
 - Create: `professor-orb/commands/log.md`
 - Create: `professor-orb/commands/lane-staging.test.mjs`
+- Modify: `professor-orb/skills/chronicler/SKILL.md` (handoff to `/scribe`)
+- Modify: `professor-orb/skills/debrief/SKILL.md` (handoff to `/log`)
+- Modify: `professor-orb/skills/content/SKILL.md` (handoff to `/log`)
 
 **Interfaces:**
 - Consumes: `versioning.json` (Task 13), the settings array (Task 10), Principle 12 (Task 17).
@@ -1789,18 +2012,36 @@ State that `/scribe` authors no KB content but does perform the `versioning.json
 
 Same shape, lane `sessionReportsRoot`, feeders `debrief` and `content`, plus the unfinished-report guard: a report missing required frontmatter or carrying empty sections is set aside by name and the rest is committed.
 
-- [ ] **Step 4: Verify**
+- [ ] **Step 4: Add the feeder-skill handoffs**
 
-Run: `grep -c '—' professor-orb/commands/scribe.md professor-orb/commands/log.md`
+The phase 3 spec lists four feeder skills among the files this work touches (`lane-commands-design.md:257-258`): "| `skills/chronicler/SKILL.md`, `skills/timeline/SKILL.md` | Hand off to `/scribe` |" and "| `skills/debrief/SKILL.md`, `skills/content/SKILL.md` | Hand off to `/log` |". No other task in this release edits them, so without this step the four skills that produce the material never name the command that commits it. This repo's `CLAUDE.md` treats those description-level handoff references as load-bearing: each skill's description names the upstream skill it consumes from and the downstream step it feeds, and the pipeline breaks when they go stale.
+
+Three of the four have spec-supplied wording, from the Stop-hook clause table at `lane-commands-design.md:190-194`. Use it as written:
+
+- `skills/debrief/SKILL.md`: "`/log` can commit the session report"
+- `skills/content/SKILL.md`: "`/log` can commit the recap and handouts"
+- `skills/chronicler/SKILL.md`: "`/scribe` can commit the KB changes"
+
+The fourth had no spec-supplied wording and was settled by the DM rather than composed:
+
+- `skills/timeline/SKILL.md`: "`/scribe` can commit the chronology document"
+
+The phase 3 spec names `timeline` as a `/scribe` feeder at `:257` and again at `:136-137` ("Fed by `chronicler` and `timeline`"), but its Stop-hook clause table has no timeline row, so no wording for it exists anywhere in the spec. The chosen clause parallels the other three in form and matches Part 3's statement that `/scribe` owns "the chronology documents `timeline` writes".
+
+Task 18's `LANE_CLAUSES` map carries the same entry, added there under the same decision. It was one gap in two places and both resolve to this identical wording. If you find them disagreeing, that is a defect, not a choice.
+
+- [ ] **Step 5: Verify**
+
+Run: `grep -c '—' professor-orb/commands/scribe.md professor-orb/commands/log.md professor-orb/skills/debrief/SKILL.md professor-orb/skills/content/SKILL.md professor-orb/skills/chronicler/SKILL.md`
 Expected: 0 for both.
 
 Run: `grep -n 'git add -A\|git add \.\|commit -a' professor-orb/commands/`
 Expected: no hits.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
-git add professor-orb/commands/scribe.md professor-orb/commands/log.md professor-orb/commands/lane-staging.test.mjs
+git add professor-orb/commands/scribe.md professor-orb/commands/log.md professor-orb/commands/lane-staging.test.mjs professor-orb/skills/chronicler/SKILL.md professor-orb/skills/debrief/SKILL.md professor-orb/skills/content/SKILL.md
 git commit -m "feat(professor-orb): add /scribe and /log
 
 Committing becomes a command rather than a background behavior, matching the
@@ -1827,7 +2068,13 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 
 - [ ] **Step 1: Collapse Step 3**
 
-Two cases remain: `versioning.json` exists, read `mode` and carry it to Step 7; or it does not, meaning `/catalog` ran before `setup`, so say so, point at setup, and offer the choice inline.
+Three cases remain, checked in this order:
+
+1. `.professor-orb/versioning.json` exists: read `mode` and carry it to Step 7.
+2. `versioning.json` is absent but the legacy `.professor-orb/catalog-versioning.json` exists: convert it per Task 13, copying `mode` and `decided` unchanged into the new file and mentioning the conversion in passing. `decided` is never rewritten.
+3. Neither exists: `/catalog` genuinely ran before `setup`, so say so, point at setup, and offer the choice inline.
+
+Case 2 is not a variant of case 3 and must not be folded into it. Collapsing them re-asks a DM a decision they already made, and writing a fresh `decided` destroys the original decision date, which is the one field the conversion exists to preserve.
 
 **The inline offer covers `changelog` only.** The existing behavior at `:55` runs `git init` **in the catalog root**, which under the canonical layout is `homebrew/<setting>/` inside the project repository, and would plant a nested repository that setup's state detection has no case for. Delete that `git init`. If the DM wants git or GitHub, point at setup.
 
@@ -1854,7 +2101,9 @@ Expected: no hits.
 git add professor-orb/commands/catalog.md
 git commit -m "fix(professor-orb): finish /catalog's Step 3 and give it lane staging
 
-Step 3 collapses to two cases now that setup records the versioning decision.
+Step 3 collapses to three cases now that setup records the versioning decision:
+read the recorded mode, convert the legacy marker when that is all there is, or
+offer the choice inline when neither file exists.
 The inline fallback loses its git init: under the canonical layout the catalog
 root is homebrew/<setting>/ inside the project repository, so running git init
 there would plant a nested repository setup's state detection has no case for.
