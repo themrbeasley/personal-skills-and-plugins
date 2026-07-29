@@ -765,9 +765,32 @@ function main() {
     const checkFn = CHECKS[rule.check];
     if (!checkFn) continue; // unrecognized check kind: forward-compatible skip
 
+    // A base rule may be extended by the project: extra permitted enum values
+    // live in rule.extendedBy so the project never needs a second rule of the
+    // same check kind on the same field, which would fail every article
+    // against one of the two.
+    let effectiveParams = rule.params || {};
+    if (Array.isArray(rule.extendedBy) && rule.extendedBy.length > 0) {
+      if (Array.isArray(effectiveParams.values)) {
+        effectiveParams = {
+          ...effectiveParams,
+          values: [...effectiveParams.values, ...rule.extendedBy],
+        };
+      } else if (Array.isArray(effectiveParams.mapping)) {
+        effectiveParams = {
+          ...effectiveParams,
+          mapping: [...effectiveParams.mapping, ...rule.extendedBy],
+        };
+      }
+    }
+
+    // scope "kb" restricts a rule to the setting knowledge base. Phase 2 gives
+    // ctx.prongKind a value; until then every path inside kbRoot reads as "kb".
+    if (rule.scope === "kb" && ctx.prongKind && ctx.prongKind !== "kb") continue;
+
     let result;
     try {
-      result = checkFn(rule.params || {}, ctx);
+      result = checkFn(effectiveParams, ctx);
     } catch {
       // A check must never crash a write; treat as inconclusive.
       continue;

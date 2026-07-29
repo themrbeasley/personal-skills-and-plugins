@@ -141,4 +141,45 @@ console.log("\n=== base rules artifact ===");
     base.rules.frontmatterTypeEnum.params.values.includes("magic-item"), true);
 }
 
+console.log("\n=== extendedBy and scope ===");
+
+const EXTENDED_ENUM = {
+  frontmatterTypeEnum: {
+    provenance: "professor-orb",
+    category: "frontmatter",
+    check: "enum",
+    enforcement: "block",
+    extendedBy: ["Settlement"],
+    description: "type must be recognized.",
+    params: { field: "type", values: ["Person", "Location"] },
+  },
+};
+
+{
+  const r = runHook({
+    conventions: { version: 2, kbRoot: "kb", rules: EXTENDED_ENUM },
+    files: { "kb/A.md": "---\ntype: Settlement\n---\n\nbody\n" },
+    targetRel: "kb/A.md",
+  });
+  check("extendedBy value is accepted", r.code, 0);
+}
+
+{
+  const r = runHook({
+    conventions: { version: 2, kbRoot: "kb", rules: EXTENDED_ENUM },
+    files: { "kb/B.md": "---\ntype: Person\n---\n\nbody\n" },
+    targetRel: "kb/B.md",
+  });
+  check("base value still accepted alongside extendedBy", r.code, 0);
+}
+
+{
+  const r = runHook({
+    conventions: { version: 2, kbRoot: "kb", rules: EXTENDED_ENUM },
+    files: { "kb/C.md": "---\ntype: Nope\n---\n\nbody\n" },
+    targetRel: "kb/C.md",
+  });
+  check("a value in neither list still blocks", r.code, 2);
+}
+
 report();
