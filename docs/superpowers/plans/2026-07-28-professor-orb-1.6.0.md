@@ -538,13 +538,15 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 
 **Files:**
 - Modify: `professor-orb/workflows/validation-sweep.mjs:174-203` (`checkerPrompt`)
+- Modify: `professor-orb/workflows/validation-sweep.mjs` (the `phase('Aggregate')` section: `singleOwnershipFindings` and `indexParityFindings`)
+- Modify: `professor-orb/workflows/validation-sweep.ownership.test.mjs` (enforcement-off regression case)
 - Modify: `professor-orb/skills/setup/references/conventions-schema.md:257` (the `off` row)
 - Modify: `professor-orb/hooks/validate-write.mjs` (the check-semantics duplication note)
 - Modify: `professor-orb/agents/kb-validator.md` (the check-semantics duplication note)
 
 **Interfaces:**
 - Consumes: rules carrying `enforcement` and `extendedBy` from Tasks 2 and 3.
-- Produces: no finding from an `off` rule ever reaches `mechanicallyFixable`.
+- Produces: no finding from an `off` rule ever reaches `mechanicallyFixable` or `needsJudgment`, including the whole-KB `singleOwnership` and `indexParity` checks computed centrally in the Aggregate phase, not only the per-shard checks the checker prompt covers.
 
 - [ ] **Step 1: Add the enforcement filter to the checker prompt**
 
@@ -596,6 +598,43 @@ informationally. This release makes off mean fully silent, and that row is
 rewritten to say so, so the hook, the sweep, and the normative reference now
 agree. Under a plugin-owned schema, off is the DM's only lever, so it has to work
 everywhere.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
+```
+
+- [ ] **Step 7: Aggregation also honors enforcement**
+
+Step 1 only reached the shard-level checker prompt. The scan phase also computes two whole-KB checks centrally, outside any shard: the `singleOwnershipFindings` loop and the `indexParityFindings` loop in `professor-orb/workflows/validation-sweep.mjs`'s `phase('Aggregate')` section. The checker prompt's step 7 explicitly tells shards NOT to evaluate these two ("handled centrally after every shard reports back"), so the skip-off instruction Step 1 adds to that prompt can never reach them. Neither loop read `rules[ruleId].enforcement`, so a DM who set `structuralIndexParity` or `structuralSingleOwnership` to `off` still received sweep findings for it: the exact defect Steps 1 and 2 exist to close, surviving in the half of the file nobody looked at.
+
+Add a `singleOwnershipOff` guard, read from `rules[singleOwnershipRuleId] && rules[singleOwnershipRuleId].enforcement === 'off'`, and wrap the `singleOwnershipFindings` loop in `if (!singleOwnershipOff)`. Add the matching `indexParityOff` guard keyed on `indexParityRuleId` and fold it into the existing `if (indexSuffix)` condition that guards the `indexParityFindings` loop. Both guards must be robust to a missing rule entry: `rules[ruleId]` being absent is not the same as `enforcement: "off"`, only the literal string suppresses. Comment each guard with why it exists, since the reasoning is not obvious from the code alone: the shard-level skip-off instruction cannot cover these two checks, because shards are told not to evaluate them.
+
+Add a regression case to `professor-orb/workflows/validation-sweep.ownership.test.mjs`: a fixture carrying a genuine single-ownership violation with that rule's `enforcement` set to `"off"`, asserting no finding is emitted, plus a case confirming an absent rule entry does NOT suppress findings. Run the new case before the source fix to confirm it fails, and after to confirm it passes; a case that never failed proves nothing.
+
+Run: `node professor-orb/workflows/validation-sweep.ownership.test.mjs`
+Expected: all assertions PASS, including the new off-enforcement and absent-rule-entry cases.
+
+Run: `node professor-orb/hooks/validate-write.test.mjs` and `node docs/superpowers/specs/2026-07-28-mechanism-prototypes.mjs`
+Expected: both suites unaffected by this change, since it touches only the sweep's Aggregate phase, not the hook.
+
+- [ ] **Step 8: Commit**
+
+```bash
+git add professor-orb/workflows/validation-sweep.mjs professor-orb/workflows/validation-sweep.ownership.test.mjs professor-orb/skills/setup/references/conventions-schema.md docs/superpowers/plans/2026-07-28-professor-orb-1.6.0.md
+git commit -m "fix(professor-orb): sweep aggregation also honors enforcement off
+
+Step 1 taught the shard checker prompt to skip off rules, but the scan
+phase's Aggregate section computes singleOwnership and indexParity
+centrally, precisely because shards are told not to evaluate either one
+themselves. That path never read rules[ruleId].enforcement, so an off
+structuralSingleOwnership or structuralIndexParity rule still produced
+sweep findings, the exact bug Task 4 exists to fix, surviving in the half
+of the file the shard-level fix could not reach.
+
+Both aggregation loops now check the resolved rule's enforcement before
+emitting anything, skipping entirely on the literal string off and never
+treating an absent rule entry as off. A regression case in
+validation-sweep.ownership.test.mjs exercises both: it fails against the
+prior aggregation and passes after this fix.
 
 Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 ```

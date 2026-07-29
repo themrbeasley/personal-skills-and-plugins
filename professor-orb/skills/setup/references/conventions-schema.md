@@ -271,8 +271,10 @@ through the same field rather than printing.
 cheap to detect locally, for example an invalid `type` enum value or a missing
 required field. `warn` fits rules with judgment calls or that need KB-wide
 context the hook cannot fully verify, for example new tags or structural
-thresholds. `off` fits conventions the DM wants documented and picked up by the
-sweep's report but does not want gating individual writes.
+thresholds, and that the DM still wants reported, whether at write time or by
+the sweep. `off` fits a rule the DM wants recorded in the file, so they can see
+what they turned off and turn it back on, but does not want evaluated
+anywhere: not gating individual writes, and not picked up by the sweep either.
 
 The setup skill always confirms each rule's enforcement level with the DM via
 `AskUserQuestion` rather than assuming one; the levels above are guidance, not
@@ -409,8 +411,8 @@ conventions document; a tier 2 or 3 project would have
     "structuralSingleOwnership": {
       "category": "structural",
       "check": "singleOwnership",
-      "enforcement": "off",
-      "description": "Each article's wikilink appears in exactly one owning index. Tracked by the sweep, not gated at write time.",
+      "enforcement": "warn",
+      "description": "Each article's wikilink appears in exactly one owning index. The write-time check always returns not applicable; only the sweep can evaluate this KB-wide, so enforcement must stay non-off for the sweep to report it.",
       "params": {}
     },
     "structuralSplitThreshold": {

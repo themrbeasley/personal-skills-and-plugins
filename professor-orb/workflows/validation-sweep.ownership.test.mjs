@@ -79,6 +79,37 @@ function aggregateNew(shards) {
   return { findings, collisions }
 }
 
+// ENFORCEMENT-OFF regression guard for the singleOwnership whole-KB check.
+// This is a separate defect from the ownership-key bug above: the central
+// singleOwnership aggregation in validation-sweep.mjs never read the rule's
+// `enforcement`, so a DM who set their singleOwnership rule to "off" still
+// received sweep findings for it. Shard workers are told to skip "off"
+// rules, but are also told NOT to evaluate singleOwnership themselves (it
+// needs the whole KB, so it is computed centrally, same as aggregateNew
+// above); the shard-level skip-off instruction never reaches this check,
+// which is exactly why the bug shipped.
+//
+// aggregateSingleOwnershipPreFix reproduces that gap: the same ownership
+// pass as aggregateNew, with no enforcement check at all.
+// aggregateSingleOwnershipFixed mirrors the shipped fix: a
+// `singleOwnershipOff` guard read from `rules[singleOwnershipRuleId].enforcement`,
+// matching the guard added to validation-sweep.mjs's phase('Aggregate')
+// section. Keep this in step with that guard the same way aggregateNew is
+// kept in step with toOwnershipKey.
+function aggregateSingleOwnershipPreFix(shards) {
+  const { findings } = aggregateNew(shards)
+  return { findings }
+}
+
+function aggregateSingleOwnershipFixed(shards, rules, singleOwnershipRuleId) {
+  const singleOwnershipOff = Boolean(
+    rules[singleOwnershipRuleId] && rules[singleOwnershipRuleId].enforcement === 'off',
+  )
+  if (singleOwnershipOff) return { findings: [] }
+  const { findings } = aggregateNew(shards)
+  return { findings }
+}
+
 // Synthetic shards in the real shapes: articles are full relative paths,
 // ownershipClaims carry the bare wikilink targets an index lists.
 const IDX = 'kb/archfey/Archfey-INDEX.md'
@@ -134,6 +165,25 @@ assert('NEW: genuine orphan flagged 0', byFile['kb/archfey/Orphan.md'] === 0)
 assert('NEW: multi-owner flagged 2', byFile['kb/places/Shared.md'] === 2)
 assert('NEW: exactly two findings (orphan + multi-owner)', neu.findings.length === 2)
 assert('NEW: basename collision detected', neu.collisions.length === 1)
+
+// Enforcement-off regression: shards contain a genuine single-ownership
+// violation (Shared.md, owned by two distinct indexes), but the DM has set
+// the singleOwnership rule to "off". An "off" rule must produce no finding
+// of any kind, so it can never reach needsJudgment.
+const offRules = { structuralSingleOwnership: { enforcement: 'off' } }
+const missingRules = {} // rule id absent entirely: absent is not off
+
+const preFixOff = aggregateSingleOwnershipPreFix(shards)
+assert('PRE-FIX (bug): central aggregation ignores enforcement, findings emitted anyway', preFixOff.findings.length > 0)
+
+const fixedOff = aggregateSingleOwnershipFixed(shards, offRules, 'structuralSingleOwnership')
+assert('FIXED: off rule produces no finding', fixedOff.findings.length === 0)
+
+const fixedAbsent = aggregateSingleOwnershipFixed(shards, missingRules, 'structuralSingleOwnership')
+assert(
+  'FIXED: absent rule entry is NOT treated as off, findings still produced',
+  fixedAbsent.findings.length === preFixOff.findings.length,
+)
 
 console.log(ok ? '\nAll checks passed.' : '\nSome checks FAILED.')
 process.exit(ok ? 0 : 1)

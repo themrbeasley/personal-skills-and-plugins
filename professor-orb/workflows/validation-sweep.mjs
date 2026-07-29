@@ -519,27 +519,40 @@ async function run() {
     )
   }
 
+  // Shard workers are told to skip every rule whose enforcement is "off" (see
+  // the checkerPrompt line above step 4), but they are also told NOT to
+  // evaluate singleOwnership themselves (step 7): it needs the whole KB, so
+  // it is computed here instead. That means the shard-level skip-off
+  // instruction never reaches this check; without a matching guard here, an
+  // "off" singleOwnership rule would still produce findings on this path.
+  // Absent is not off: only the literal string "off" suppresses.
+  const singleOwnershipOff = Boolean(
+    rules[singleOwnershipRuleId] && rules[singleOwnershipRuleId].enforcement === 'off',
+  )
+
   const singleOwnershipFindings = []
-  for (const article of allArticles) {
-    // Count distinct owning indexes: an index that happens to list the same
-    // article twice is still one owner, not a single-ownership violation, so
-    // collapse duplicate index files before counting.
-    const owners = Array.from(new Set(ownersByKey.get(toOwnershipKey(article)) || []))
-    if (owners.length === 1) continue
-    if (owners.length === 0) {
-      singleOwnershipFindings.push({
-        file: article,
-        ruleId: singleOwnershipRuleId,
-        description: 'This article is not listed as owned by any index in the KB.',
-        question: 'Which index should list ' + article + ', or should a new index be created to own it?',
-      })
-    } else {
-      singleOwnershipFindings.push({
-        file: article,
-        ruleId: singleOwnershipRuleId,
-        description: 'This article is listed as owned by ' + owners.length + ' indexes: ' + owners.join(', ') + '.',
-        question: 'Which one of these indexes should own ' + article + ', and should it be removed from the others?',
-      })
+  if (!singleOwnershipOff) {
+    for (const article of allArticles) {
+      // Count distinct owning indexes: an index that happens to list the same
+      // article twice is still one owner, not a single-ownership violation, so
+      // collapse duplicate index files before counting.
+      const owners = Array.from(new Set(ownersByKey.get(toOwnershipKey(article)) || []))
+      if (owners.length === 1) continue
+      if (owners.length === 0) {
+        singleOwnershipFindings.push({
+          file: article,
+          ruleId: singleOwnershipRuleId,
+          description: 'This article is not listed as owned by any index in the KB.',
+          question: 'Which index should list ' + article + ', or should a new index be created to own it?',
+        })
+      } else {
+        singleOwnershipFindings.push({
+          file: article,
+          ruleId: singleOwnershipRuleId,
+          description: 'This article is listed as owned by ' + owners.length + ' indexes: ' + owners.join(', ') + '.',
+          question: 'Which one of these indexes should own ' + article + ', and should it be removed from the others?',
+        })
+      }
     }
   }
   for (const finding of singleOwnershipFindings) needsJudgment.push(finding)
@@ -554,8 +567,14 @@ async function run() {
   // no central way to tell an index from an article, so the check is skipped: the
   // scout returns an empty suffix when the project defines no indexParity rule,
   // and an empty suffix would otherwise match every file.
+  // Same reasoning as singleOwnershipOff above: indexParity is also a
+  // whole-KB check the shard prompt explicitly excludes from shard evaluation
+  // (step 7), so the shard-level skip-off instruction cannot cover it either;
+  // this guard is the only thing that can. Absent is not off.
+  const indexParityOff = Boolean(rules[indexParityRuleId] && rules[indexParityRuleId].enforcement === 'off')
+
   const indexParityFindings = []
-  if (indexSuffix) {
+  if (indexSuffix && !indexParityOff) {
     const suffixLower = indexSuffix.toLowerCase()
     const indexesByFolder = new Map()
     for (const file of files) {
