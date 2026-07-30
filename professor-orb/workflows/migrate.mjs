@@ -201,7 +201,7 @@ function destinationMayExist(op) {
 // kind carrying a new shape is taught to all four at once rather than to three:
 // destinationEntriesOf below, findIgnoredSources, applyPlan's skip list, and
 // applySplitFolder. Teaching only some of them is a measured hazard rather than
-// a hypothetical one. Task 3 made absorb-folder's per-file destinations real
+// a hypothetical one. An earlier change made absorb-folder's per-file destinations real
 // without teaching findIgnoredSources about them, and the result was that a
 // rename onto a git-ignored, unsnapshotted file went from correctly refused to
 // silently permitted, because the ignored file was credited with vacating a path
@@ -3443,7 +3443,7 @@ export function mergeCollisions({ projectRoot, source, target, suffix, occupied,
 }
 
 // The type values a retype scope introduces, deduplicated and in first-seen
-// order. Task 10's conventions updater folds these into the base type enum's
+// order. conventionsAfterScope folds these into the base type enum's
 // extendedBy, so an article retyped to a value the enum does not carry does not
 // start failing the write-time hook the moment the migration lands.
 export function retypeExtensions(scope) {
@@ -4469,7 +4469,7 @@ function appliedGate(applied) {
 
 // Repoint the prong roots one lifecycle entry moves, and report what it did.
 //
-// Shared by the rename and the retirement, and by the merge Task 14 adds, so all of
+// Shared by the rename, the retirement, and the merge, so all of
 // them read the applied set the same way rather than each inventing a rule.
 // `destinationFor` is consulted only when there is no gate, which is the "assume
 // the whole scope ran" path; with a gate the destination comes from the operation

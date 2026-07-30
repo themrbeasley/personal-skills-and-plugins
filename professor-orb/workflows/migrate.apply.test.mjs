@@ -2621,7 +2621,7 @@ withRepo(
   }
 );
 
-// The Task 3 shape of the same defect, carried in the finding ledger rather than
+// The absorb-folder shape of the same defect, carried forward rather than
 // fixed there because the fix is this cross-cutting one. Measured before it: the
 // absorb was skipped whole, its paired parent rebuild ran anyway, and the parent
 // index lost [[Misc-INDEX]] while settings/rolara/misc was still sitting on disk
