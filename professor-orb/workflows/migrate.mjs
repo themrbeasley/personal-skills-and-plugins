@@ -923,6 +923,18 @@ export const SCOPED_PLANNERS = [
   ["splitFolders", planSplitFolders, "split-folder"],
   ["entityRenames", planEntityRenames, "rename-entity"],
   ["rebuildIndexes", planRebuildIndexes, "rebuild-index"],
+  // Appended, not inserted in rank order: scopedPlannerSequence is what runs
+  // these in rank order, and this array's own order is source history rather
+  // than a dependency the run depends on. See the comment above this constant.
+  //
+  // retypes emits BOTH normalize-type (rank 4) and rename-with-link-rewrite
+  // (rank 5), so it governs as normalize-type, the lower of the two: a later
+  // planner checking at rank r needs every operation ranked at or below r
+  // already in the list, so the LOWEST rank a planner emits is the latest
+  // position it may run at.
+  ["retypes", planRetypes, "normalize-type"],
+  ["frontmatterRepairs", planScopedRepairs, "repair-frontmatter"],
+  ["suffixRenames", planSuffixRenames, "rename-with-link-rewrite"],
 ];
 
 const applyRank = (kind) => APPLY_ORDER.indexOf(kind);
@@ -1826,6 +1838,253 @@ function planEntityRenames(items, ctx, key) {
     });
   }
   return { operations, declined };
+}
+
+// Retype a file's base `type` value and, when the new type requires a filename
+// suffix the file does not already carry, rename it to add that suffix. ONE
+// scope entry, up to TWO operations per file, because a suffix DERIVES from a
+// type: emitting the rename from a second, independent scope entry could let
+// it be sequenced ahead of the retype it depends on, and it would then compute
+// the suffix from the file's stale type. OPERATION_ORDER puts normalize-type
+// ahead of rename-with-link-rewrite for exactly this reason on the setup side;
+// emitting both from one entry, in this order, is what keeps a scoped retype
+// correct without asking the DM to write two entries in the right sequence.
+//
+// Governs as normalize-type (rank 4), the LOWER of the two kinds it emits, per
+// the rule above SCOPED_PLANNERS: a later planner checking at rank r needs
+// every operation ranked at or below r already in the list, so the lowest rank
+// this planner emits is the latest position it may run at.
+//
+// EVERY file an entry names is a path the DM typed, and this planner
+// enumerates nothing, so nothing else proves any of them are there. Checked
+// before anything is emitted, and a bad path declines the WHOLE entry rather
+// than dropping the one file, the same posture planSplitFolders holds for a
+// bad bucket article and planEntityRenames holds for a bad referrer: silently
+// retyping the rest would apply a narrower change than the one the DM
+// approved. The same rule covers a referring file named for a rename this
+// entry will also emit: a missing one declines the whole entry rather than
+// renaming the file and leaving the wikilink unrewritten.
+function planRetypes(items, ctx, key) {
+  const operations = [];
+  const declined = [];
+  for (const [i, item] of items.entries()) {
+    const group = groupIdFor(key, i);
+    const typeFrom = item && item.typeFrom;
+    const typeTo = item && item.typeTo;
+    if (typeFrom == null || typeTo == null) {
+      declined.push({
+        op: "normalize-type",
+        target: "(unnamed)",
+        reason: "The retype entry is missing typeFrom or typeTo.",
+      });
+      continue;
+    }
+    const suffix = typeof item.suffix === "string" ? item.suffix : "";
+    // A MAP from file path to referring files, unlike every other planner's
+    // flat `links` array, because one retype entry can name several files and
+    // each needs its own referrer set for the rename it may trigger. Read per
+    // file below and turned into the flat array rename-with-link-rewrite's
+    // executor (applyRenameWithLinkRewrite, which reads op.links through
+    // list()) actually consumes.
+    const linksByFile = (item && item.links) || {};
+    const files = list(item.files).map(toPosix).filter(Boolean);
+    if (files.length === 0) {
+      declined.push({ op: "normalize-type", target: "(unnamed)", reason: "The retype entry names no files." });
+      continue;
+    }
+
+    // First pass: every file must be there to retype at all. Handed the plan
+    // so far, because an earlier entry (in this scope or an earlier-ranked
+    // one) can be what puts a file where this one names it.
+    let refusal = null;
+    for (const file of files) {
+      if (namedPathNotAFile(ctx, file, "normalize-type", operations)) {
+        refusal = {
+          target: file,
+          reason: `No file exists at ${file}, so there is nothing to retype. Check that path for a typo: a scope naming a file that is not there plans cleanly and then fails after the snapshot.`,
+        };
+        break;
+      }
+    }
+    // Second pass: for whichever files will also be renamed, their referrers
+    // have to be there too, before anything is emitted.
+    if (!refusal && suffix) {
+      for (const file of files) {
+        const stem = stemOf(file);
+        if (stem.endsWith(suffix)) continue;
+        const links = list(linksByFile[file] || linksByFile[stem]).map(toPosix).filter(Boolean);
+        const badLink = links.find((rel) => namedPathNotAFile(ctx, rel, "normalize-type", operations));
+        if (badLink) {
+          refusal = {
+            target: file,
+            reason: `${badLink} is named as a referring file for the rename type ${JSON.stringify(
+              typeTo
+            )} requires but is not there to rewrite. The retype and its rename are one unit of work, so the whole entry is declined rather than applied without the rewrite.`,
+          };
+          break;
+        }
+      }
+    }
+    if (refusal) {
+      declined.push({ op: "normalize-type", target: refusal.target, reason: refusal.reason });
+      continue;
+    }
+
+    for (const file of files) {
+      operations.push({
+        op: "normalize-type",
+        from: file,
+        typeFrom: String(typeFrom),
+        typeTo: String(typeTo),
+        groups: [group],
+        reason: String(
+          (item && item.reason) || `Retyped from ${typeFrom} to ${typeTo} by a DM-approved /migrate scope.`
+        ),
+      });
+
+      // The new type may require a filename suffix. Emitted from the same
+      // loop iteration rather than a second pass, so it always follows the
+      // type change it depends on: same-kind operations run in the order this
+      // planner emits them, and this entry's normalize-type is already ahead
+      // of it in `operations`.
+      if (!suffix) continue;
+      const stem = stemOf(file);
+      if (stem.endsWith(suffix)) continue;
+      const links = list(linksByFile[file] || linksByFile[stem]).map(toPosix).filter(Boolean);
+      operations.push({
+        op: "rename-with-link-rewrite",
+        from: file,
+        to: `${path.posix.dirname(file)}/${stem}${suffix}.md`,
+        links,
+        groups: [group],
+        reason: `Renamed because type ${typeTo} requires the ${suffix} suffix.`,
+      });
+    }
+  }
+  return { operations, declined };
+}
+
+// Repair frontmatter for a DM-named file: insert missing defaulted fields
+// except publish, and reorder to canonical order. Modelled on
+// planFrontmatterRepairs above, with one deliberate difference: `reorder`
+// defaults to true here rather than false, because a scope entry is a
+// decision to act on rather than a survey finding to describe, and a DM
+// naming a file with no `reorder` at all is asking for the whole repair.
+//
+// The file is a path the DM typed, and this planner enumerates nothing, so
+// nothing else proves it is there; checked the same way every other scoped
+// planner checks its named paths.
+function planScopedRepairs(items, ctx, key) {
+  const operations = [];
+  const declined = [];
+  for (const [i, item] of items.entries()) {
+    const group = groupIdFor(key, i);
+    const file = toPosix(item && item.file);
+    if (!file) {
+      declined.push({ op: "repair-frontmatter", target: "(unnamed)", reason: "The repair entry names no file." });
+      continue;
+    }
+    const insert = list(item.insert).map(String);
+    // buildPlan already refuses to insert publish, for a reason a DM-supplied
+    // scope does not change: the guard that forces publish false on DM-only
+    // content is a project-scope check, so inserting a default across a batch
+    // would publish unmarked secret lore. The DM sets publish per article,
+    // deliberately, or not at all.
+    if (insert.includes("publish")) {
+      declined.push({
+        op: "repair-frontmatter",
+        target: file,
+        reason:
+          "publish is never inserted by an unattended process, including one a scope asked for. Set it per article; the sweep reports which articles are missing it.",
+      });
+      continue;
+    }
+    if (namedPathNotAFile(ctx, file, "repair-frontmatter", operations)) {
+      declined.push({
+        op: "repair-frontmatter",
+        target: file,
+        reason: `No file exists at ${file}, so there is nothing to repair. Check that path for a typo: a scope naming a file that is not there plans cleanly and then fails after the snapshot.`,
+      });
+      continue;
+    }
+    operations.push({
+      op: "repair-frontmatter",
+      from: file,
+      insert,
+      reorder: item.reorder !== false,
+      groups: [group],
+      reason: String((item && item.reason) || "Frontmatter repaired by a DM-approved /migrate scope."),
+    });
+  }
+  return { operations, declined };
+}
+
+// Rename a file that carries a deferred suffix, such as the base schema's
+// retired `-TIMELINE` and `-HISTORY`, to whatever the current scope's rules
+// call for, with its link rewrite riding along. Modelled on planEntityRenames
+// just above: both the file and each referring file are paths the DM typed,
+// this planner enumerates neither, and a missing referrer declines the whole
+// entry rather than renaming the file and leaving the wikilink the DM named
+// pointing at a filename that is gone.
+function planSuffixRenames(items, ctx, key) {
+  const operations = [];
+  const declined = [];
+  for (const [i, item] of items.entries()) {
+    const group = groupIdFor(key, i);
+    const from = toPosix(item && item.file);
+    const to = toPosix(item && item.to);
+    if (!from || !to || from === to) {
+      declined.push({
+        op: "rename-with-link-rewrite",
+        target: from || "(unnamed)",
+        reason: "The rename entry is missing a source or a destination, or they are the same path.",
+      });
+      continue;
+    }
+    if (namedPathNotAFile(ctx, from, "rename-with-link-rewrite", operations)) {
+      declined.push({
+        op: "rename-with-link-rewrite",
+        target: from,
+        reason: `No file exists at ${from}, so there is nothing to rename. Check that path for a typo: a scope naming a file that is not there plans cleanly and then fails after the snapshot.`,
+      });
+      continue;
+    }
+    const links = list(item.links).map(toPosix).filter(Boolean);
+    const missing = links.filter((rel) => namedPathNotAFile(ctx, rel, "rename-with-link-rewrite", operations));
+    if (missing.length > 0) {
+      declined.push({
+        op: "rename-with-link-rewrite",
+        target: from,
+        reason: `${missing.join(", ")} ${missing.length === 1 ? "is" : "are"} named as referring file(s) but ${
+          missing.length === 1 ? "is" : "are"
+        } not there to rewrite. The rename and its rewrite are one unit of work, so the whole entry is declined rather than the rename planned without them: a rewrite that cannot happen leaves a wikilink naming a filename that is gone, and a dead wikilink is valid markdown that fails silently in Obsidian.`,
+      });
+      continue;
+    }
+    operations.push({
+      op: "rename-with-link-rewrite",
+      from,
+      to,
+      links,
+      groups: [group],
+      reason: String((item && item.reason) || "Renamed by a DM-approved /migrate scope."),
+    });
+  }
+  return { operations, declined };
+}
+
+// The type values a retype scope introduces, deduplicated and in first-seen
+// order. Task 10's conventions updater folds these into the base type enum's
+// extendedBy, so an article retyped to a value the enum does not carry does not
+// start failing the write-time hook the moment the migration lands.
+export function retypeExtensions(scope) {
+  const out = [];
+  for (const item of list(scope && scope.retypes)) {
+    const value = item && item.typeTo;
+    if (value == null) continue;
+    if (!out.includes(String(value))) out.push(String(value));
+  }
+  return out;
 }
 
 // The setting whose kbRoot, homebrewRoot, or sessionReportsRoot contains this

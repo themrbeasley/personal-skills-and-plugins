@@ -25,6 +25,7 @@ import {
   SCOPED_PLANNERS,
   scopedPlannerSequence,
   assertScopedPlannerDeclarations,
+  retypeExtensions,
 } from "./migrate.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -982,6 +983,11 @@ const PLANNER_PROBES = {
     },
   ],
   rebuildIndexes: [{ index: "settings/rolara/misc/Misc-INDEX.md" }],
+  retypes: [
+    { files: ["settings/rolara/misc/Ends.md"], typeFrom: "Concept", typeTo: "Chronology", suffix: "-CHRONOLOGY" },
+  ],
+  frontmatterRepairs: [{ file: "settings/rolara/misc/Odds.md" }],
+  suffixRenames: [{ file: "settings/rolara/misc/Ends.md", to: "settings/rolara/misc/Ends-RENAMED.md" }],
 };
 
 {
@@ -1014,22 +1020,20 @@ const PLANNER_PROBES = {
 }
 
 {
-  // The exact shape the plan document's append instructions produce, three tasks from
-  // now: `retypes`, `frontmatterRepairs`, `suffixRenames` appended after
-  // `rebuildIndexes`, whose kinds rank 4, 10, and 5 against its 9.
-  const planDocShape = [
-    ...SCOPED_PLANNERS,
-    ["retypes", () => ({}), "normalize-type"],
-    ["frontmatterRepairs", () => ({}), "repair-frontmatter"],
-    ["suffixRenames", () => ({}), "rename-with-link-rewrite"],
-  ];
-  check("the append order the plan document instructs is out of rank order as written",
-    planDocShape.map(([, , kind]) => APPLY_ORDER.indexOf(kind)), [1, 2, 3, 6, 9, 4, 10, 5]);
+  // The exact shape the plan document's append instructions actually produced:
+  // `retypes`, `frontmatterRepairs`, `suffixRenames` appended after
+  // `rebuildIndexes` in SCOPED_PLANNERS's own source order, ranking 4, 10, and 5
+  // against the five already there. This used to be rehearsed here against a
+  // simulated registry, before those three planners existed; now that they are
+  // registered for real, the rehearsal and the reality are the same array, and
+  // this case pins that shape directly rather than reconstructing it.
+  check("the append landed in source order, out of rank order as written",
+    SCOPED_PLANNERS.map(([, , kind]) => APPLY_ORDER.indexOf(kind)), [1, 2, 3, 6, 9, 4, 10, 5]);
   check("and the order those planners RUN in is ascending rank anyway",
-    scopedPlannerSequence(planDocShape).map(([, , kind]) => APPLY_ORDER.indexOf(kind)),
+    scopedPlannerSequence().map(([, , kind]) => APPLY_ORDER.indexOf(kind)),
     [1, 2, 3, 4, 5, 6, 9, 10]);
   check("which puts each scope key where its planner's rank belongs",
-    scopedPlannerSequence(planDocShape).map(([key]) => key),
+    scopedPlannerSequence().map(([key]) => key),
     ["pathMoves", "absorbFolders", "splitFolders", "retypes", "suffixRenames",
      "entityRenames", "rebuildIndexes", "frontmatterRepairs"]);
 }
@@ -1046,9 +1050,11 @@ const PLANNER_PROBES = {
   const orders = permutations(SCOPED_PLANNERS).map((p) => scopedPlannerSequence(p).map(([key]) => key));
   check("every permutation of the registry runs the planners in one order",
     [orders.length, orders.every((o) => JSON.stringify(o) === JSON.stringify(expected))],
-    [120, true]);
+    [40320, true]);
   check("and that order is the declared ranks ascending",
-    expected, ["pathMoves", "absorbFolders", "splitFolders", "entityRenames", "rebuildIndexes"]);
+    expected,
+    ["pathMoves", "absorbFolders", "splitFolders", "retypes", "suffixRenames",
+     "entityRenames", "rebuildIndexes", "frontmatterRepairs"]);
 }
 
 {
@@ -1097,9 +1103,10 @@ const PLANNER_PROBES = {
   check("a planner emitting an operation ranked below its declaration fails loudly",
     [/orderingProbe/.test(message), /relocate-path/.test(message), /rebuild-index/.test(message)],
     [true, true, true]);
-  check("and the registry is back to its five entries",
+  check("and the registry is back to its eight entries",
     SCOPED_PLANNERS.map(([key]) => key),
-    ["pathMoves", "absorbFolders", "splitFolders", "entityRenames", "rebuildIndexes"]);
+    ["pathMoves", "absorbFolders", "splitFolders", "entityRenames", "rebuildIndexes",
+     "retypes", "frontmatterRepairs", "suffixRenames"]);
 }
 
 {
@@ -1158,7 +1165,8 @@ const PLANNER_PROBES = {
     reversed, inOrder);
   check("with the registry restored afterward",
     SCOPED_PLANNERS.map(([key]) => key),
-    ["pathMoves", "absorbFolders", "splitFolders", "entityRenames", "rebuildIndexes"]);
+    ["pathMoves", "absorbFolders", "splitFolders", "entityRenames", "rebuildIndexes",
+     "retypes", "frontmatterRepairs", "suffixRenames"]);
   rmSync(root, { recursive: true, force: true });
 }
 
@@ -2280,6 +2288,292 @@ console.log("\n=== scoped plans: rename-entity ===");
     [kindsOf(r.operations), r.declined.length], [["rename-entity", "rename-entity"], 0]);
   check("and each entry keeps its own group id",
     r.operations.map((o) => list(o.groups)), [["entityRenames[0]"], ["entityRenames[1]"]]);
+  rmSync(root, { recursive: true, force: true });
+}
+
+console.log("\n=== scoped plans: retype, repair, suffix renames ===");
+
+{
+  const r = scoped({
+    retypes: [
+      {
+        files: ["settings/rolara/people/Thoric.md", "settings/rolara/people/Aria.md"],
+        typeFrom: "Person",
+        typeTo: "Character",
+      },
+    ],
+  });
+  check("a retype plans one normalize-type per file",
+    kindsOf(r.operations), ["normalize-type", "normalize-type"]);
+  check("each carries the from and to values the executor matches on",
+    [r.operations[0].typeFrom, r.operations[0].typeTo], ["Person", "Character"]);
+}
+
+{
+  const r = scoped({
+    retypes: [
+      {
+        files: ["settings/rolara/history/First-Age.md"],
+        typeFrom: "Concept",
+        typeTo: "Chronology",
+        suffix: "-CHRONOLOGY",
+        links: { "settings/rolara/history/First-Age.md": ["settings/rolara/Master-INDEX.md"] },
+      },
+    ],
+  });
+  // Type first, then the rename: a required suffix derives from the type, so
+  // renaming first computes it from a stale value. That is the reason
+  // OPERATION_ORDER puts normalize-type ahead of rename-with-link-rewrite, and
+  // it is why retype emits both rather than asking the DM to sequence them.
+  check("a type whose suffix the file lacks also plans the rename",
+    kindsOf(r.operations), ["normalize-type", "rename-with-link-rewrite"]);
+  check("the rename target carries the suffix",
+    r.operations[1].to, "settings/rolara/history/First-Age-CHRONOLOGY.md");
+  check("and the referring files ride along",
+    r.operations[1].links, ["settings/rolara/Master-INDEX.md"]);
+}
+
+{
+  const r = scoped({
+    retypes: [
+      {
+        files: ["settings/rolara/history/First-Age-CHRONOLOGY.md"],
+        typeFrom: "Concept",
+        typeTo: "Chronology",
+        suffix: "-CHRONOLOGY",
+      },
+    ],
+  });
+  check("a file already carrying the suffix is not renamed to itself",
+    kindsOf(r.operations), ["normalize-type"]);
+}
+
+{
+  const r = scoped({
+    frontmatterRepairs: [{ file: "settings/rolara/people/Aria.md", reorder: true, insert: [] }],
+  });
+  check("a repair scope plans one repair-frontmatter", kindsOf(r.operations), ["repair-frontmatter"]);
+  // publish is never inserted by any unattended process, and a scope is not an
+  // exception: the guard that forces publish false on DM-only content is a
+  // project-scope check, so inserting a default in bulk would publish unmarked
+  // secret lore. buildPlan already refuses this; buildScopedPlan must too.
+  const p = scoped({
+    frontmatterRepairs: [{ file: "settings/rolara/people/Aria.md", insert: ["publish"] }],
+  });
+  check("inserting publish is declined even when the DM's scope asks",
+    [p.operations.length, p.declined.length], [0, 1]);
+}
+
+{
+  const r = scoped({
+    suffixRenames: [
+      {
+        file: "settings/rolara/history/First-Age-TIMELINE.md",
+        to: "settings/rolara/history/First-Age-CHRONOLOGY.md",
+        links: ["settings/rolara/history/History-INDEX.md"],
+      },
+    ],
+  });
+  check("a suffix rename plans one rename-with-link-rewrite",
+    kindsOf(r.operations), ["rename-with-link-rewrite"]);
+}
+
+{
+  check("retypeExtensions collects the new type values",
+    retypeExtensions({
+      retypes: [
+        { files: ["a.md"], typeFrom: "Person", typeTo: "Character" },
+        { files: ["b.md"], typeFrom: "Person", typeTo: "Character" },
+        { files: ["c.md"], typeFrom: "Item", typeTo: "Relic" },
+      ],
+    }),
+    ["Character", "Relic"]);
+}
+
+console.log("\n=== scoped plans: retype, repair, suffix rename path checks and groups ===");
+
+// The cases above never pass a projectRoot, so namedPathNotAFile answers
+// undetermined for every one of them and the checks these three planners added
+// are never exercised. These cases exercise them for real, against splitFixture,
+// on the same terms as the pathMoves/splitFolders/entityRenames cases in the
+// "every path a scope names is checked at plan time" section above.
+
+{
+  const root = splitFixture();
+  const r = scoped(
+    { retypes: [{ files: ["settings/rolara/locations/Ghost.md"], typeFrom: "Location", typeTo: "Ruin" }] },
+    root
+  );
+  check("a retype naming a file that is not on disk is declined at plan time",
+    [r.operations.length, r.declined.length], [0, 1]);
+  check("and the reason names the path",
+    String(obj(r.declined[0]).reason).includes("settings/rolara/locations/Ghost.md"), true);
+  rmSync(root, { recursive: true, force: true });
+}
+
+{
+  // The file exists, but the referrer the suffix's rename would rewrite does
+  // not. The whole entry declines rather than emitting the type change alone:
+  // silently retyping without the rename the new type requires would apply a
+  // narrower change than the one the DM approved.
+  const root = splitFixture();
+  const r = scoped(
+    {
+      retypes: [
+        {
+          files: ["settings/rolara/locations/Ashfall.md"],
+          typeFrom: "Location",
+          typeTo: "Ruin",
+          suffix: "-RUIN",
+          links: { "settings/rolara/locations/Ashfall.md": ["settings/rolara/locations/Ghost-INDEX.md"] },
+        },
+      ],
+    },
+    root
+  );
+  check("a retype whose rename names a referrer that is not on disk declines the whole entry",
+    [r.operations.length, r.declined.length], [0, 1]);
+  check("with the missing referrer named",
+    String(obj(r.declined[0]).reason).includes("settings/rolara/locations/Ghost-INDEX.md"), true);
+  rmSync(root, { recursive: true, force: true });
+}
+
+{
+  // Plan-aware in the same way planEntityRenames and planSplitFolders are: the
+  // file a retypes entry names can be one an earlier-ranked operation in the
+  // SAME scope puts there. relocate-path (rank 1) runs before normalize-type
+  // (rank 4), so this is legitimate rather than a typo.
+  const root = splitFixture();
+  const r = scoped(
+    {
+      pathMoves: [
+        { from: "settings/rolara/locations/Ashfall.md", to: "settings/rolara/ruins/Ashfall.md", reason: "x" },
+      ],
+      retypes: [{ files: ["settings/rolara/ruins/Ashfall.md"], typeFrom: "Location", typeTo: "Ruin" }],
+    },
+    root
+  );
+  check("a retype of a file the same plan moves into place plans rather than declines",
+    [kindsOf(r.operations), r.declined.length], [["relocate-path", "normalize-type"], 0]);
+  rmSync(root, { recursive: true, force: true });
+}
+
+{
+  // The property the brief calls out explicitly: one retypes entry can name
+  // several files and emit up to two operations per file, and every one of
+  // them has to carry the SAME group id, because the group is the skip unit an
+  // ignored source collapses to. Two files, each retyped and renamed, is four
+  // operations sharing one id.
+  const root = splitFixture();
+  const r = scoped(
+    {
+      retypes: [
+        {
+          files: ["settings/rolara/locations/Ashfall.md", "settings/rolara/locations/Karsk.md"],
+          typeFrom: "Location",
+          typeTo: "Ruin",
+          suffix: "-RUIN",
+        },
+      ],
+    },
+    root
+  );
+  // buildScopedPlan sorts the finished plan into APPLY_ORDER, so both
+  // normalize-type operations land ahead of both rename-with-link-rewrite ones
+  // rather than interleaved per file; the sort is stable, so each pair keeps
+  // the per-file emission order within its own rank. Four operations either
+  // way, and each file's normalize-type still precedes its own rename.
+  check("a multi-file retype plans two operations per file",
+    kindsOf(r.operations),
+    ["normalize-type", "normalize-type", "rename-with-link-rewrite", "rename-with-link-rewrite"]);
+  check("and every operation from the one entry shares the one group id",
+    r.operations.map((o) => list(o.groups)),
+    [["retypes[0]"], ["retypes[0]"], ["retypes[0]"], ["retypes[0]"]]);
+  rmSync(root, { recursive: true, force: true });
+}
+
+{
+  const root = splitFixture();
+  const r = scoped(
+    { frontmatterRepairs: [{ file: "settings/rolara/locations/Ghost.md", insert: [] }] },
+    root
+  );
+  check("a repair naming a file that is not on disk is declined at plan time",
+    [r.operations.length, r.declined.length], [0, 1]);
+  check("and the reason names the path",
+    String(obj(r.declined[0]).reason).includes("settings/rolara/locations/Ghost.md"), true);
+  rmSync(root, { recursive: true, force: true });
+}
+
+{
+  const root = splitFixture();
+  const r = scoped(
+    { frontmatterRepairs: [{ file: "settings/rolara/locations/Ashfall.md", insert: [] }] },
+    root
+  );
+  check("a repair scope stamps its entry's group id",
+    r.operations.map((o) => list(o.groups)), [["frontmatterRepairs[0]"]]);
+  rmSync(root, { recursive: true, force: true });
+}
+
+{
+  const root = splitFixture();
+  const r = scoped(
+    {
+      suffixRenames: [
+        { file: "settings/rolara/locations/Ghost-TIMELINE.md", to: "settings/rolara/locations/Ghost-HISTORY.md" },
+      ],
+    },
+    root
+  );
+  check("a suffix rename whose source is not on disk is declined at plan time",
+    [r.operations.length, r.declined.length], [0, 1]);
+  check("and the reason names the path",
+    String(obj(r.declined[0]).reason).includes("settings/rolara/locations/Ghost-TIMELINE.md"), true);
+  rmSync(root, { recursive: true, force: true });
+}
+
+{
+  // Modelled on planEntityRenames's own referrer check: dropping a missing
+  // referrer instead of declining the whole entry would rename the file and
+  // leave the wikilink the DM named pointing at a filename that is gone.
+  const root = splitFixture();
+  const r = scoped(
+    {
+      suffixRenames: [
+        {
+          file: "settings/rolara/locations/Ashfall.md",
+          to: "settings/rolara/locations/Ashfall-HISTORY.md",
+          links: ["settings/rolara/locations/Ghost-INDEX.md"],
+        },
+      ],
+    },
+    root
+  );
+  check("a suffix rename whose referrer is not on disk declines the whole entry",
+    [r.operations.length, r.declined.length], [0, 1]);
+  check("with the missing referrer named",
+    String(obj(r.declined[0]).reason).includes("settings/rolara/locations/Ghost-INDEX.md"), true);
+  rmSync(root, { recursive: true, force: true });
+}
+
+{
+  const root = splitFixture();
+  const r = scoped(
+    {
+      suffixRenames: [
+        {
+          file: "settings/rolara/locations/Ashfall.md",
+          to: "settings/rolara/locations/Ashfall-HISTORY.md",
+          links: ["settings/rolara/locations/Locations-INDEX.md"],
+        },
+      ],
+    },
+    root
+  );
+  check("a suffix rename with a real referrer plans and stamps its group id",
+    [kindsOf(r.operations), r.operations.map((o) => list(o.groups))],
+    [["rename-with-link-rewrite"], [["suffixRenames[0]"]]]);
   rmSync(root, { recursive: true, force: true });
 }
 
