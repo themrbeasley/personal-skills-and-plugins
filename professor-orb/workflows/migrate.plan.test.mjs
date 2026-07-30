@@ -1043,18 +1043,73 @@ const PLANNER_PROBES = {
 }
 
 {
-  // Order irrelevance over EVERY permutation rather than one shuffle, which is the
-  // property that makes an append correct wherever it lands.
-  const permutations = (xs) =>
-    xs.length <= 1
-      ? [xs]
-      : xs.flatMap((x, i) =>
-          permutations([...xs.slice(0, i), ...xs.slice(i + 1)]).map((rest) => [x, ...rest]));
+  // Order irrelevance over a BOUNDED SAMPLE of registry source orders, not
+  // every permutation.
+  //
+  // Exhaustive was O(n!): measured at 6s with 9 planners registered. Tasks 12,
+  // 13, and 14 add five more, taking the registry to 14 entries; 14! is
+  // roughly 87 billion, which would never finish, and would have been
+  // discovered mid-task rather than here.
+  //
+  // WHAT THIS STILL GUARANTEES: scopedPlannerSequence sorts by declared rank
+  // (applyRank(kind)), which is a total order over DISTINCT integers once
+  // "every registry entry declares a kind APPLY_ORDER can rank" above has
+  // passed, so Array.prototype.sort producing one answer for one input
+  // generalizes to every permutation by the comparator's own transitivity;
+  // the exhaustive walk was re-proving the comparator's correctness on inputs
+  // that differ only in an order the comparator does not read, not hunting
+  // for a bug only a specific arrangement could expose.
+  //
+  // WHAT IS NOW SAMPLED RATHER THAN EXHAUSTIVE: "every permutation" becomes
+  // "the identity order, the reverse, every single-position rotation, and a
+  // fixed handful of pseudo-random shuffles". A hypothetical bug that broke
+  // sort's correctness only on some OTHER arrangement, not reachable by
+  // rotating or reversing the registry and not hit by the seeded shuffles,
+  // would not be caught here. That residual is native sort's own contract
+  // rather than this module's, and it is the trade the brief calls for: a
+  // later task appending a planner anywhere in SCOPED_PLANNERS is exactly a
+  // rotation or a near-rotation of an order already sampled below, so the
+  // property this test exists to protect (an append is safe wherever it
+  // lands) stays covered.
+  const rotations = (xs) => xs.map((_, i) => [...xs.slice(i), ...xs.slice(0, i)]);
+  // mulberry32: a tiny deterministic PRNG, not Math.random(). A shuffle that
+  // differs on every run would turn a real failure into a flake and a flake
+  // into a mystery; this one reproduces identically every run from the fixed
+  // seed below.
+  const mulberry32 = (seed) => {
+    let a = seed >>> 0;
+    return () => {
+      a = (a + 0x6d2b79f5) | 0;
+      let t = Math.imul(a ^ (a >>> 15), 1 | a);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  };
+  const shuffled = (xs, rng) => {
+    const out = xs.slice();
+    for (let i = out.length - 1; i > 0; i--) {
+      const j = Math.floor(rng() * (i + 1));
+      [out[i], out[j]] = [out[j], out[i]];
+    }
+    return out;
+  };
+  const SHUFFLE_COUNT = 8;
+  const SHUFFLE_SEED = 0xc0ffee;
+  const rng = mulberry32(SHUFFLE_SEED);
+  const shuffles = Array.from({ length: SHUFFLE_COUNT }, () => shuffled(SCOPED_PLANNERS, rng));
+
+  const samples = [
+    SCOPED_PLANNERS, // the actual, as-appended source order: "the specific broken order the plan document would produce"
+    [...SCOPED_PLANNERS].reverse(),
+    ...rotations(SCOPED_PLANNERS),
+    ...shuffles,
+  ];
   const expected = scopedPlannerSequence().map(([key]) => key);
-  const orders = permutations(SCOPED_PLANNERS).map((p) => scopedPlannerSequence(p).map(([key]) => key));
-  check("every permutation of the registry runs the planners in one order",
-    [orders.length, orders.every((o) => JSON.stringify(o) === JSON.stringify(expected))],
-    [362880, true]);
+  const orders = samples.map((p) => scopedPlannerSequence(p).map(([key]) => key));
+  check("the sample is non-empty, so an all-vacuous .every() cannot masquerade as coverage",
+    samples.length >= 2 + SCOPED_PLANNERS.length + SHUFFLE_COUNT, true);
+  check("a bounded sample of registry orderings all run the planners in one order",
+    orders.every((o) => JSON.stringify(o) === JSON.stringify(expected)), true);
   check("and that order is the declared ranks ascending",
     expected,
     ["pathMoves", "absorbFolders", "splitFolders", "retypes", "suffixRenames",
@@ -1457,6 +1512,30 @@ function commitFixture(root) {
   // run at all.
   check("and the folder is not disclosed as a directory move that carries them along",
     list(r.prechecks.ignoredBeneath).map((b) => b.op), []);
+  // The group-level checks above prove the DECISION (the whole entry declines).
+  // They cannot prove the SHAPE findIgnoredSources reports the file in, because
+  // `declined` only carries {op, target, reason} and the decline pass removes
+  // the row from the shipped prechecks entirely. Pin that shape directly: a
+  // hand-built operation carrying the same `articles` shape the real planner
+  // emits, run through runPrechecks without going anywhere near
+  // declineIgnoredSources, so this is the per-file `articleMovesOf` contract
+  // findIgnoredSources documents at migrate.mjs:2514-2519, not the group
+  // contract above it.
+  const directAbsorb = runPrechecks({
+    operations: [
+      {
+        op: "absorb-folder",
+        from: "settings/rolara/misc",
+        articles: [{ from: "settings/rolara/misc/Hidden.md", to: "settings/rolara/Hidden.md" }],
+        reason: "hand-built, mirrors the shape planAbsorbFolders emits",
+      },
+    ],
+    projectRoot: root,
+  });
+  check("findIgnoredSources reports the file's own from and to, not the folder's",
+    list(directAbsorb.ignored).map((i) => [i.op, i.source, i.from, i.to]),
+    [["absorb-folder", "settings/rolara/misc/Hidden.md",
+      "settings/rolara/misc/Hidden.md", "settings/rolara/Hidden.md"]]);
   rmSync(root, { recursive: true, force: true, maxRetries: 5 });
 }
 
@@ -1716,6 +1795,34 @@ function splitFixture() {
   check("so nothing is credited with vacating a path the split will never empty",
     [r.prechecks.ok, list(r.prechecks.collisions).map((c) => [c.kind, c.op, c.to])],
     [false, [["on-disk", "relocate-path", "settings/rolara/locations/Karsk.md"]]]);
+  // Same reasoning as the absorb case above: the group-level check proves the
+  // whole entry declines, not the shape of the row findIgnoredSources reports
+  // the article in. Pin that shape directly, including which bucket the
+  // article was assigned to (`to`), which the declined-list check above
+  // cannot see either.
+  const directSplit = runPrechecks({
+    operations: [
+      {
+        op: "split-folder",
+        from: "settings/rolara/locations",
+        buckets: [
+          {
+            folder: "settings/rolara/locations/south",
+            name: "south",
+            articles: [
+              { from: "settings/rolara/locations/Karsk.md", to: "settings/rolara/locations/south/Karsk.md" },
+            ],
+          },
+        ],
+        reason: "hand-built, mirrors the shape planSplitFolders emits",
+      },
+    ],
+    projectRoot: root,
+  });
+  check("findIgnoredSources reports the article's own from and to, not the folder's",
+    list(directSplit.ignored).map((i) => [i.op, i.source, i.from, i.to]),
+    [["split-folder", "settings/rolara/locations/Karsk.md",
+      "settings/rolara/locations/Karsk.md", "settings/rolara/locations/south/Karsk.md"]]);
   rmSync(root, { recursive: true, force: true, maxRetries: 5 });
 }
 
@@ -2623,6 +2730,56 @@ console.log("\n=== scoped plans: prose paths ===");
   const r = scoped({ prosePathUpdates: [{ file: "CLAUDE.md", replacements: [{ from: "", to: "x" }] }] });
   check("an entry with no usable replacement is declined rather than planned as a no-op",
     [r.operations.length, r.declined.map((d) => d.op)], [0, ["update-prose-paths"]]);
+}
+
+{
+  // Verified corrupting (task-7 review, Minor 2): applied in sequence, this
+  // exact pair turns "Reports live in rolara-kb/sessions/ today." into
+  // "Reports live in session-docs/rolara/ today.", not the two independent
+  // substitutions the DM wrote, because the first replacement's own `to`
+  // contains the second's `from`. A DIFFERENT hazard from the prefix case the
+  // longest-first sort handles just above: sorting does nothing for this one,
+  // and the sort order (longest `from` first) is exactly the order that lets it
+  // happen, since it puts the feeding replacement first.
+  const r = scoped({
+    prosePathUpdates: [
+      {
+        file: "CLAUDE.md",
+        replacements: [
+          { from: "rolara-kb/sessions/", to: "session-reports/rolara/" },
+          { from: "reports/", to: "docs/" },
+        ],
+      },
+    ],
+  });
+  check("a replacement whose destination feeds a later replacement's source declines rather than corrupts",
+    [r.operations.length, r.declined.map((d) => d.op)], [0, ["update-prose-paths"]]);
+  check("and the reason names both replacements",
+    [
+      String(obj(r.declined[0]).reason).includes("rolara-kb/sessions/"),
+      String(obj(r.declined[0]).reason).includes("reports/"),
+    ],
+    [true, true]);
+}
+
+{
+  // The prefix case (shorter `from` eating a longer one) must NOT be mistaken
+  // for a cascade. Same replacement pair as the very first case in this
+  // section, sorted the same way, and it still plans: neither `to` contains
+  // the other's `from`.
+  const r = scoped({
+    prosePathUpdates: [
+      {
+        file: "CLAUDE.md",
+        replacements: [
+          { from: "rolara-kb/", to: "settings/rolara/" },
+          { from: "rolara-kb/sessions/", to: "session-reports/rolara/karsk/" },
+        ],
+      },
+    ],
+  });
+  check("the prefix case sorting already handles is not flagged as a cascade",
+    [r.operations.length, r.declined.length], [1, 0]);
 }
 
 {

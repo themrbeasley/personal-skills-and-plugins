@@ -32,6 +32,7 @@ import {
   assertLinkIntegrity,
   rewriteWikilinks,
   runPrechecks,
+  buildScopedPlan,
 } from "./migrate.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -3452,6 +3453,88 @@ withRepo(
       [0, "Reports live in rolara-kb/sessions (see rolara-kb/sessions).\n"]);
   }
 );
+
+// The same silent drop the articles/buckets cases above refuse: a field
+// present but not an array reads as empty through list(), so the loop in
+// applyUpdateProsePaths makes zero substitutions and reports the file left
+// byte for byte as it was, which is indistinguishable from a proposal that
+// genuinely found nothing stale. Without the guard this hand-edit would apply
+// true with replacements: 0 instead of refusing.
+withRepo(
+  { "CLAUDE.md": "The knowledge base lives at rolara-kb/.\n" },
+  (root) => {
+    const before = snapshotTree(root);
+    const r = apply(root, [
+      { op: "update-prose-paths", from: "CLAUDE.md", replacements: "rolara-kb/", reason: "hand-edited" },
+    ]);
+    check("a replacements field that is not an array refuses the run",
+      [(r.refused || {}).reason, /rather than an array/.test(String((r.refused || {}).detail))],
+      ["malformed-operation", true]);
+    check("and nothing was touched", snapshotTree(root), before);
+  }
+);
+
+console.log("\n=== plan-side decline and apply-side skip stay one rule ===");
+
+// ignoredSkipDecision is ONE function reached from two call sites:
+// buildScopedPlan's decline pass (declineIgnoredSources) and applyPlan's own
+// skip pass. Today they cannot disagree, because there is only one
+// implementation, but nothing beyond that fact enforces it: a future edit that
+// inlines the rule at one call site, or reads its result differently, would go
+// red at neither suite on its own.
+//
+// This does NOT call ignoredSkipDecision twice, which would pass even if one
+// call site stopped using it (it is not exported, and could not be reached
+// that way from a test file regardless). It goes through the two real entry
+// points and compares what each one selects for the SAME operations and the
+// SAME ignored set:
+//   - the operations come from one real planner run, against a directory with
+//     no repository at all, so nothing is declined there and the result is the
+//     planner's own pre-decline shape rather than a hand-built guess at it;
+//   - those exact operations are then handed to buildScopedPlan's decline pass
+//     (via a second planner run against a git-ignored copy of the same files)
+//     and to applyPlan's skip pass (directly, against that same copy), so both
+//     call sites answer the identical question.
+{
+  // Deliberately the SINGLE-group shape (one absorb, one rebuild, one shared
+  // group id) rather than the two-sibling shape used elsewhere in this file.
+  // The two-sibling shape's rebuild belongs to TWO groups and is not fully
+  // skipped either way, so it cannot tell the group-aware rule from a
+  // per-operation one apart; this shape can, because the correct rule drops
+  // the rebuild too (its only group is fully skipped) while a per-operation
+  // rule would leave it running. Proven below by mutating the plan-side call
+  // site to the per-operation rule and confirming this test goes red.
+  const files = {
+    "settings/rolara/Rolara-INDEX.md": article("type: Index", "- [[Misc-INDEX]]"),
+    "settings/rolara/misc/Misc-INDEX.md": article("type: Index", "- [[Odds]]"),
+    "settings/rolara/misc/Odds.md": article("type: Concept", "Body."),
+    "settings/rolara/misc/Hidden.md": article("type: Concept", "A draft the DM keeps out of git."),
+  };
+  const scope = { absorbFolders: [{ folder: "settings/rolara/misc" }] };
+  const key = (op, target) => `${op}::${target}`;
+
+  withBareDir(files, (cleanRoot) => {
+    const clean = buildScopedPlan({ projectRoot: cleanRoot, settings: SETTINGS, baseRules: BASE_RULES, scope });
+    withRepo({ ...files, ".gitignore": "settings/rolara/misc/Hidden.md\n" }, (ignoredRoot) => {
+      const planSide = buildScopedPlan({ projectRoot: ignoredRoot, settings: SETTINGS, baseRules: BASE_RULES, scope });
+      const applySide = applyPlan(
+        { operations: clean.operations },
+        { cwd: ignoredRoot, settings: SETTINGS, baseRules: BASE_RULES, commit: false }
+      );
+      const planSelected = planSide.declined.map((d) => key(d.op, d.target)).sort();
+      const applySelected = applySide.skipped
+        .flatMap((item) => item.ops)
+        .map((o) => key(o.op, o.from || o.to || "(unnamed)"))
+        .sort();
+      check("the plan-side decline and the apply-side skip select the same operations",
+        applySelected, planSelected);
+      // Guards against both sides trivially agreeing on nothing, which would
+      // pass even if this whole property were untested.
+      check("and the agreement is not the trivial empty one",
+        planSelected.length > 0, true);
+    });
+  });
+}
 
 console.log(`\n${passed} passed, ${failures.length} failed`);
 if (failures.length > 0) {

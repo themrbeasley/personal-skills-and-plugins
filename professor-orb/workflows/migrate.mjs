@@ -2294,6 +2294,44 @@ function planProsePathUpdates(items, ctx, key) {
       });
       continue;
     }
+    // The cross-replacement cascade, a DIFFERENT hazard from the prefix case the
+    // sort above handles. The sort keeps a shorter `from` from eating a longer
+    // one, but does nothing about a replacement's own `to` landing text that a
+    // LATER replacement's `from` then matches, because the executor applies
+    // replacements in sequence and each pass scans the text the previous pass
+    // already rewrote. Verified corrupting:
+    // [{rolara-kb/sessions/ -> session-reports/rolara/}, {reports/ -> docs/}]
+    // applied to "Reports live in rolara-kb/sessions/ today." yields
+    // "Reports live in session-docs/rolara/ today.", not the two independent
+    // substitutions the DM wrote. Declined here rather than left to corrupt the
+    // file at apply time, on the module's stated terms that a plan which cannot
+    // execute is worse than no plan: the reason names both replacements so the
+    // DM can fix the scope (split them into separate entries, or reword one so
+    // its destination no longer contains the other's source) and re-run.
+    const cascades = [];
+    for (let i = 0; i < replacements.length; i++) {
+      for (let j = i + 1; j < replacements.length; j++) {
+        if (replacements[i].to.includes(replacements[j].from)) cascades.push([replacements[i], replacements[j]]);
+      }
+    }
+    if (cascades.length > 0) {
+      const named = cascades
+        .map(
+          ([a, b]) =>
+            `${JSON.stringify(a.from)} -> ${JSON.stringify(a.to)} feeds ${JSON.stringify(b.from)} -> ${JSON.stringify(b.to)}`
+        )
+        .join("; ");
+      declined.push({
+        op: "update-prose-paths",
+        target: file,
+        reason:
+          "An earlier replacement's destination contains a later replacement's source, so applying them in " +
+          "sequence would let the later one consume text the earlier one just inserted, corrupting the result " +
+          `rather than making the substitutions the DM wrote independently: ${named}. Split them into separate ` +
+          "scope entries, or reword one so its destination no longer contains the other's source, then re-run this scope.",
+      });
+      continue;
+    }
     if (namedPathNotAFile(ctx, file, "update-prose-paths", operations)) {
       declined.push({
         op: "update-prose-paths",
@@ -4589,6 +4627,16 @@ function malformedShapeOf(o) {
     if (o[field] != null && !Array.isArray(o[field])) {
       return `${where} carries \`${field}\` as ${JSON.stringify(o[field])} rather than an array, so every entry it was meant to name is invisible to the prechecks and to the executor alike.`;
     }
+  }
+  // `replacements` is `update-prose-paths`'s own list, read by no precheck (this
+  // kind carries no `to`, so it never reaches destinationEntriesOf or
+  // findIgnoredSources), but the executor hazard is the same one the loop above
+  // exists to refuse: list() reads a non-array as empty, so
+  // applyUpdateProsePaths makes zero substitutions and reports the file left
+  // byte for byte as it was, indistinguishable from a proposal that genuinely
+  // found nothing stale to fix.
+  if (o.replacements != null && !Array.isArray(o.replacements)) {
+    return `${where} carries \`replacements\` as ${JSON.stringify(o.replacements)} rather than an array, so every substitution it was meant to make silently does not happen, and the run reports success for none of them.`;
   }
   for (const [i, a] of list(o.articles).entries()) {
     if (a && typeof a === "object") continue;
