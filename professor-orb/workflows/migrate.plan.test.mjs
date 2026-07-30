@@ -1168,6 +1168,256 @@ function commitFixture(root) {
   rmSync(root, { recursive: true, force: true, maxRetries: 5 });
 }
 
+console.log("\n=== scoped plans: split-folder ===");
+
+function splitFixture() {
+  const root = mkdtempSync(path.join(os.tmpdir(), "orb-split-"));
+  const w = (rel, body) => writeAt(root, rel, body);
+  w("settings/rolara/locations/Locations-INDEX.md", "---\ntype: Index\n---\n\n- [[Ashfall]]\n- [[Karsk]]\n");
+  w("settings/rolara/locations/Ashfall.md", "---\ntype: Location\n---\n\nBody.\n");
+  w("settings/rolara/locations/Karsk.md", "---\ntype: Location\n---\n\nBody.\n");
+  return root;
+}
+
+{
+  const root = splitFixture();
+  const r = scoped(
+    {
+      splitFolders: [
+        {
+          folder: "settings/rolara/locations",
+          buckets: [
+            { name: "north", articles: ["Ashfall.md"] },
+            { name: "south", articles: ["Karsk.md"] },
+          ],
+        },
+      ],
+    },
+    root
+  );
+  check("a split plans the move, an index per bucket, then the parent rebuild",
+    kindsOf(r.operations), ["split-folder", "create-index", "create-index", "rebuild-index"]);
+  check("each article gets a full destination path",
+    obj(list(find(r.operations, "split-folder").buckets)[0]).articles,
+    [{ from: "settings/rolara/locations/Ashfall.md", to: "settings/rolara/locations/north/Ashfall.md" }]);
+  check("the bucket index lands inside the bucket",
+    obj(r.operations[1]).to, "settings/rolara/locations/north/North-INDEX.md");
+  check("the parent rebuild targets the folder's own index",
+    obj(r.operations[3]).to, "settings/rolara/locations/Locations-INDEX.md");
+  // A bucket folder does not exist yet, so its fresh index is the DEFAULT
+  // collision posture rather than an exemption: nothing on disk occupies the
+  // path. Pinned because adding split-folder or create-index to
+  // DESTINATION_MAY_EXIST to "make the split work" would silently license
+  // overwriting a DM's index everywhere else that kind is used.
+  check("and a fresh bucket index is not read as a collision",
+    [r.declined.length, r.prechecks.ok, r.prechecks.collisions], [0, true, []]);
+  rmSync(root, { recursive: true, force: true });
+}
+
+{
+  const root = splitFixture();
+  const r = scoped(
+    {
+      splitFolders: [
+        {
+          folder: "settings/rolara/locations",
+          buckets: [
+            { name: "north", articles: ["Ashfall.md"] },
+            { name: "south", articles: ["Ashfall.md"] },
+          ],
+        },
+      ],
+    },
+    root
+  );
+  // One article, two destinations. Executing this would move it to the first
+  // bucket and then fail to find it for the second, leaving a partition the DM
+  // approved and a tree that does not match it.
+  check("an article claimed by two buckets is declined",
+    [r.operations.length, r.declined.length], [0, 1]);
+  check("and the reason names the article",
+    String(obj(r.declined[0]).reason).includes("Ashfall.md"), true);
+  rmSync(root, { recursive: true, force: true });
+}
+
+{
+  const root = splitFixture();
+  mkdirSync(path.join(root, "settings", "rolara", "locations", "north"), { recursive: true });
+  const r = scoped(
+    {
+      splitFolders: [
+        { folder: "settings/rolara/locations", buckets: [{ name: "north", articles: ["Ashfall.md"] }] },
+      ],
+    },
+    root
+  );
+  check("a bucket whose folder already exists is declined",
+    [r.operations.length, r.declined.length], [0, 1]);
+  rmSync(root, { recursive: true, force: true });
+}
+
+{
+  const root = splitFixture();
+  const r = scoped(
+    {
+      splitFolders: [
+        { folder: "settings/rolara/locations", buckets: [{ name: "north", articles: ["Ashfall.md"] }] },
+      ],
+    },
+    root
+  );
+  // Karsk.md is in no bucket. That is legitimate: a partial split leaves the
+  // rest where it is. Asserting it explicitly stops a future "every article
+  // must be assigned" rule from being added without anyone noticing it forbids
+  // the ordinary case.
+  check("an article in no bucket simply stays put",
+    JSON.stringify(r.operations).includes("Karsk"), false);
+  check("and the split still plans", r.declined.length, 0);
+  rmSync(root, { recursive: true, force: true });
+}
+
+// The one-article-one-home rail has to hold ACROSS scope entries, not only
+// within one. The fixture drops the folder's index deliberately: with it present
+// the two entries emit the same rebuild-index twice, and that in-plan collision
+// refuses the run before the double claim can do any harm, which masks the hazard
+// without fixing it. A folder with no index yet is an ordinary split candidate,
+// since "content with no index" is one of the things the sweep flags, and there
+// nothing masks it. Measured with the claim ledger scoped per entry: the plan
+// carried TWO moves of one file with the prechecks reporting ok, and applying it
+// moved Ashfall.md into north, failed the second split with "bad source", and left
+// a south bucket holding nothing but a freshly created index.
+{
+  const root = splitFixture();
+  rmSync(path.join(root, "settings", "rolara", "locations", "Locations-INDEX.md"));
+  const r = scoped(
+    {
+      splitFolders: [
+        { folder: "settings/rolara/locations", buckets: [{ name: "north", articles: ["Ashfall.md"] }] },
+        { folder: "settings/rolara/locations", buckets: [{ name: "south", articles: ["Ashfall.md"] }] },
+      ],
+    },
+    root
+  );
+  const destinations = r.operations
+    .filter((o) => o.op === "split-folder")
+    .flatMap((o) => list(o.buckets))
+    .flatMap((b) => list(obj(b).articles))
+    .filter((a) => String(obj(a).from).endsWith("Ashfall.md"))
+    .map((a) => obj(a).to);
+  check("one article is planned to move exactly once, however the scope is split up",
+    destinations, ["settings/rolara/locations/north/Ashfall.md"]);
+  check("and the second claim on it is declined rather than planned",
+    [r.declined.length, r.prechecks.ok], [1, true]);
+  rmSync(root, { recursive: true, force: true });
+}
+
+// A split's real destinations are the per-article paths inside its buckets, and
+// those live one level deeper than absorb-folder's flat `articles`. Every case
+// below pins that the precheck sees THROUGH the bucket. Measured before the fix:
+// destinationEntriesOf and findIgnoredSources both enumerated only `articles`, so
+// a split contributed no destination and no source at all, and each case here
+// reported a clean plan over exactly the hazard it is named for.
+{
+  const root = splitFixture();
+  writeAt(root, "settings/rolara/Spare.md", "---\ntype: Location\n---\n\nBody.\n");
+  const r = scoped(
+    {
+      splitFolders: [
+        { folder: "settings/rolara/locations", buckets: [{ name: "north", articles: ["Ashfall.md"] }] },
+      ],
+      pathMoves: [
+        {
+          from: "settings/rolara/Spare.md",
+          to: "settings/rolara/locations/north/Ashfall.md",
+          reason: "DM scope",
+        },
+      ],
+    },
+    root
+  );
+  check("a bucket destination another operation also targets is an in-plan collision",
+    [r.prechecks.ok, list(r.prechecks.collisions).map((c) => [c.kind, c.b])],
+    [false, [["in-plan", "settings/rolara/locations/north/Ashfall.md"]]]);
+  rmSync(root, { recursive: true, force: true });
+}
+
+{
+  const root = splitFixture();
+  writeAt(root, "settings/rolara/locations/north/Ashfall.md",
+    "---\ntype: Location\n---\n\nA different article that already lives here.\n");
+  commitFixture(root);
+  // A hand-edited plan reaches applyPlan without passing through the planner,
+  // which is a designed path, and applyPlan re-runs the prechecks against the
+  // operations it was actually handed. The planner declines a bucket whose folder
+  // exists, so this shape can only arrive that way, and the collision half has to
+  // catch it there.
+  const pre = runPrechecks({
+    operations: [
+      {
+        op: "split-folder",
+        from: "settings/rolara/locations",
+        buckets: [
+          {
+            folder: "settings/rolara/locations/north",
+            name: "north",
+            articles: [
+              {
+                from: "settings/rolara/locations/Ashfall.md",
+                to: "settings/rolara/locations/north/Ashfall.md",
+              },
+            ],
+          },
+        ],
+        reason: "hand-edited",
+      },
+    ],
+    projectRoot: root,
+  });
+  check("a bucket destination already on disk aborts before anything moves",
+    [pre.ok, list(pre.collisions).map((c) => [c.kind, c.op, c.to])],
+    [false, [["on-disk", "split-folder", "settings/rolara/locations/north/Ashfall.md"]]]);
+  rmSync(root, { recursive: true, force: true, maxRetries: 5 });
+}
+
+{
+  const root = splitFixture();
+  writeAt(root, "settings/rolara/Spare.md", "---\ntype: Location\n---\n\nBody.\n");
+  writeAt(root, ".gitignore", "settings/rolara/locations/Karsk.md\n");
+  commitFixture(root);
+  const r = scoped(
+    {
+      splitFolders: [
+        {
+          folder: "settings/rolara/locations",
+          buckets: [
+            { name: "north", articles: ["Ashfall.md"] },
+            { name: "south", articles: ["Karsk.md"] },
+          ],
+        },
+      ],
+      pathMoves: [
+        { from: "settings/rolara/Spare.md", to: "settings/rolara/locations/Karsk.md", reason: "DM scope" },
+      ],
+    },
+    root
+  );
+  // A split never moves its own `from`; it moves each article named inside a
+  // bucket, one git mv at a time, so the source that can be git-ignored is one of
+  // those articles. Reaching this precheck is what makes the split skippable AND
+  // what withholds vacate credit from the ignored article: `git mv` on it
+  // hard-fails with "not under version control", so it never leaves the path the
+  // relocate-path below is aiming at, and it has no snapshot to be restored from
+  // either.
+  check("a git-ignored article inside a bucket reaches the ignored precheck",
+    list(r.prechecks.ignored).map((i) => [i.op, i.source, i.from, i.to]),
+    [["split-folder", "settings/rolara/locations/Karsk.md",
+      "settings/rolara/locations/Karsk.md", "settings/rolara/locations/south/Karsk.md"]]);
+  check("so nothing is credited with vacating a path the split will never empty",
+    [r.prechecks.ok, list(r.prechecks.collisions).map((c) => [c.kind, c.op, c.to])],
+    [false, [["on-disk", "relocate-path", "settings/rolara/locations/Karsk.md"]]]);
+  rmSync(root, { recursive: true, force: true, maxRetries: 5 });
+}
+
 console.log(`\n${passed} passed, ${failures.length} failed`);
 if (failures.length > 0) {
   for (const f of failures) console.log(`  FAILED: ${f}`);

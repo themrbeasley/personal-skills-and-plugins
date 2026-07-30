@@ -2267,6 +2267,173 @@ withRepo(
   }
 );
 
+console.log("\n=== split-folder ===");
+
+withRepo(
+  {
+    "settings/rolara/locations/Locations-INDEX.md": article("type: Index", "- [[Ashfall]]\n- [[Karsk]]"),
+    "settings/rolara/locations/Ashfall.md": article("type: Location", "Body."),
+    "settings/rolara/locations/Karsk.md": article("type: Location", "See [[Ashfall]]."),
+  },
+  (root) => {
+    const r = apply(root, [
+      {
+        op: "split-folder",
+        from: "settings/rolara/locations",
+        buckets: [
+          {
+            folder: "settings/rolara/locations/north",
+            name: "north",
+            articles: [{ from: "settings/rolara/locations/Ashfall.md", to: "settings/rolara/locations/north/Ashfall.md" }],
+          },
+        ],
+        reason: "scope",
+      },
+    ]);
+    check("split-folder applies", [r.ok, first(r.applied).applied], [true, true]);
+    check("the article is in its bucket", has(root, "settings/rolara/locations/north/Ashfall.md"), true);
+    check("and gone from the parent", has(root, "settings/rolara/locations/Ashfall.md"), false);
+    // Obsidian resolves by stem, so a link from a sibling that did not move
+    // still resolves after the move. Left alone deliberately.
+    check("a wikilink from an article that stayed is untouched",
+      read(root, "settings/rolara/locations/Karsk.md").includes("[[Ashfall]]"), true);
+    check("git recorded renames", porcelain(root).some((l) => l.startsWith("R")), true);
+  }
+);
+
+withRepo(
+  {
+    "settings/rolara/locations/Ashfall.md": article("type: Location", "Body."),
+    "settings/rolara/locations/Karsk.md": article("type: Location", "Body."),
+  },
+  (root) => {
+    const r = apply(root, [
+      {
+        op: "split-folder",
+        from: "settings/rolara/locations",
+        buckets: [
+          {
+            folder: "settings/rolara/locations/north",
+            name: "north",
+            articles: [
+              { from: "settings/rolara/locations/Ashfall.md", to: "settings/rolara/locations/north/Ashfall.md" },
+              { from: "settings/rolara/locations/Nope.md", to: "settings/rolara/locations/north/Nope.md" },
+            ],
+          },
+        ],
+        reason: "scope",
+      },
+    ]);
+    // One entry for the whole split, on the same principle a rename carries its
+    // link rewrite: a split reported as done with one article left behind is
+    // exactly what the per-operation accounting exists to prevent.
+    const e = first(r.applied.concat(r.failed));
+    check("a missing article fails the whole split entry", e.applied, false);
+    check("and the detail names how far it got", /1 of 2/.test(e.detail || ""), true);
+  }
+);
+
+// The bucket index the planner pairs with every split, applied in the same run.
+// A fresh bucket folder is populated by the split and read by create-index, in
+// that order, which is why APPLY_ORDER puts every index kind after the split.
+withRepo(
+  {
+    "settings/rolara/locations/Locations-INDEX.md": article("type: Index", "- [[Ashfall]]\n- [[Karsk]]"),
+    "settings/rolara/locations/Ashfall.md": article("type: Location", "Body."),
+    "settings/rolara/locations/Karsk.md": article("type: Location", "Body."),
+  },
+  (root) => {
+    const r = apply(root, [
+      {
+        op: "split-folder",
+        from: "settings/rolara/locations",
+        buckets: [
+          {
+            folder: "settings/rolara/locations/north",
+            name: "north",
+            articles: [{ from: "settings/rolara/locations/Ashfall.md", to: "settings/rolara/locations/north/Ashfall.md" }],
+          },
+          {
+            folder: "settings/rolara/locations/south",
+            name: "south",
+            articles: [{ from: "settings/rolara/locations/Karsk.md", to: "settings/rolara/locations/south/Karsk.md" }],
+          },
+        ],
+        reason: "scope",
+      },
+      { op: "create-index", to: "settings/rolara/locations/north/North-INDEX.md", reason: "scope" },
+      { op: "create-index", to: "settings/rolara/locations/south/South-INDEX.md", reason: "scope" },
+      {
+        op: "rebuild-index",
+        to: "settings/rolara/locations/Locations-INDEX.md",
+        folder: "settings/rolara/locations",
+        reason: "scope",
+      },
+    ]);
+    check("a split and its four paired index operations all apply",
+      [r.ok, r.applied.length], [true, 4]);
+    // The index has to list what the split just put in the folder. Written
+    // before the move it would list nothing, which is the ordering rule
+    // APPLY_ORDER encodes.
+    check("each bucket index lists the article the split moved in",
+      [read(root, "settings/rolara/locations/north/North-INDEX.md").includes("[[Ashfall]]"),
+       read(root, "settings/rolara/locations/south/South-INDEX.md").includes("[[Karsk]]")],
+      [true, true]);
+    // The parent index listed both articles and now holds neither: they live in
+    // subfolders, which are another index's territory. Leaving them would put
+    // each article in two indexes at once.
+    const parent = read(root, "settings/rolara/locations/Locations-INDEX.md");
+    check("and the parent index no longer claims the articles that left",
+      [/\[\[Ashfall\]\]/.test(parent), /\[\[Karsk\]\]/.test(parent)], [false, false]);
+  }
+);
+
+withRepo(
+  {
+    ".gitignore": "settings/rolara/locations/Hidden.md\n",
+    "settings/rolara/locations/Ashfall.md": article("type: Location", "Body."),
+    "settings/rolara/locations/Hidden.md": article("type: Location", "A draft the DM keeps out of git."),
+  },
+  (root) => {
+    const before = snapshotTree(root);
+    const r = apply(root, [
+      {
+        op: "split-folder",
+        from: "settings/rolara/locations",
+        buckets: [
+          {
+            // Ashfall.md is in the FIRST bucket deliberately. `git mv` on the
+            // ignored file hard-fails with "not under version control", exit 128,
+            // so with the skip blind to the bucket shape the executor moves every
+            // PRECEDING article and then fails mid-partition. Putting the ignored
+            // one first would leave the project untouched by accident and hide
+            // that partial mutation.
+            folder: "settings/rolara/locations/north",
+            name: "north",
+            articles: [{ from: "settings/rolara/locations/Ashfall.md", to: "settings/rolara/locations/north/Ashfall.md" }],
+          },
+          {
+            folder: "settings/rolara/locations/south",
+            name: "south",
+            articles: [{ from: "settings/rolara/locations/Hidden.md", to: "settings/rolara/locations/south/Hidden.md" }],
+          },
+        ],
+        reason: "scope",
+      },
+    ]);
+    // WHOLE, not one bucket. The operation is the unit of accounting and the unit
+    // the skip loop works in, and a split is one operation because the DM approved
+    // one partition: applying the buckets that happen to hold no ignored article
+    // would leave the tree matching neither the old shape nor the approved one,
+    // with no partial entry to report it with.
+    check("a split carrying a git-ignored article is skipped whole",
+      [r.ok, r.skipped.length, r.applied.length, r.failed.length], [true, 1, 0, 0]);
+    check("and the folder is left byte-identical", snapshotTree(root), before);
+    check("the skip names the ignored article rather than the folder",
+      String(first(r.skipped).detail).includes("settings/rolara/locations/Hidden.md"), true);
+  }
+);
+
 console.log(`\n${passed} passed, ${failures.length} failed`);
 if (failures.length > 0) {
   for (const f of failures) console.log(`  FAILED: ${f}`);

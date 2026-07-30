@@ -190,6 +190,35 @@ function destinationMayExist(op) {
   return op.op === "vault" && !op.from;
 }
 
+// Every per-file move an operation carries, from BOTH shapes that carry one.
+//
+// absorb-folder enumerates its files flat in `articles`. split-folder nests them
+// one level deeper, in `buckets[].articles`, because the bucket is the unit the
+// DM approved and which article goes where is the whole content of that
+// decision; flattening it away in the operation itself would lose it.
+//
+// FOUR places need per-file moves, and they all read them through here so that a
+// kind carrying a new shape is taught to all four at once rather than to three:
+// destinationEntriesOf below, findIgnoredSources, applyPlan's skip list, and
+// applySplitFolder. Teaching only some of them is a measured hazard rather than
+// a hypothetical one. Task 3 made absorb-folder's per-file destinations real
+// without teaching findIgnoredSources about them, and the result was that a
+// rename onto a git-ignored, unsnapshotted file went from correctly refused to
+// silently permitted, because the ignored file was credited with vacating a path
+// it will never leave.
+//
+// No kind but absorb-folder carries `articles` and none but split-folder carries
+// `buckets`, so this reads exactly as before for every other kind.
+function articleMovesOf(o) {
+  if (!o || typeof o !== "object") return [];
+  const out = [];
+  for (const a of list(o.articles)) if (a && typeof a === "object") out.push(a);
+  for (const b of list(o.buckets)) {
+    for (const a of list(b && b.articles)) if (a && typeof a === "object") out.push(a);
+  }
+  return out;
+}
+
 // Collisions are scoped to each DESTINATION DIRECTORY, which is what a move can
 // actually overwrite. Two settings legitimately holding a Tavern.md is not a
 // collision, and aborting on it would abort for the exact duplication the
@@ -234,13 +263,21 @@ function destinationMayExist(op) {
 // nothing needs: no operation moves anything ONTO a folder another operation is
 // dissolving, and if one ever did, withheld credit costs a false collision and a
 // rerun rather than an overwrite.
+//
+// split-folder lands in the same place by a different route, and is NOT in the
+// exclusion above because it does not need to be: a split has no single
+// destination, so its `to` is absent, and an entry with no `to` is skipped by
+// both halves of the check below. Its real destinations are the per-article paths
+// inside its buckets, which articleMovesOf reaches. It grants no vacate credit on
+// the folder either, which is correct: a split empties nothing, and the articles
+// it does move each vacate their own path through their own entry.
 function destinationEntriesOf(o) {
   const entries = [];
   if (o.op !== "absorb-folder") {
     entries.push({ op: o.op, from: o.from, to: o.to, mayExist: destinationMayExist(o) });
   }
-  for (const a of list(o.articles)) {
-    if (!a || !a.to) continue;
+  for (const a of articleMovesOf(o)) {
+    if (!a.to) continue;
     entries.push({ op: o.op, from: a.from, to: a.to, mayExist: false });
   }
   return entries;
@@ -775,6 +812,7 @@ function frontmatterHasPublish(file) {
 const SCOPED_PLANNERS = [
   ["pathMoves", planPathMoves],
   ["absorbFolders", planAbsorbFolders],
+  ["splitFolders", planSplitFolders],
   ["rebuildIndexes", planRebuildIndexes],
 ];
 
@@ -1000,6 +1038,137 @@ function planAbsorbFolders(items, ctx) {
   return { operations, declined };
 }
 
+// Title Case for a bucket's index stem: "north" becomes "North-INDEX".
+const indexStemFor = (name, suffix) =>
+  `${String(name).charAt(0).toUpperCase()}${String(name).slice(1)}${suffix}`;
+
+// Divide a folder into DM-named buckets.
+//
+// The partition arrives in the scope as explicit buckets and is never derived
+// here. Crossing the split threshold says a folder should divide and says
+// nothing about how to partition it, which is why setup defers `split`
+// permanently; the judgment is the DM's, and by the time it reaches this
+// planner it has already been made.
+//
+// The bucket is the unit the DM approved, so it survives into the operation
+// rather than being flattened into one article list: which article goes where is
+// the whole content of the decision. destinationEntriesOf, findIgnoredSources,
+// and applyPlan's skip list all read those nested articles through
+// articleMovesOf, so a bucket's per-file destinations and sources are checked on
+// exactly the same terms as absorb-folder's flat ones.
+function planSplitFolders(items, ctx) {
+  const operations = [];
+  const declined = [];
+  const protectedSet = protectedFolders(ctx.settings);
+  // Source path -> the bucket folder that claimed it, across EVERY scope entry
+  // rather than within one. An article has one home, and a per-entry ledger let
+  // that rail be defeated by writing the same folder twice: measured, two
+  // entries each claiming Ashfall.md planned two moves of one file with the
+  // prechecks reporting ok, and applying it moved the file into the first bucket
+  // and then failed the second split outright, which is the half-applied
+  // partition the one-entry-per-split accounting exists to prevent.
+  const claimed = new Map();
+
+  for (const item of items) {
+    const folder = toPosix(item && item.folder);
+    if (!folder) {
+      declined.push({ op: "split-folder", target: "(unnamed)", reason: "The scope entry names no folder." });
+      continue;
+    }
+    if (protectedSet.has(folder)) {
+      declined.push({
+        op: "split-folder",
+        target: folder,
+        reason:
+          "This is a prong root or a campaign folder. Splitting it would divide a whole knowledge base, homebrew catalog, or campaign, which is a setting-lifecycle operation rather than a folder split.",
+      });
+      continue;
+    }
+
+    const suffix = indexSuffixFor(settingForFolder(ctx.settings, folder), ctx.baseRules);
+    const buckets = [];
+    // This entry's own claims, staged rather than written straight into the
+    // ledger above, so that a REFUSED entry leaves no claim behind. A stale
+    // claim from an entry that planned nothing would decline a later entry over
+    // a bucket that is not happening.
+    const mine = new Map();
+    let refused = false;
+
+    for (const bucket of list(item.buckets)) {
+      const name = String((bucket && bucket.name) || "").trim();
+      if (!name) {
+        declined.push({ op: "split-folder", target: folder, reason: "A bucket carries no name." });
+        refused = true;
+        break;
+      }
+      const dest = `${folder}/${name}`;
+      if (existsSync(path.resolve(ctx.projectRoot, dest))) {
+        declined.push({
+          op: "split-folder",
+          target: dest,
+          reason:
+            "That subfolder already exists. Moving articles into it would merge the split into an existing folder whose contents the proposal never listed.",
+        });
+        refused = true;
+        break;
+      }
+
+      const articles = [];
+      for (const raw of list(bucket.articles)) {
+        const base = path.posix.basename(toPosix(raw));
+        if (!base) continue;
+        const source = `${folder}/${base}`;
+        const owner = mine.get(source) || claimed.get(source);
+        if (owner) {
+          declined.push({
+            op: "split-folder",
+            target: folder,
+            reason: `${base} is claimed by two buckets (${owner} and ${dest}). An article has one home; pick which bucket owns it.`,
+          });
+          refused = true;
+          break;
+        }
+        mine.set(source, dest);
+        articles.push({ from: source, to: `${dest}/${base}` });
+      }
+      if (refused) break;
+      buckets.push({ folder: dest, name, articles });
+    }
+    if (refused) continue;
+    if (buckets.length === 0) {
+      declined.push({ op: "split-folder", target: folder, reason: "The scope entry carries no buckets." });
+      continue;
+    }
+    for (const [source, dest] of mine) claimed.set(source, dest);
+
+    operations.push({
+      op: "split-folder",
+      from: folder,
+      buckets,
+      reason: String((item && item.reason) || "Split by a DM-approved /migrate scope."),
+    });
+
+    for (const bucket of buckets) {
+      operations.push({
+        op: "create-index",
+        to: `${bucket.folder}/${indexStemFor(bucket.name, suffix)}.md`,
+        reason: `Created for the ${bucket.name} bucket of the ${folder} split.`,
+      });
+    }
+
+    const parentIndex = existingIndexIn(ctx, folder, suffix);
+    if (parentIndex) {
+      operations.push({
+        op: "rebuild-index",
+        to: parentIndex,
+        folder,
+        reason: `Rebuilt because ${folder} was split into ${buckets.length} subfolder(s).`,
+      });
+    }
+  }
+  return { operations, declined };
+}
+
 // The setting whose kbRoot, homebrewRoot, or sessionReportsRoot contains this
 // folder, or null. Longest matching root wins, so a nested prong resolves to
 // the setting that actually owns it rather than to whichever came first.
@@ -1166,15 +1335,23 @@ function findIgnoredSources(operations, oracle) {
       if (!source || !oracle.isIgnored(source)) continue;
       out.push({ op: o.op, source: toPosix(source), from: o.from, to: o.to, reason: IGNORED_SOURCE_REASON });
     }
-    // absorb-folder never moves its own `from`. It moves each file named in
-    // `articles`, one `git mv` at a time, so the source that can be git-ignored
-    // is one of those FILES rather than the folder, and enumerating only o.from
-    // left a git-ignored file invisible here. Two things then went wrong, both
-    // measured: findDestinationCollisions credited the file with vacating a path
-    // it will never leave, permitting a rename onto a git-ignored file that has
-    // no snapshot; and applyPlan's skip list, which reads this same set, moved
-    // every preceding file and then failed mid-dissolution, because `git mv` on
-    // an ignored file hard-fails with "not under version control", exit 128.
+    // absorb-folder and split-folder never move their own `from`. Each moves the
+    // files it enumerates, one `git mv` at a time, so the source that can be
+    // git-ignored is one of those FILES rather than the folder, and enumerating
+    // only o.from left a git-ignored file invisible here. Two things then went
+    // wrong, both measured: findDestinationCollisions credited the file with
+    // vacating a path it will never leave, permitting a rename onto a git-ignored
+    // file that has no snapshot; and applyPlan's skip list, which reads this same
+    // set, moved every preceding file and then failed mid-operation, because
+    // `git mv` on an ignored file hard-fails with "not under version control",
+    // exit 128.
+    //
+    // Measured again for split-folder, whose articles are nested inside
+    // `buckets`: with the destination half of the enumeration fixed and this one
+    // left reading `articles` alone, a relocate-path onto a git-ignored article
+    // went from correctly refused to reported ok with zero collisions, which is
+    // the same silent overwrite of an unsnapshotted file. articleMovesOf is why
+    // both halves see the same set.
     //
     // Reported with the FILE's own from and to rather than the folder's. That is
     // what the report should read as (the move that will not happen), and it is
@@ -1182,8 +1359,8 @@ function findIgnoredSources(operations, oracle) {
     // matching this `from` against each destination entry's `from`, which for an
     // enumerated file is the file's own path. Naming the folder there would
     // leave the hole open.
-    for (const a of list(o.articles)) {
-      if (!a || !a.from || !oracle.isIgnored(a.from)) continue;
+    for (const a of articleMovesOf(o)) {
+      if (!a.from || !oracle.isIgnored(a.from)) continue;
       out.push({ op: o.op, source: toPosix(a.from), from: toPosix(a.from), to: toPosix(a.to), reason: IGNORED_SOURCE_REASON });
     }
   }
@@ -2111,6 +2288,40 @@ function applyAbsorbFolder(op, ctx) {
   return entry;
 }
 
+// Divide a folder into DM-named buckets. One accounting entry for the whole
+// split: a partition applied halfway is worse than one not applied at all,
+// because the DM approved a shape the tree no longer matches either way.
+//
+// Nothing is removed and nothing is created here. The folder being split keeps
+// whatever the buckets did not claim, which is the ordinary partial split, and
+// each bucket's own index is a separate create-index operation the planner pairs
+// with this one. So the folder cannot be left indexless the way an absorb's could.
+//
+// The moves come from articleMovesOf, which is the same enumeration the
+// prechecks and the skip list read. That is the point: what this executor moves
+// is exactly what was checked for a collision and for a git-ignored source, with
+// no second traversal of the bucket shape to drift out of step with the first.
+function applySplitFolder(op, ctx) {
+  const entry = entryFor(op);
+  entry.from = toPosix(op.from);
+  entry.moved = 0;
+  const all = articleMovesOf(op);
+
+  for (const a of all) {
+    const out = gitMove(ctx, toPosix(a.from), toPosix(a.to));
+    if (!out.ok) {
+      entry.detail = `git mv failed for ${a.from}: ${out.error}. ${entry.moved} of ${all.length} article(s) had moved; the snapshot is the undo.`;
+      return entry;
+    }
+    entry.moved++;
+  }
+
+  entry.applied = true;
+  entry.buckets = list(op.buckets).map((b) => b && b.folder);
+  entry.detail = `Split ${entry.moved} article(s) across ${entry.buckets.length} subfolder(s).`;
+  return entry;
+}
+
 // The emptied folder, removed explicitly and never recursively.
 //
 // `git mv` empties a folder; it does not remove it. Measured in two scratch
@@ -2810,6 +3021,7 @@ const EXECUTORS = {
   // and a shared kind would flatten them into one line.
   "relocate-path": applyRelocateProng,
   "absorb-folder": applyAbsorbFolder,
+  "split-folder": applySplitFolder,
   "normalize-type": applyNormalizeType,
   "rename-with-link-rewrite": applyRenameWithLinkRewrite,
   "create-index": applyCreateIndex,
@@ -3037,28 +3249,33 @@ export function applyPlan(plan, options = {}) {
   // ------------------------------------------------------------------
   const raw = [];
   for (const op of operations) {
-    // The enumerated files of an absorb are sources here for the same reason
-    // findIgnoredSources counts them: that kind never moves its own `from`, it
-    // moves each file in `articles` one `git mv` at a time, so the source that
-    // can be git-ignored is one of those files.
+    // The enumerated files of an absorb or a split are sources here for the same
+    // reason findIgnoredSources counts them: neither kind moves its own `from`, it
+    // moves each file it enumerates one `git mv` at a time, so the source that can
+    // be git-ignored is one of those files. articleMovesOf is what reaches a
+    // split's articles, which sit inside `buckets` rather than flat in `articles`.
     //
-    // DECIDED: an absorb carrying a git-ignored file is skipped WHOLE, not per
-    // file. This loop skips per OPERATION, and adding the files to `sources` is
-    // what puts an ignored one inside that unit rather than beside it. Three
-    // reasons it is the right unit. The module's contract for an ignored source
-    // is that it is skipped and reported rather than moved, and per-file skipping
-    // would move the folder's other files, so the ignored file would be left
-    // sitting alone in a folder whose index had just been removed: skipped in
-    // name and stranded in fact. A half-absorbed folder is precisely the failure
-    // the one-entry-per-dissolution accounting exists to prevent, and there is no
-    // partial entry to report it with. And `git mv` on an ignored file hard-fails
-    // with "not under version control", exit 128, so per-file skipping would only
-    // be choosing which way to arrive at that same half-dissolved folder.
+    // DECIDED: an absorb or a split carrying a git-ignored file is skipped WHOLE,
+    // not per file and, for a split, not per bucket. This loop skips per
+    // OPERATION, and adding the files to `sources` is what puts an ignored one
+    // inside that unit rather than beside it. Three reasons it is the right unit.
+    // The module's contract for an ignored source is that it is skipped and
+    // reported rather than moved, and per-file skipping would move the folder's
+    // other files, so the ignored file would be left sitting alone in a folder
+    // whose index had just been removed: skipped in name and stranded in fact. A
+    // half-absorbed folder, or a partition applied to some of its buckets, is
+    // precisely the failure the one-entry-per-operation accounting exists to
+    // prevent, and there is no partial entry to report it with. And `git mv` on an
+    // ignored file hard-fails with "not under version control", exit 128, so
+    // per-file skipping would only be choosing which way to arrive at that same
+    // half-applied folder: measured on a two-bucket split whose second bucket held
+    // an ignored draft, the first bucket's article moved, an empty second bucket
+    // folder was created, and only then did the operation fail.
     //
-    // The cost is that one git-ignored draft in a folder declines the absorb the
+    // The cost is that one git-ignored draft declines the absorb or the split the
     // DM asked for. That is a reported refusal the DM can act on by moving the
     // draft or unignoring it, and it is recoverable; the alternative is not.
-    const sources = [op.from, ...list(op.sources), ...list(op.articles).map((a) => a && a.from)]
+    const sources = [op.from, ...list(op.sources), ...articleMovesOf(op).map((a) => a.from)]
       .filter(Boolean)
       .map(toPosix);
     const ignoredHere = sources.filter((s) => ignoredSources.has(s));
