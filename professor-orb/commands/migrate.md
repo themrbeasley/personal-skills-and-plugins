@@ -195,7 +195,7 @@ structural change.
 - **Never use the executor's own `snapshot` field or its printed restore line in the report.** By the time Step 7 runs it names Step 6's preparation commit, not Step 5's, and either way the DM needs both hashes for the two-revert undo, not the one the executor happens to report.
 - **Never delete a setting's entry from `conventions.json`.** Retiring marks it; deleting destroys the record of a world that existed.
 - **Never create a setting.** Lifecycle operations act on settings that exist.
-- **Never auto-resume an interrupted run.** The per-item accounting makes a partial application diagnosable and the snapshot is the undo; resuming would apply operations against a tree that no longer matches the plan.
+- **Never auto-resume an interrupted run.** The per-item accounting makes a partial application diagnosable, and Step 5's snapshot hash together with Step 6's preparation-commit hash are the undo; resuming would apply operations against a tree that no longer matches the plan.
 - **Never write `.professor-orb/pipeline-state.json`.** This command is outside the session pipeline.
 - **Never push.** `/migrate` commits; pushing is the DM's call.
 
