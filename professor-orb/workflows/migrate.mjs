@@ -2999,36 +2999,69 @@ function planSettingMerges(items, ctx, key) {
     }
 
     const group = groupIdFor(key, i);
-    // PLAN-AWARE occupancy, rather than the raw disk. A destination an earlier
-    // operation in this same plan carries away is free by the time this merge runs,
-    // and one an earlier operation fills is occupied whatever the disk says now.
-    // Getting the second wrong is the expensive direction: the move would be planned
-    // onto an occupied path, findDestinationCollisions would refuse it as an in-plan
-    // collision, and the DM would be unable to apply any part of the plan.
+    // THE PLAN AS IT WILL STAND WHEN THIS ENTRY RUNS, captured once and read by both
+    // halves of the merge. The collision detection and the move loop have to agree
+    // about what is under a prong root, and a list that grew between the two calls
+    // would let them disagree; and neither half sees this entry's OWN operations,
+    // which is the invariant precedingOperations states and relies on.
+    const before = operations.slice();
+    const childCache = new Map();
+    const childrenAt = (rel) => {
+      if (!childCache.has(rel)) childCache.set(rel, prongChildrenAfterPlan(ctx, rel, before));
+      return childCache.get(rel);
+    };
+    // PLAN-AWARE on BOTH sides, rather than a plan-aware destination and a raw-disk
+    // source. A destination an earlier operation in this same plan carries away is
+    // free by the time this merge runs, and one an earlier operation fills is
+    // occupied whatever the disk says now; symmetrically, a source an earlier
+    // operation carries away is gone and one an earlier operation moves in is there.
+    // Getting the destination wrong is expensive: the move would be planned onto an
+    // occupied path, findDestinationCollisions would refuse it as an in-plan
+    // collision, and the DM would be unable to apply any part of the plan. Getting
+    // the SOURCE wrong is worse, because it passes the prechecks: two operations
+    // reading one path apply half way, the first git mv succeeding and the second
+    // failing on a source that is no longer there. See prongChildrenAfterPlan.
     const collisions = mergeCollisions({
       projectRoot: ctx.projectRoot,
       source,
       target,
       suffix: indexSuffixFor(target, ctx.baseRules),
-      occupied: (rel) => namedPathPresent(ctx, rel, "relocate-path", operations),
+      occupied: (rel) => namedPathPresent(ctx, rel, "relocate-path", before),
+      children: childrenAt,
     });
     const collided = new Map(collisions.map((c) => [c.from, c]));
 
     for (const pair of mergeProngPairs(source, target)) {
-      const children = prongChildren(ctx.projectRoot, pair.from);
+      const children = childrenAt(pair.from);
+      // What the disk holds here that the plan does not: a child an operation
+      // earlier in this same plan carries away. Named rather than dropped, because a
+      // DM reading the proposal should learn that this merge did not move it.
+      const carried = prongChildren(ctx.projectRoot, pair.from).filter((n) => !children.includes(n));
       // A prong with nothing under it, which is the ORDINARY state of a world that
       // has not written a homebrew entry or run a session yet, and the state
       // planSettingRenames already declines a prong for rather than treating as an
       // error. Nothing to move and nothing to say about it.
-      if (children.length === 0) continue;
+      if (children.length === 0 && carried.length === 0) continue;
       if (pair.refusal) {
         declined.push({ op: "relocate-path", target: pair.from, reason: pair.refusal });
         continue;
       }
+      for (const name of carried) {
+        declined.push({
+          op: "relocate-path",
+          target: `${pair.from}/${name}`,
+          reason:
+            `An operation earlier in this plan already carries ${pair.from}/${name} away, so this merge does not ` +
+            "move it a second time. Two operations reading one path is a plan whose first move succeeds and whose " +
+            "second fails on a source that is no longer there, which leaves the merge half applied from a plan " +
+            "the prechecks approved. Wherever that earlier operation puts it is where it ends up; if it belongs " +
+            `in ${into} instead, edit that entry rather than this one.`,
+        });
+      }
       for (const name of children) {
         const rel = `${pair.from}/${name}`;
         const collision = collided.get(rel);
-        if (collision && collision.proposed === null) {
+        if (collision && collision.blocked === "index") {
           declined.push({
             op: "relocate-path",
             target: rel,
@@ -3040,19 +3073,37 @@ function planSettingMerges(items, ctx, key) {
           });
           continue;
         }
+        // THE RENAME'S OWN NAME IS TAKEN TOO, so there are three files and no
+        // resolution this function is entitled to pick. Declined, and every one of
+        // the three named, on the same terms as the index case above: the rest of
+        // the merge stays applicable and the DM resolves this one from the proposal.
+        // The alternative, escalating to a machine-invented second suffix, is
+        // rejected in the comment on mergeCollisions.
+        if (collision && collision.blocked === "taken") {
+          declined.push({
+            op: "relocate-path",
+            target: rel,
+            reason:
+              `${into} already holds ${pair.to}/${name}, and ${collision.blockedBy}, the name the incoming one ` +
+              "would be renamed to, is spoken for as well, either on disk or by another move in this plan. Three " +
+              `files, and only you know which of ${into}'s two this one is: a second machine-invented suffix would ` +
+              `say nothing about where the article came from, which is the whole job the -${from} suffix does. ` +
+              "Planning the move onto that name anyway would be a destination collision, and a plan carrying one " +
+              "of those is refused whole rather than one file at a time, so this move is dropped and the rest of " +
+              "the merge stands. Rename one of the two by hand, or edit this proposal, and re-run.",
+          });
+          continue;
+        }
         operations.push({
           op: "relocate-path",
           from: rel,
-          // The destination keeps the child's own name unless that name is taken,
-          // in which case it is the rename the DM is shown below. A proposed name
-          // that is ITSELF taken is deliberately not checked here, on the same terms
-          // planSettingSplits leaves its destinations alone: that is
-          // findDestinationCollisions' question, and it answers with a refusal
-          // naming both paths before anything is approved.
+          // The destination keeps the child's own name unless that name is taken, in
+          // which case it is the rename the DM is shown below, and mergeCollisions
+          // has already established that the rename's own name is free.
           to: collision ? collision.proposed : `${pair.to}/${name}`,
           groups: [group],
           reason: collision
-            ? `Merged from ${from} into ${into}, renamed because ${into} already holds a ${name}.`
+            ? `Merged from ${from} into ${into}, renamed because ${pair.to}/${name} is already spoken for.`
             : `Merged from ${from} into ${into}.`,
         });
       }
@@ -3060,19 +3111,37 @@ function planSettingMerges(items, ctx, key) {
 
     // The collisions themselves, in the proposal, before approval. Each names both
     // sides and the rename that resolves them, because the DM is being asked to
-    // approve a resolution rather than to notice one.
+    // approve a resolution rather than to notice one. The two blocked kinds are not
+    // repeated here: each already has a decline of its own above, naming the move
+    // that was dropped and what to do about it, and one problem gets one row.
+    //
+    // THE WIKILINK CONSEQUENCE IS SPELT OUT HERE rather than left implied, because
+    // this row is the one the DM reads while deciding and the effect is silent
+    // everywhere else. A renamed incoming article's own [[Tavern]] links resolve by
+    // BASENAME, so after the merge they find the target world's Tavern.md, a
+    // different world's article; assertLinkIntegrity resolves by basename too, finds
+    // a live file, and reports clean. A mis-resolved link is quieter than a dead one,
+    // so the proposal is the only place it can be said.
     for (const collision of collisions) {
       if (collision.proposed === null) continue;
       const targetRoot = path.posix.dirname(collision.proposed);
+      const renamed = path.posix.basename(collision.proposed);
+      const stem = collision.basename.toLowerCase().endsWith(".md")
+        ? collision.basename.slice(0, -3)
+        : collision.basename;
       declined.push({
         op: "merge-collision",
         target: `${collision.from} collides with ${targetRoot}/${collision.basename}`,
         reason:
-          `Both worlds hold a ${collision.basename}. The incoming one is renamed to ` +
-          `${path.posix.basename(collision.proposed)}, so the one already at the destination keeps the name every ` +
-          "existing wikilink uses and only the incoming one's links need looking at. Nothing is overwritten and " +
-          "nothing is refused: both are real, and the DM asked for both worlds in one place. Edit this proposal " +
-          "if the other name should move instead, or if neither of these is the name you want.",
+          `${targetRoot}/${collision.basename} is already spoken for by the time this merge runs, so the incoming ` +
+          `${collision.basename} is renamed to ${renamed} and the one at the destination keeps the name every ` +
+          `existing wikilink uses. THE INCOMING ARTICLE'S OWN LINKS CHANGE MEANING: a [[${stem}]] written inside ` +
+          `${from}'s articles resolves by basename, so after this merge it points at ${into}'s ` +
+          `${collision.basename} rather than at the one that moved in beside it. The link-integrity check cannot ` +
+          "see that, because both names resolve to a real file, so read the incoming world's links yourself. " +
+          "Nothing is overwritten and nothing is refused: both are real, and the DM asked for both worlds in one " +
+          "place. Edit this proposal if the other name should move instead, or if neither of these is the name " +
+          "you want.",
       });
     }
   }
@@ -3127,16 +3196,18 @@ function mergeProngPairs(source, target) {
   return out;
 }
 
+// The three names walkMarkdown steps around, stepped around by both enumerators
+// below so they cannot drift apart. .obsidian is the one that earns its place here:
+// the vault lives at <kbRoot>/.obsidian, the target world already has its own, and a
+// world's vault configuration is not part of its lore. It stays behind with the
+// entry that is being marked merged.
+const PRONG_CHILDREN_SKIPPED = new Set([".git", ".obsidian", "node_modules"]);
+
 // The direct children of a prong root, sorted, or [] when the root is not on disk.
 //
 // DIRECT children rather than a recursive walk, because that is the unit a merge
 // moves: a file lands beside the target's own files and a folder lands beside the
 // target's own folders with everything under it intact. See planSettingMerges.
-//
-// The three names walkMarkdown steps around are stepped around here too, and
-// .obsidian is the one that earns its place: the vault lives at <kbRoot>/.obsidian,
-// the target world already has its own, and a world's vault configuration is not
-// part of its lore. It stays behind with the entry that is being marked merged.
 //
 // Read-only: readdirSync and statSync only.
 function prongChildren(projectRoot, rel) {
@@ -3148,12 +3219,70 @@ function prongChildren(projectRoot, rel) {
   }
   const out = [];
   for (const name of names) {
-    if (name === ".git" || name === ".obsidian" || name === "node_modules") continue;
+    if (PRONG_CHILDREN_SKIPPED.has(name)) continue;
     try {
       statSync(path.resolve(projectRoot, `${rel}/${name}`));
     } catch {
       continue;
     }
+    out.push(name);
+  }
+  return out;
+}
+
+// The direct children a prong root will hold BY THE TIME this merge runs, rather
+// than the ones the disk holds now.
+//
+// THE SAME QUESTION THE DESTINATION SIDE ASKS. planSettingMerges has routed its
+// destination checks through namedPathPresent since it was written, which reasons
+// about the tree as the plan will leave it; a source side reading the raw disk is an
+// asymmetry, and both directions of it were measured:
+//
+//   A pathMoves entry (rank 1, registered first, so it runs first) that carries an
+//   article out of the source world. The disk still shows the article, so the merge
+//   plans a second move reading the same path. prechecks.ok comes back true, because
+//   findDestinationCollisions ranks DESTINATIONS and these two differ, and at apply
+//   the first git mv succeeds and the second fails on a source that is no longer
+//   there. applyPlan records the failure and keeps going: a half-applied merge from
+//   a plan the prechecks approved, which is the posture at namedPathSatisfies ("a
+//   plan that cannot execute is worse than no plan") not being honoured.
+//
+//   Chained merges in one scope, karsk into rolara and rolara into dunn. rolara's
+//   children off the disk are the ones it has today, so karsk's material lands under
+//   settings/rolara and the same run marks rolara merged into dunn: stranded under a
+//   world conventions.json has just stopped treating as live, which is the harm the
+//   whole operation exists to prevent.
+//
+// BOTH DIRECTIONS, therefore, because the two cases need opposite halves. The disk
+// half rewinds the ROOT through planResolve first, so a prong an earlier operation
+// relocates is still enumerated, from wherever its contents actually sit today. The
+// plan half adds the names earlier operations put directly under this root. Then
+// every candidate, from either half, is put through namedPathPresent, which is what
+// drops the ones an earlier operation carries away and what keeps a planted name
+// whose own source is missing from being planned on.
+//
+// DIRECT children only, on the plan half as on the disk half, because that is the
+// unit a merge moves. An earlier operation that moves a whole folder ONTO a prong
+// root is covered by the rewind rather than by this list; one that moves a folder to
+// a path DEEPER than a direct child contributes its top-level component through the
+// rewind for the same reason.
+//
+// Read-only: readdirSync and statSync only, through prongChildren and planResolve.
+function prongChildrenAfterPlan(ctx, rel, pending) {
+  const names = new Set();
+  const at = planResolve(ctx, rel, "relocate-path", pending);
+  if (at.path) for (const name of prongChildren(ctx.projectRoot, at.path)) names.add(name);
+  for (const o of precedingOperations(ctx, "relocate-path", pending)) {
+    for (const e of destinationEntriesOf(o)) {
+      const to = toPosix(e.to);
+      if (!to || path.posix.dirname(to) !== rel) continue;
+      names.add(path.posix.basename(to));
+    }
+  }
+  const out = [];
+  for (const name of [...names].sort()) {
+    if (PRONG_CHILDREN_SKIPPED.has(name)) continue;
+    if (!namedPathPresent(ctx, `${rel}/${name}`, "relocate-path", pending)) continue;
     out.push(name);
   }
   return out;
@@ -3188,16 +3317,36 @@ function disambiguatedName(name, label) {
 // keys it on; a world named karsk whose knowledge base sits at worlds/k2 would
 // otherwise be suffixed -k2.
 //
-// AN INDEX COLLIDING WITH AN INDEX comes back with `proposed: null`. That is a
-// merge-index job, not a rename: two indexes claiming one folder is the multi-index
-// violation the validation sweep reports, and suffixing the stem would push -INDEX
-// off the end of it and turn the file into an article besides. The caller declines
-// the move rather than planning it.
+// A COLLISION NO RENAME RESOLVES comes back with `proposed: null` and a `blocked`
+// saying which of the two it is, so the caller can decline the move rather than plan
+// one that cannot execute.
 //
-// `occupied` is how a caller asks the question plan-aware. The default asks the disk
-// directly, which is right for a caller with no plan in hand; planSettingMerges
-// passes namedPathPresent, so a destination an earlier operation carries away is
-// free and one an earlier operation fills is taken.
+//   "index"  An index colliding with an index. That is a merge-index job, not a
+//            rename: two indexes claiming one folder is the multi-index violation
+//            the validation sweep reports, and suffixing the stem would push -INDEX
+//            off the end of it and turn the file into an article besides.
+//
+//   "taken"  The proposed rename's own name is spoken for too, named in `blockedBy`.
+//            DECLINED RATHER THAN ESCALATED, deliberately. A target world holding
+//            both Tavern.md and Tavern-karsk.md is the ordinary shape for a DM who
+//            once hand-copied one article across, or who suffixes by world already,
+//            and the whole job the -karsk suffix does is say WHICH WORLD the article
+//            came from. A machine-invented Tavern-karsk-2.md says nothing at all:
+//            the DM cannot tell the two apart without opening both, and the file
+//            already at that name is most likely this same article, copied over by
+//            hand, which is a judgment only they can make. Planning the move anyway
+//            is worse than either: findDestinationCollisions would refuse it, and
+//            applyPlan refuses a plan with any collision OUTRIGHT, so one taken
+//            rename would block every unrelated move in the migration. So this
+//            follows the index case exactly, which is this function's own precedent
+//            for a collision it is not entitled to resolve: drop the one move, name
+//            all three files, leave the rest of the merge applicable.
+//
+// `occupied` is how a caller asks the destination question plan-aware, and `children`
+// the source question. Both default to the raw disk, which is right for a caller with
+// no plan in hand; planSettingMerges passes namedPathPresent and
+// prongChildrenAfterPlan, so the two halves of one merge reason about the tree as the
+// plan will leave it rather than as it is now, and cannot disagree about it.
 //
 // UNDETERMINED READS AS EMPTY, the same posture namedPathMissing takes: a source
 // setting with no name, or roots that are not on disk, finds nothing and returns
@@ -3205,7 +3354,7 @@ function disambiguatedName(name, label) {
 // mean.
 //
 // Read-only: readdirSync and statSync only.
-export function mergeCollisions({ projectRoot, source, target, suffix, occupied }) {
+export function mergeCollisions({ projectRoot, source, target, suffix, occupied, children }) {
   const label = String((source && source.name) || "");
   if (!label) return [];
   const taken =
@@ -3219,19 +3368,37 @@ export function mergeCollisions({ projectRoot, source, target, suffix, occupied 
             return false;
           }
         };
+  const childrenAt = typeof children === "function" ? children : (rel) => prongChildren(projectRoot, rel);
 
   const out = [];
+  // The destinations THIS merge has already spoken for. `taken` cannot see them: the
+  // plan-aware caller asks about the operations produced before this scope entry, and
+  // this entry's own moves are deliberately not among them, because no planner shows
+  // a check its own item's operations (see precedingOperations). Without this, a
+  // source world holding both Tavern.md and Tavern-karsk.md against a target holding
+  // Tavern.md sends two moves to one destination, and two operations targeting one
+  // path is refused by findDestinationCollisions, which refuses the whole migration.
+  const claimed = new Set();
   for (const pair of mergeProngPairs(source, target)) {
     if (pair.refusal) continue;
-    for (const name of prongChildren(projectRoot, pair.from)) {
-      if (!taken(`${pair.to}/${name}`)) continue;
+    for (const name of childrenAt(pair.from)) {
+      const dest = `${pair.to}/${name}`;
+      if (!taken(dest) && !claimed.has(dest)) {
+        claimed.add(dest);
+        continue;
+      }
       const isIndex =
         Boolean(suffix) && name.toLowerCase().endsWith(".md") && name.slice(0, -3).endsWith(suffix);
+      const wanted = `${pair.to}/${disambiguatedName(name, label)}`;
+      const blockedByTaken = !isIndex && (taken(wanted) || claimed.has(wanted));
+      if (!isIndex && !blockedByTaken) claimed.add(wanted);
       out.push({
         field: pair.field,
         from: `${pair.from}/${name}`,
         basename: name,
-        proposed: isIndex ? null : `${pair.to}/${disambiguatedName(name, label)}`,
+        proposed: isIndex || blockedByTaken ? null : wanted,
+        blocked: isIndex ? "index" : blockedByTaken ? "taken" : null,
+        blockedBy: blockedByTaken ? wanted : null,
       });
     }
   }

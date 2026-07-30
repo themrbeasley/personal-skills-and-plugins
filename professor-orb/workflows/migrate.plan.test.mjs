@@ -3748,6 +3748,17 @@ const MERGE_KARSK = { settingMerges: [{ from: "karsk", into: "rolara" }] };
     [/Tavern-karsk\.md/.test(String(obj(r.declined[0]).reason)),
      /every existing wikilink uses/.test(String(obj(r.declined[0]).reason))],
     [true, true]);
+  // THE MERGE'S LARGEST SILENT EFFECT, said out loud in the row the DM actually
+  // reads while deciding. Once Tavern.md becomes Tavern-karsk.md, a [[Tavern]]
+  // written inside karsk's own articles resolves BY BASENAME to rolara's Tavern.md,
+  // a different world's article. assertLinkIntegrity resolves by basename too, finds
+  // a live file, and reports clean, so a mis-resolved link is quieter than a dead
+  // one and this row is the only place it can be said.
+  check("and it says plainly that the incoming article's own links now point at the other world's",
+    [/\[\[Tavern\]\]/.test(String(obj(r.declined[0]).reason)),
+     /CHANGE MEANING/.test(String(obj(r.declined[0]).reason)),
+     /link-integrity check cannot see that/.test(String(obj(r.declined[0]).reason))],
+    [true, true, true]);
   // ONE group id for every move the entry emits, and here it is load-bearing rather
   // than tidy: conventionsAfterScope marks the source world merged off this same
   // entry, and half a world moved while the entry says it was merged leaves the
@@ -3837,6 +3848,125 @@ const MERGE_KARSK = { settingMerges: [{ from: "karsk", into: "rolara" }] };
         .map((pair) => JSON.stringify(pair))
     ),
     ["[true,true]"]);
+  rmSync(root, { recursive: true, force: true, maxRetries: 5 });
+}
+
+{
+  // A PROPOSED RENAME THAT IS ITSELF ALREADY TAKEN. rolara holds Tavern.md and
+  // Tavern-karsk.md both, which is the ordinary shape for a DM who once hand-copied
+  // one article across, or who suffixes articles by world already. The rename this
+  // merge would otherwise propose lands on the second one, and a plan that writes
+  // onto an occupied path is a plan applyPlan refuses OUTRIGHT: the unrelated
+  // Emberhold move would die with it and the DM would get no merge at all, over a
+  // collision the proposal simultaneously promised to resolve.
+  const root = mergeFixture();
+  writeAt(root, "settings/rolara/Tavern-karsk.md", "---\ntype: Location\n---\n\nHand-copied years ago.\n");
+  const r = mergeScoped(MERGE_KARSK, root);
+  check("a rename onto a name that is itself taken leaves the plan executable", r.prechecks.ok, true);
+  check("and the moves that had nothing to do with the collision still happen",
+    r.operations.filter((o) => String(o.from).startsWith("settings/karsk/")).map((o) => [o.from, o.to]),
+    [["settings/karsk/Emberhold.md", "settings/rolara/Emberhold.md"]]);
+  check("nothing is planned onto the name that was already occupied",
+    r.operations.some((o) => String(o.to) === "settings/rolara/Tavern-karsk.md"), false);
+  // ALL THREE FILES NAMED IN ONE ROW, because the DM is the only one who can say
+  // which of rolara's two Taverns this one is. A machine-invented Tavern-karsk-2.md
+  // would carry no information at all: the whole point of the -karsk suffix is that
+  // it says which world the article came from, and a second one cannot say it.
+  const row = r.declined.find((d) => d.op === "relocate-path" && d.target === "settings/karsk/Tavern.md") || {};
+  check("and one decline names all three files, so the DM resolves it from the proposal",
+    [/settings\/rolara\/Tavern\.md/.test(String(row.reason)),
+     /settings\/rolara\/Tavern-karsk\.md/.test(String(row.reason))],
+    [true, true]);
+  rmSync(root, { recursive: true, force: true, maxRetries: 5 });
+}
+
+{
+  // THE SAME COLLISION FROM THE OTHER SIDE: the name the rename wants is one THIS
+  // MERGE is about to fill. karsk holds Tavern.md and Tavern-karsk.md both, rolara
+  // holds Tavern.md, and the second of karsk's two moves in unrenamed onto exactly
+  // the name the first one's rename wants. The occupancy check cannot see it, by
+  // design (no planner shows a check its own item's operations), so mergeCollisions
+  // tracks what this merge has already spoken for. Two operations targeting one path
+  // is refused as an in-plan collision, and applyPlan refuses a plan carrying one
+  // whole, so this is the same unapplicable migration by a shorter route.
+  const root = mergeFixture();
+  writeAt(root, "settings/karsk/Tavern-karsk.md", "---\ntype: Location\n---\n\nAlready suffixed by hand.\n");
+  const r = mergeScoped(MERGE_KARSK, root);
+  const tos = r.operations.map((o) => String(o.to));
+  check("no two operations in the plan target the same destination", tos.length, new Set(tos).size);
+  check("and the plan is still executable", r.prechecks.ok, true);
+  check("the article whose rename has nowhere to go is the one dropped",
+    [r.operations.filter((o) => /^settings\/karsk\//.test(String(o.from))).map((o) => o.from),
+     r.declined.filter((d) => d.op === "relocate-path").map((d) => d.target)],
+    [["settings/karsk/Emberhold.md", "settings/karsk/Tavern-karsk.md"], ["settings/karsk/Tavern.md"]]);
+  rmSync(root, { recursive: true, force: true, maxRetries: 5 });
+}
+
+{
+  // A pathMoves ENTRY THAT CARRIES A MERGE SOURCE AWAY. pathMoves is declared at
+  // rank 1 and registered first, so it runs before this merge does. Enumerating the
+  // source prong off the RAW DISK plans a second move reading a path the first one
+  // has already taken: two operations, one source, prechecks clean, and at apply the
+  // first git mv succeeds and the second fails on a source that is no longer there,
+  // which applyPlan records and keeps going. That is a half-applied merge from a
+  // plan the prechecks approved.
+  const root = mergeFixture();
+  const r = mergeScoped(
+    {
+      pathMoves: [{ from: "settings/karsk/Emberhold.md", to: "settings/rolara/Emberhold.md" }],
+      settingMerges: [{ from: "karsk", into: "rolara" }],
+    },
+    root
+  );
+  const froms = r.operations.map((o) => String(o.from));
+  check("no two operations in the plan read the same source", froms.length, new Set(froms).size);
+  check("the merge does not re-plan a move an earlier operation already makes",
+    r.operations.filter((o) => String(o.from) === "settings/karsk/Emberhold.md").map((o) => o.to),
+    ["settings/rolara/Emberhold.md"]);
+  check("and the path the earlier operation carries away is declined by name",
+    (r.declined.find((d) => d.op === "relocate-path" && d.target === "settings/karsk/Emberhold.md") || {}).op,
+    "relocate-path");
+  check("the rest of the merge is unaffected and the plan still executes",
+    [r.operations.filter((o) => /^settings\/karsk\//.test(String(o.from))).map((o) => o.from), r.prechecks.ok],
+    [["settings/karsk/Emberhold.md", "settings/karsk/Tavern.md"], true]);
+  rmSync(root, { recursive: true, force: true, maxRetries: 5 });
+}
+
+{
+  // CHAINED MERGES IN ONE SCOPE. karsk into rolara, then rolara into dunn. Reading
+  // the raw disk for rolara's children finds R.md and not K.md, so K.md lands under
+  // settings/rolara and the SAME RUN marks rolara merged into dunn: the first
+  // merge's material is stranded under a world conventions.json has just stopped
+  // treating as live, which is the exact harm the merge exists to prevent, reached
+  // through a two-entry scope instead of a one-prong walk.
+  const root = mkdtempSync(path.join(os.tmpdir(), "orb-setchain-"));
+  writeAt(root, "settings/karsk/K.md", "---\ntype: Location\n---\n\nBody.\n");
+  writeAt(root, "settings/rolara/R.md", "---\ntype: Location\n---\n\nBody.\n");
+  writeAt(root, "settings/dunn/D.md", "---\ntype: Location\n---\n\nBody.\n");
+  const chain = [
+    { name: "karsk", kbRoot: "settings/karsk" },
+    { name: "rolara", kbRoot: "settings/rolara" },
+    { name: "dunn", kbRoot: "settings/dunn" },
+  ];
+  const r = buildScopedPlan({
+    projectRoot: root,
+    settings: chain,
+    baseRules: BASE_RULES,
+    scope: {
+      settingMerges: [
+        { from: "karsk", into: "rolara" },
+        { from: "rolara", into: "dunn" },
+      ],
+    },
+  });
+  check("a chained merge leaves nothing under a world the same run marks merged",
+    r.operations.map((o) => [o.from, o.to]),
+    [
+      ["settings/karsk/K.md", "settings/rolara/K.md"],
+      ["settings/rolara/K.md", "settings/dunn/K.md"],
+      ["settings/rolara/R.md", "settings/dunn/R.md"],
+    ]);
+  check("and the chain can execute as written", r.prechecks.ok, true);
   rmSync(root, { recursive: true, force: true, maxRetries: 5 });
 }
 
