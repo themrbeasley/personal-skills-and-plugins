@@ -1027,6 +1027,14 @@ export const SCOPED_PLANNERS = [
   ["settingRenames", planSettingRenames, "relocate-prong"],
   ["settingRetirements", planSettingRetirements, "relocate-prong"],
   ["campaignRetirements", planCampaignRetirements, "relocate-path"],
+  // settingSplits emits relocate-path (rank 1) and nothing else, so that kind
+  // governs: the crossings it also produces are DECLINED items rather than
+  // operations, and declined items carry no rank because nothing applies them.
+  // A third entry at rank 1, tying with pathMoves and campaignRetirements, and
+  // sound for the reason the two rank-0 entries above are: same-rank operations
+  // run in the order they were produced, so whichever planner runs first is also
+  // the one whose operations run first.
+  ["settingSplits", planSettingSplits, "relocate-path"],
 ];
 
 const applyRank = (kind) => APPLY_ORDER.indexOf(kind);
@@ -2613,6 +2621,249 @@ function planCampaignRetirements(items, ctx, key) {
   return { operations, declined };
 }
 
+// A setting split: a second world made out of part of an existing one.
+//
+// The operations themselves are ordinary path moves. What makes this the hard one
+// is the COST, and where the cost is put. Wikilink resolution is per setting, so
+// every article that moves takes its incoming and its outgoing links across a
+// boundary they cannot cross, and that is the whole operation rather than a
+// detail of it. It is enumerated here and pushed into `declined`, which
+// renderProposal prints under its Declined section, so the DM reads it while
+// deciding rather than learning it from the report once it has happened.
+//
+// NOTHING REPAIRS THEM. Each crossing is named and left exactly as it is. The
+// article's text is the DM's, and rewriting it under a structural approval would
+// be chronicler's work done without chronicler's gate.
+//
+// ONE group id for every move the entry emits, and here that is load-bearing
+// rather than tidy. The cost the DM approved was computed from the set that
+// moves, and a link between two articles that BOTH move was excluded from it;
+// leave one of those two behind and that link becomes a crossing nobody was
+// shown. So a split moves all of its articles or none of them.
+//
+// The settings ENTRY for the new world is not created here. See
+// conventionsAfterScope, which creates it from what actually applied.
+function planSettingSplits(items, ctx, key) {
+  const operations = [];
+  const declined = [];
+  for (const [i, item] of items.entries()) {
+    const from = String((item && item.from) || "");
+    const name = String((item && item.name) || "");
+    const kbRoot = toPosix(item && item.kbRoot);
+    const source = settingNamed(ctx.settings, from);
+    if (!source || !name || !kbRoot) {
+      declined.push({
+        op: "relocate-path",
+        target: from || name || "(unnamed)",
+        reason:
+          "A split needs an existing source setting, a name for the world it creates, and the kbRoot that world's " +
+          "knowledge base will live at. Splitting out of a setting conventions.json does not record would move " +
+          "articles the file still points elsewhere, which is how a knowledge base ends up half-described.",
+      });
+      continue;
+    }
+    // A name already in use. conventionsAfterScope keeps ONE entry per name and
+    // refuses to add a second, so planning the moves anyway would carry the
+    // articles across and leave the world they landed in unrecorded: unattributed
+    // to the validation sweep, unresolvable to /scribe and /log. Both halves
+    // decline on the same condition rather than one planning what the other
+    // cannot record.
+    if (settingNamed(ctx.settings, name)) {
+      declined.push({
+        op: "relocate-path",
+        target: name,
+        reason:
+          `conventions.json already records a setting called ${name}, and it records one entry per name, so no entry ` +
+          "could be added for the world this split creates. Give it a name of its own, or move the articles with " +
+          "pathMoves if the destination is meant to be the setting that already exists.",
+      });
+      continue;
+    }
+    const stay = toPosix(source.kbRoot);
+    if (!stay) {
+      declined.push({
+        op: "relocate-path",
+        target: from,
+        reason:
+          `${from} records no kbRoot, so there is no knowledge base to divide and no root to enumerate the boundary ` +
+          "crossings from. The cost of a split is the links it breaks, and a split whose cost cannot be measured is " +
+          "not one to approve.",
+      });
+      continue;
+    }
+    if (kbRoot === stay || kbRoot.startsWith(`${stay}/`) || stay.startsWith(`${kbRoot}/`)) {
+      declined.push({
+        op: "relocate-path",
+        target: kbRoot,
+        reason:
+          `${kbRoot} and ${from}'s own kbRoot at ${stay} are ${kbRoot === stay ? "the same path" : "one inside the other"}. ` +
+          "Two knowledge bases nested that way leave every article under the inner one claimed by both settings, and " +
+          "identical roots would move each file onto itself.",
+      });
+      continue;
+    }
+
+    const group = groupIdFor(key, i);
+    const moving = [];
+    for (const file of list(item.files).map(toPosix).filter(Boolean)) {
+      // Outside the world being divided. crossBoundaryLinks walks the SOURCE
+      // setting's kbRoot, so a file from anywhere else would move with its own
+      // outgoing links uncounted, which understates the cost in the proposal the
+      // DM approves on. Understating it is the one direction of error this whole
+      // operation exists to avoid.
+      if (!file.startsWith(`${stay}/`)) {
+        declined.push({
+          op: "relocate-path",
+          target: file,
+          reason:
+            `${file} is not a path inside ${from}'s knowledge base at ${stay}. A split divides one setting's own ` +
+            "material, and the links a file outside that root carries are not enumerated by the walk below, so moving " +
+            "it would cost the DM crossings the proposal never showed them.",
+        });
+        continue;
+      }
+      // The source is a path the DM typed and this planner never enumerates it,
+      // so nothing else proves it is there. `to` is deliberately NOT checked: a
+      // destination that already exists is findDestinationCollisions's question,
+      // and the answer there is the opposite one.
+      if (namedPathMissing(ctx, file, "relocate-path", operations)) {
+        declined.push({
+          op: "relocate-path",
+          target: file,
+          reason:
+            `Nothing is at ${file} by the time this operation would run, so there is nothing to move. Check that path ` +
+            "for a typo: a scope naming a file that is not there plans cleanly and then fails after the snapshot, and " +
+            "every link into the article that IS at that filename would have been reported as a crossing that never " +
+            "happens.",
+        });
+        continue;
+      }
+      moving.push(file);
+      operations.push({
+        op: "relocate-path",
+        from: file,
+        // FLAT, by basename, rather than keeping the subfolder the article sat in.
+        // The new world's shape is the DM's to decide and this operation does not
+        // guess at it; a folder they want kept is a pathMoves entry in the same
+        // scope, which runs at this same rank. Two articles with one basename
+        // therefore aim at one destination, which findDestinationCollisions refuses
+        // as an in-plan collision, naming both, before the DM is asked to approve.
+        to: `${kbRoot}/${path.posix.basename(file)}`,
+        groups: [group],
+        reason: `Split out of ${from} into ${name}.`,
+      });
+    }
+
+    // Computed from the files that will ACTUALLY move rather than from the ones
+    // the scope named. A file declined above stays exactly where it is, and
+    // counting its links would report a crossing that never happens.
+    for (const link of crossBoundaryLinks({
+      projectRoot: ctx.projectRoot,
+      movingFiles: moving,
+      stayingRoot: stay,
+    })) {
+      declined.push({
+        op: "cross-boundary-link",
+        target: `${link.file} -> [[${link.target}]]`,
+        reason:
+          link.direction === "outgoing"
+            ? `This article is moving to ${name} and links to [[${link.target}]], which stays in ${from}. Wikilinks ` +
+              "resolve per setting, so the link stops resolving once the boundary is between them. Nothing here fixes " +
+              "it: the article's text is the DM's to change if they want it changed."
+            : `This article stays in ${from} and links to [[${link.target}]], which is moving to ${name}. The link ` +
+              "stops resolving for the same reason, and is likewise left exactly as it is.",
+      });
+    }
+  }
+  return { operations, declined };
+}
+
+// Every wikilink that will stop resolving when movingFiles leave stayingRoot.
+//
+// Wikilink resolution is per setting, which is what makes this the whole cost of
+// a split rather than a detail of it. TWO DIRECTIONS, both of which break and
+// each of which the DM has to see:
+//
+//   outgoing  a moving article links to one that stays.
+//   incoming  an article that stays links to one that moves.
+//
+// A link between two articles that BOTH move crosses nothing and is excluded.
+// Counting it would inflate the cost and make a clean split look expensive, which
+// is the direction that talks a DM out of a migration that was fine.
+//
+// RESOLVED THE WAY assertLinkIntegrity RESOLVES, through dissectTarget, because
+// this is that function's question asked one phase earlier: which links will be
+// dead. wikilinkTargetsIn returns the target as WRITTEN rather than a bare stem,
+// so [[Karsk]], [[Karsk.md]], [[notes/Karsk]] and [[Karsk#Trade]] all arrive
+// different and all name one article; splitWikilink has already dropped the
+// display half. A target dissecting to an EMPTY stem is a link into the file's own
+// headings and a target carrying a non-.md extension is an attachment, and neither
+// is a link to an article. Fenced blocks and code spans are not link-bearing text
+// at all, which wikilinkTargetsIn already handles, on the same terms the rewriter
+// and the rail leave a quoted example alone.
+//
+// `target` is reported AS WRITTEN rather than as the stem it resolved to, because
+// the declined row is what the DM will search their own file for.
+//
+// UNDETERMINED READS AS EMPTY. An unreadable or unnamed stayingRoot finds nothing
+// and returns nothing, the same posture namedPathMissing takes when it cannot
+// answer; every /migrate run has a project root on disk. Stated so that a caller
+// reading zero crossings knows what else that can mean.
+//
+// Read-only: readdirSync, readFileSync, statSync only.
+export function crossBoundaryLinks({ projectRoot, movingFiles, stayingRoot }) {
+  const root = toPosix(stayingRoot);
+  // Not the whole project. path.resolve(projectRoot, "") is projectRoot itself,
+  // so an empty root would walk every setting the DM has.
+  if (!root) return [];
+  const moving = new Set(list(movingFiles).map(toPosix).filter(Boolean));
+  const movingStems = new Set([...moving].map((f) => stemOf(f).toLowerCase()));
+  const out = [];
+
+  const walk = (rel) => {
+    let names;
+    try {
+      names = readdirSync(path.resolve(projectRoot, rel)).sort();
+    } catch {
+      return;
+    }
+    for (const name of names) {
+      const childRel = `${rel}/${name}`;
+      let st;
+      try {
+        st = statSync(path.resolve(projectRoot, childRel));
+      } catch {
+        continue;
+      }
+      if (st.isDirectory()) {
+        walk(childRel);
+        continue;
+      }
+      if (!name.toLowerCase().endsWith(".md")) continue;
+      let text;
+      try {
+        text = readFileSync(path.resolve(projectRoot, childRel), "utf8");
+      } catch {
+        continue;
+      }
+      const isMoving = moving.has(childRel);
+      for (const target of wikilinkTargetsIn(text)) {
+        const { stem, ext } = dissectTarget(target);
+        const trimmed = stem.trim();
+        if (trimmed === "") continue;
+        if (ext !== "" && ext.toLowerCase() !== ".md") continue;
+        const targetMoves = movingStems.has(trimmed.toLowerCase());
+        if (isMoving && !targetMoves) out.push({ file: childRel, target, direction: "outgoing" });
+        else if (!isMoving && targetMoves) out.push({ file: childRel, target, direction: "incoming" });
+        // Both moving, or neither moving: nothing crosses.
+      }
+    }
+  };
+
+  walk(root);
+  return out;
+}
+
 // The type values a retype scope introduces, deduplicated and in first-seen
 // order. Task 10's conventions updater folds these into the base type enum's
 // extendedBy, so an article retyped to a value the enum does not carry does not
@@ -3361,18 +3612,83 @@ export function conventionsAfterScope(conventions, scope, applied) {
     );
   }
 
-  // Tasks 13 and 14 add the remaining setting-lifecycle cases here. Task 13 adds
-  // a setting split, which adds a settings entry. Task 14 adds a setting merge,
-  // which removes one. Task 15 does not touch this function.
-  //
-  // BOTH GO INSIDE THE GATE, on the same two lines the three cases above use: a
-  // `gate && !gate.ran(groupIdFor(<key>, i))` skip at the top of the entry, and
-  // repointProngs rather than a hand-written loop for anything that moves. A merge
-  // has the higher stakes of the two, because the settings entry it removes cannot
-  // be recovered from the conventions file afterwards, so a merge whose moves were
-  // declined must remove nothing at all. Retypes stay OUTSIDE the gate, above,
-  // because extending the type enum records the values the scope introduced rather
-  // than a folder that moved.
+  // A split ADDS an entry, for the world it made out of part of another one.
+  for (const [i, item] of list(s.settingSplits).entries()) {
+    const source = settingNamed(next.settings, item && item.from);
+    const name = String((item && item.name) || "");
+    const kbRoot = toPosix(item && item.kbRoot);
+    // The same conditions planSettingSplits declines on, so this half cannot
+    // record a split the plan half refused to plan.
+    if (!source || !name || !kbRoot) continue;
+    // NOTHING LANDED IN THE FOLDER THIS ENTRY WOULD RECORD, so nothing about it
+    // is recorded. repointProngs is no help here: it repoints roots a setting
+    // ALREADY records, and this case has no such root to key on. What backs the
+    // new entry instead is an applied operation of this entry's own group whose
+    // destination is inside the kbRoot about to be written down, which satisfies
+    // both halves of the rule at appliedGate: at least one operation carrying the
+    // group applied, and the one path recorded here is a path an applied
+    // operation demonstrably put something at. An entry recorded for a kbRoot
+    // nothing reached names a folder that is not there, which makes /scribe
+    // refuse to resolve its lane and the sweep report every article under it as
+    // unattributed, and none of that announces itself as a conventions problem.
+    if (gate && !gate.placedUnder(groupIdFor("settingSplits", i), kbRoot)) continue;
+    // ONE ENTRY PER NAME. planSettingSplits declines this scope, so the ordinary
+    // path never reaches here; what does reach it is a proposal file the DM edited
+    // to add the moves back, which is exactly the case that must not end with two
+    // entries under one name and settingNamed resolving to whichever came first.
+    // Reported rather than silent, because the articles did move.
+    if (settingNamed(next.settings, name)) {
+      changes.push(
+        `conventions.json already records a setting called ${name}, so no entry was added for the world this split ` +
+          "creates. The articles it moved belong to no setting until one is added: give the new setting a name of " +
+          "its own and re-run."
+      );
+      continue;
+    }
+    next.settings.push({
+      name,
+      kbRoot,
+      // The two prongs no operation touches. A world with no homebrew folder and
+      // no session reports yet is the ordinary state of a setting that has just
+      // been created, and it is the state planSettingRenames already declines a
+      // prong for rather than treating as an error; recording the canonical
+      // sibling paths is what lets /log and /homebrew resolve a lane the first
+      // time the DM writes into one. Taken through prongFolderFor so this cannot
+      // drift from the layout the retirements build their archive paths out of.
+      homebrewRoot: toPosix(item && item.homebrewRoot) || `${prongFolderFor("homebrewRoot")}/${name}`,
+      sessionReportsRoot:
+        toPosix(item && item.sessionReportsRoot) || `${prongFolderFor("sessionReportsRoot")}/${name}`,
+      // Empty rather than inherited. A campaign is a lane /log commits against,
+      // and it lives in exactly one world; copying the source's list would offer
+      // the DM lanes whose session reports are in the other setting entirely.
+      campaigns: [],
+      // A derived inventory the validation sweep regenerates at whatever path
+      // this file names, so the canonical name for a new setting is the whole of
+      // what is needed here. Not derived from the source's path: that one may sit
+      // anywhere, and a rewrite that failed to change it would hand two settings
+      // one registry.
+      tagRegistryPath: `.professor-orb/tag-registry.${name}.json`,
+      // THE SOURCE SETTING'S RULES, not an empty set. A split divides ONE world's
+      // material, and the extras layer that world accumulated describes the
+      // articles on both sides of the division; an empty set would leave every
+      // article that moved unchecked by the rules it was written under. Deep
+      // copied, so a later edit to either setting does not silently change the
+      // other.
+      rules: JSON.parse(JSON.stringify(source.rules || {})),
+    });
+    changes.push(
+      `Added a settings entry for ${name} at ${kbRoot}, carrying ${source.name}'s rules, with an empty campaign ` +
+        `list. ${source.name} keeps its own entry unchanged: a split divides a world's material, it does not ` +
+        "retire the world."
+    );
+  }
+
+  // Task 14 adds the setting merge here, which REMOVES an entry. It goes inside
+  // the gate too, and it has the higher stakes of the two, because the settings
+  // entry it removes cannot be recovered from the conventions file afterwards, so
+  // a merge whose moves were declined must remove nothing at all. Retypes stay
+  // OUTSIDE the gate, above, because extending the type enum records the values
+  // the scope introduced rather than a folder that moved.
 
   return { conventions: next, changes };
 }
@@ -3419,6 +3735,13 @@ export function conventionsAfterScope(conventions, scope, applied) {
 // campaign folder. tagRegistryPath is not one of them and is argued where it is
 // written, in the rename case above.
 //
+// A CREATED root is the one shape rule 2 cannot be read off literally, because there
+// is no recorded path to repoint: the split records a kbRoot for the first time. The
+// rule still decides it, in the same terms. What an applied operation demonstrates
+// there is not that a path moved but that a path was FILLED, so the entry is created
+// only when an applied operation of its group landed a file inside the root about to
+// be recorded. That is placedUnder below.
+//
 // TOLERANT of a shape it did not produce, on the same asymmetry the rest of this
 // module runs on. A non-array (omitted, null, a caller that has no applied list)
 // yields null and every case records what the scope asked for, which is what this
@@ -3429,6 +3752,7 @@ function appliedGate(applied) {
   if (!Array.isArray(applied)) return null;
   const ran = new Set();
   const moved = new Map();
+  const into = new Map();
   for (const entry of applied) {
     // `result.applied` holds only operations that applied, but a caller handing
     // over a wider list must not have its failures read as successes.
@@ -3440,21 +3764,38 @@ function appliedGate(applied) {
       // Keyed on the group AND the source path: two entries can move two roots,
       // and a rename that moved one setting's kbRoot says nothing about another's.
       if (from && to) moved.set(`${id}\n${from}`, to);
+      if (to) into.set(id, [...list(into.get(id)), to]);
     }
   }
   return {
     ran: (id) => ran.has(id),
     movedFrom: (id, from) => moved.get(`${id}\n${toPosix(from || "")}`) || null,
+    // Whether this entry actually put something INSIDE a folder, which is the
+    // question a case that CREATES a recorded root has to ask. The two accessors
+    // above both start from a path the file already records; a split records a
+    // root for the first time and has no such path, so what backs it is that an
+    // applied operation of its own group landed a file under that root. See the
+    // split case in conventionsAfterScope.
+    placedUnder: (id, root) => {
+      const prefix = toPosix(root);
+      if (!prefix) return false;
+      return list(into.get(id)).some((to) => to.startsWith(`${prefix}/`));
+    },
   };
 }
 
 // Repoint the prong roots one lifecycle entry moves, and report what it did.
 //
-// Shared by the rename and the retirement, and by the split and merge Tasks 13 and
-// 14 add, so all of them read the applied set the same way rather than each
-// inventing a rule. `destinationFor` is consulted only when there is no gate, which
-// is the "assume the whole scope ran" path; with a gate the destination comes from
-// the operation that actually ran.
+// Shared by the rename and the retirement, and by the merge Task 14 adds, so all of
+// them read the applied set the same way rather than each inventing a rule.
+// `destinationFor` is consulted only when there is no gate, which is the "assume
+// the whole scope ran" path; with a gate the destination comes from the operation
+// that actually ran.
+//
+// NOT BY THE SPLIT, which has nothing here to key on: every root this walks is one
+// the setting ALREADY records, and a split creates its entry rather than repointing
+// one. It gates on gate.placedUnder instead, which asks the same question of an
+// applied operation's destination; see the split case above.
 //
 // Mutates the `setting` it is handed, which is already a deep clone of the caller's
 // file. conventionsAfterScope's purity rests on that clone and not on this.

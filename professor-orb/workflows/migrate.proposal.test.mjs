@@ -26,6 +26,14 @@ function check(name, actual, expected) {
   }
 }
 
+// Reaching into an entry an implementation may not have created has to make the
+// case go RED, not throw and take every later case in the file down with it: an
+// exception here would hide exactly the red set that proves the suite can fail.
+// Measured, not assumed. The first RED run of the setting-split cases below died
+// on `settings[1].homebrewRoot` and reported one failure where there were six.
+// The plan suite carries the same guard for the same reason.
+const obj = (v) => (v && typeof v === "object" ? v : {});
+
 const PLAN = {
   operations: [
     { op: "relocate-path", from: "settings/rolara/misc/A.md", to: "settings/rolara/notes/A.md", reason: "DM scope" },
@@ -541,6 +549,40 @@ const CONVENTIONS = {
     r.conventions.settings[0].kbRoot, "settings/ledger");
 }
 
+{
+  const r = conventionsAfterScope(CONVENTIONS, {
+    settingSplits: [{ from: "rolara", name: "ashlands", kbRoot: "settings/ashlands", files: [] }],
+  });
+  check("a split adds a settings entry", r.conventions.settings.map((s) => s.name), ["rolara", "ashlands"]);
+  check("the new setting gets defaulted sibling prongs",
+    [obj(r.conventions.settings[1]).homebrewRoot, obj(r.conventions.settings[1]).sessionReportsRoot],
+    ["homebrew/ashlands", "session-reports/ashlands"]);
+  // A split divides ONE world's material, and the extras layer that world
+  // accumulated describes the articles on both sides of the division. An empty
+  // rule set would leave every article that moved unchecked by the rules it was
+  // written under.
+  check("and carries the source setting's rules, not an empty set",
+    Object.keys(obj(obj(r.conventions.settings[1]).rules)), ["frontmatterTypeEnum"]);
+  // A COPY of them. Sharing the object would make a later edit to either setting
+  // silently change the other.
+  check("as a copy rather than the same object",
+    obj(r.conventions.settings[1]).rules === obj(r.conventions.settings[0]).rules, false);
+  check("the source setting is untouched", r.conventions.settings[0].kbRoot, "settings/rolara");
+  check("and so is the file this function was handed", CONVENTIONS.settings.length, 1);
+}
+
+{
+  // One entry per name. A second under a name already recorded would leave
+  // settingNamed resolving to whichever came first, which is how one world's
+  // articles start being checked against another world's rules.
+  const r = conventionsAfterScope(CONVENTIONS, {
+    settingSplits: [{ from: "rolara", name: "rolara", kbRoot: "settings/rolara-two", files: [] }],
+  });
+  check("a split into a name already recorded adds no second entry, and says so",
+    [r.conventions.settings.length, /already records a setting called rolara/.test(String(r.changes[0]))],
+    [1, true]);
+}
+
 console.log("\n=== conventions after a scope: what RAN, not what was asked for ===");
 
 // The third argument is the operations that actually applied. Without it this
@@ -651,6 +693,64 @@ const FULL_RENAME = [
     r.conventions.settings[0].rules.frontmatterTypeEnum.extendedBy, ["Character"]);
 }
 
+// A split has no root of its own to repoint, so repointProngs has nothing to key
+// on: it repoints roots a setting ALREADY records, and this case creates the
+// entry. What the entry is keyed on instead is an applied operation of its own
+// group that landed an article INSIDE the kbRoot the entry would record. That
+// satisfies both halves of the rule at appliedGate: at least one operation
+// carrying the group applied, and the one path the entry records is a path an
+// applied operation demonstrably put something at.
+const SPLIT = {
+  settingSplits: [
+    { from: "rolara", name: "ashlands", kbRoot: "settings/ashlands", files: ["settings/rolara/Ashfall.md"] },
+  ],
+};
+const splitOp = (to, group = "settingSplits[0]") => ({
+  op: "relocate-path",
+  from: "settings/rolara/Ashfall.md",
+  to,
+  applied: true,
+  detail: "Relocated with git mv (direct).",
+  groups: [group],
+});
+
+{
+  const r = conventionsAfterScope(CONVENTIONS, SPLIT, [splitOp("settings/ashlands/Ashfall.md")]);
+  check("a split whose move applied adds the settings entry",
+    [r.conventions.settings.map((s) => s.name), r.changes.length], [["rolara", "ashlands"], 1]);
+}
+
+{
+  // THE HEADLINE CASE. One git-ignored article declines the whole entry, so no
+  // move applies. Adding a settings entry anyway would leave conventions.json
+  // naming a kbRoot that is not on disk: /scribe refuses to resolve its lane, the
+  // write-time hook goes silent because no rule resolves, and the sweep reports
+  // every article under it as unattributed. None of that announces itself as a
+  // conventions problem.
+  const r = conventionsAfterScope(CONVENTIONS, SPLIT, []);
+  check("a split whose every operation was declined or skipped adds no settings entry",
+    [r.conventions.settings.map((s) => s.name), r.changes], [["rolara"], []]);
+}
+
+{
+  // Keyed on where the articles actually LANDED, not merely on the entry having
+  // run. A proposal file the DM edited can send every one of them somewhere the
+  // scope's own arithmetic never would, and an entry recorded at a kbRoot nothing
+  // was put in describes a folder that is not there.
+  const r = conventionsAfterScope(CONVENTIONS, SPLIT, [splitOp("settings/rolara/notes/Ashfall.md")]);
+  check("a split whose articles the DM redirected out of the new kbRoot records no entry",
+    [r.conventions.settings.map((s) => s.name), r.changes], [["rolara"], []]);
+}
+
+{
+  // The gate is keyed on the entry's OWN group id, the same way the rename's is.
+  const r = conventionsAfterScope(CONVENTIONS, SPLIT, [
+    splitOp("settings/ashlands/Ashfall.md", "settingSplits[1]"),
+  ]);
+  check("an operation belonging to a different entry does not license this one",
+    [r.conventions.settings.map((s) => s.name), r.changes], [["rolara"], []]);
+}
+
 {
   // TWO-ARGUMENT COMPATIBILITY, stated as a property rather than left to the
   // cases above: an omitted third argument means "the whole scope ran", so it must
@@ -658,6 +758,9 @@ const FULL_RENAME = [
   check("omitting the third argument is the same as being told everything applied",
     conventionsAfterScope(CONVENTIONS, RENAME),
     conventionsAfterScope(CONVENTIONS, RENAME, FULL_RENAME));
+  check("...and the same holds for a split",
+    conventionsAfterScope(CONVENTIONS, SPLIT),
+    conventionsAfterScope(CONVENTIONS, SPLIT, [splitOp("settings/ashlands/Ashfall.md")]));
 }
 
 console.log(`\n${passed} passed, ${failures.length} failed`);

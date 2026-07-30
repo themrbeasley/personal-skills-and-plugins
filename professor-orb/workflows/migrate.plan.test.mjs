@@ -26,6 +26,7 @@ import {
   scopedPlannerSequence,
   assertScopedPlannerDeclarations,
   retypeExtensions,
+  crossBoundaryLinks,
 } from "./migrate.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -994,6 +995,13 @@ const PLANNER_PROBES = {
   settingRenames: [{ from: "rolara", to: "rolara-prime" }],
   settingRetirements: [{ setting: "rolara", archiveRoot: "archive" }],
   campaignRetirements: [{ setting: "rolara", campaign: "ashes-of-the-first-crown", archiveRoot: "archive" }],
+  // Ends.md is the one article in absorbFixture that neither links out nor is
+  // linked to, so this split crosses no boundary and declines nothing, which is
+  // what the walk below requires of every probe. The boundary cost itself is
+  // covered by the setting-split section at the end of this file.
+  settingSplits: [
+    { from: "rolara", name: "ashlands", kbRoot: "settings/ashlands", files: ["settings/rolara/misc/Ends.md"] },
+  ],
 };
 
 {
@@ -1040,16 +1048,17 @@ const PLANNER_PROBES = {
   // registry off source position mis-ordered the middle of the run; these rank at
   // the very FRONT while sitting at the very END of the array, so source position
   // would now run the whole rest of the registry before the operation every
-  // later planner's checks have to be able to see.
+  // later planner's checks have to be able to see. settingSplits is the fourth,
+  // ranking 1 at the very end.
   check("the append landed in source order, out of rank order as written",
-    SCOPED_PLANNERS.map(([, , kind]) => APPLY_ORDER.indexOf(kind)), [1, 2, 3, 6, 9, 4, 10, 5, 11, 0, 0, 1]);
+    SCOPED_PLANNERS.map(([, , kind]) => APPLY_ORDER.indexOf(kind)), [1, 2, 3, 6, 9, 4, 10, 5, 11, 0, 0, 1, 1]);
   check("and the order those planners RUN in is ascending rank anyway",
     scopedPlannerSequence().map(([, , kind]) => APPLY_ORDER.indexOf(kind)),
-    [0, 0, 1, 1, 2, 3, 4, 5, 6, 9, 10, 11]);
+    [0, 0, 1, 1, 1, 2, 3, 4, 5, 6, 9, 10, 11]);
   check("which puts each scope key where its planner's rank belongs",
     scopedPlannerSequence().map(([key]) => key),
-    ["settingRenames", "settingRetirements", "pathMoves", "campaignRetirements", "absorbFolders",
-     "splitFolders", "retypes", "suffixRenames", "entityRenames", "rebuildIndexes",
+    ["settingRenames", "settingRetirements", "pathMoves", "campaignRetirements", "settingSplits",
+     "absorbFolders", "splitFolders", "retypes", "suffixRenames", "entityRenames", "rebuildIndexes",
      "frontmatterRepairs", "prosePathUpdates"]);
 }
 
@@ -1155,8 +1164,8 @@ const PLANNER_PROBES = {
     samples.every((p) => JSON.stringify(byRank(p)) === shape), true);
   check("and that order is the declared ranks ascending",
     expected,
-    ["settingRenames", "settingRetirements", "pathMoves", "campaignRetirements", "absorbFolders",
-     "splitFolders", "retypes", "suffixRenames", "entityRenames", "rebuildIndexes",
+    ["settingRenames", "settingRetirements", "pathMoves", "campaignRetirements", "settingSplits",
+     "absorbFolders", "splitFolders", "retypes", "suffixRenames", "entityRenames", "rebuildIndexes",
      "frontmatterRepairs", "prosePathUpdates"]);
 }
 
@@ -1206,11 +1215,11 @@ const PLANNER_PROBES = {
   check("a planner emitting an operation ranked below its declaration fails loudly",
     [/orderingProbe/.test(message), /relocate-path/.test(message), /rebuild-index/.test(message)],
     [true, true, true]);
-  check("and the registry is back to its twelve entries",
+  check("and the registry is back to its thirteen entries",
     SCOPED_PLANNERS.map(([key]) => key),
     ["pathMoves", "absorbFolders", "splitFolders", "entityRenames", "rebuildIndexes",
      "retypes", "frontmatterRepairs", "suffixRenames", "prosePathUpdates",
-     "settingRenames", "settingRetirements", "campaignRetirements"]);
+     "settingRenames", "settingRetirements", "campaignRetirements", "settingSplits"]);
 }
 
 {
@@ -1271,7 +1280,7 @@ const PLANNER_PROBES = {
     SCOPED_PLANNERS.map(([key]) => key),
     ["pathMoves", "absorbFolders", "splitFolders", "entityRenames", "rebuildIndexes",
      "retypes", "frontmatterRepairs", "suffixRenames", "prosePathUpdates",
-     "settingRenames", "settingRetirements", "campaignRetirements"]);
+     "settingRenames", "settingRetirements", "campaignRetirements", "settingSplits"]);
   rmSync(root, { recursive: true, force: true });
 }
 
@@ -3209,6 +3218,269 @@ function lifecycleFixture() {
   check("a listed campaign with no folder on disk is declined rather than planned",
     [r.operations.length, r.declined.map((d) => [d.op, d.target])],
     [0, [["relocate-path", "session-reports/rolara/ember"]]]);
+  rmSync(root, { recursive: true, force: true, maxRetries: 5 });
+}
+
+console.log("\n=== setting split: the boundary cost ===");
+
+// THE SAME HONEST FRAMING as the lifecycle section above. Nothing in the plugin
+// creates a setting yet, so every case below runs against a temporary fixture
+// and the literal LIFECYCLE_SETTINGS array, never against a project a DM could
+// have today. Read the coverage that way.
+//
+// Three articles in one setting, wired so that both directions of the boundary
+// are reachable: Ashfall links out to two neighbours, and both of them link back.
+function splitSettingFixture() {
+  const root = mkdtempSync(path.join(os.tmpdir(), "orb-setsplit-"));
+  const w = (rel, body) => writeAt(root, rel, body);
+  w("settings/rolara/Ashfall.md", "---\ntype: Location\n---\n\nNorth of [[Karsk]], allied with [[Thoric]].\n");
+  w("settings/rolara/Karsk.md", "---\ntype: Location\n---\n\nSouth of [[Ashfall]].\n");
+  w("settings/rolara/Thoric.md", "---\ntype: Person\n---\n\nLives in [[Ashfall]].\n");
+  return root;
+}
+
+{
+  const root = splitSettingFixture();
+  const links = crossBoundaryLinks({
+    projectRoot: root,
+    movingFiles: ["settings/rolara/Ashfall.md"],
+    stayingRoot: "settings/rolara",
+  });
+  const outgoing = links.filter((l) => l.direction === "outgoing").map((l) => l.target).sort();
+  const incoming = links.filter((l) => l.direction === "incoming").map((l) => l.file).sort();
+  check("outgoing links from the moving article are enumerated", outgoing, ["Karsk", "Thoric"]);
+  check("incoming links from articles that stay are enumerated too",
+    incoming, ["settings/rolara/Karsk.md", "settings/rolara/Thoric.md"]);
+  rmSync(root, { recursive: true, force: true, maxRetries: 5 });
+}
+
+{
+  const root = splitSettingFixture();
+  const links = crossBoundaryLinks({
+    projectRoot: root,
+    movingFiles: ["settings/rolara/Ashfall.md", "settings/rolara/Karsk.md"],
+    stayingRoot: "settings/rolara",
+  });
+  // Ashfall and Karsk link to each other and both move, so that link does not
+  // cross anything. Counting it would inflate the cost the DM is shown and make
+  // a clean split look expensive, which is the direction that talks them out of
+  // a migration that was fine.
+  check("a link between two articles that both move is not a boundary crossing",
+    links.some((l) => l.target === "Karsk" || (l.file || "").endsWith("Karsk.md")), false);
+  check("the genuine crossings survive",
+    links.filter((l) => l.direction === "outgoing").map((l) => l.target), ["Thoric"]);
+  rmSync(root, { recursive: true, force: true, maxRetries: 5 });
+}
+
+{
+  // WHAT wikilinkTargetsIn ACTUALLY RETURNS, which decides how the comparison has
+  // to be written: the target as WRITTEN, not a bare stem. A path prefix, an
+  // extension, and an anchor all survive it; only the display half is already
+  // gone. So the stem is taken the way assertLinkIntegrity takes it, through
+  // dissectTarget, and every one of these forms names the one article that moves.
+  //
+  // Two of the bracketed pairs below are not article links at all and must not be
+  // counted: [[#Trade]] is a link into the file's own headings, and [[Ashfall.png]]
+  // names an attachment. The fenced block is not link-bearing text, on the same
+  // terms the rewriter and the link-integrity rail leave fenced examples alone.
+  const root = mkdtempSync(path.join(os.tmpdir(), "orb-setsplit-forms-"));
+  writeAt(root, "settings/rolara/Ashfall.md", "---\ntype: Location\n---\n\nBody.\n");
+  writeAt(
+    root,
+    "settings/rolara/Karsk.md",
+    "---\ntype: Location\n---\n\n" +
+      "[[Ashfall.md]], [[people/Ashfall]], [[Ashfall#Trade]], [[Ashfall|the ash city]].\n\n" +
+      "Neither of these is a link to an article: [[#Trade]], [[Ashfall.png]].\n\n" +
+      "```\n[[Ashfall]]\n```\n"
+  );
+  const links = crossBoundaryLinks({
+    projectRoot: root,
+    movingFiles: ["settings/rolara/Ashfall.md"],
+    stayingRoot: "settings/rolara",
+  });
+  check("every written form of a link to a moving article counts, and nothing else does",
+    links.map((l) => [l.direction, l.target]),
+    [
+      ["incoming", "Ashfall.md"],
+      ["incoming", "people/Ashfall"],
+      ["incoming", "Ashfall#Trade"],
+      ["incoming", "Ashfall"],
+    ]);
+  rmSync(root, { recursive: true, force: true, maxRetries: 5 });
+}
+
+{
+  // The plan phase's read-only contract, on the one function here that walks a
+  // whole knowledge base reading files.
+  const root = splitSettingFixture();
+  execFileSync("git", ["init", "-q"], { cwd: root });
+  const before = snapshotTree(root);
+  crossBoundaryLinks({
+    projectRoot: root,
+    movingFiles: ["settings/rolara/Ashfall.md"],
+    stayingRoot: "settings/rolara",
+  });
+  check("crossBoundaryLinks mutates nothing", snapshotTree(root), before);
+  rmSync(root, { recursive: true, force: true, maxRetries: 5 });
+}
+
+const splitScope = (over) => ({
+  settingSplits: [
+    { from: "rolara", name: "ashlands", kbRoot: "settings/ashlands", files: [], ...over },
+  ],
+});
+
+{
+  const root = splitSettingFixture();
+  const r = lifecycle(splitScope({ files: ["settings/rolara/Ashfall.md"] }), root);
+  check("a split plans one move per file", kindsOf(r.operations), ["relocate-path"]);
+  check("to the new setting's kbRoot", obj(r.operations[0]).to, "settings/ashlands/Ashfall.md");
+  // ONE group id for every move the entry emits. The cost the DM approved was
+  // computed from the set that moves, and a link between two articles that BOTH
+  // move was excluded from it; leave one of them behind and that link becomes a
+  // crossing nobody was shown. So a split moves all of its articles or none.
+  check("and every move carries the entry's own group id",
+    obj(r.operations[0]).groups, ["settingSplits[0]"]);
+  // The cost lands in declined, which is what renderProposal prints under
+  // "Declined" and therefore what the DM reads before approving. Putting it in
+  // the report instead would tell them after it had already happened.
+  check("every boundary crossing is declined into the proposal, both directions",
+    r.declined.map((d) => [d.op, d.target]),
+    [
+      ["cross-boundary-link", "settings/rolara/Ashfall.md -> [[Karsk]]"],
+      ["cross-boundary-link", "settings/rolara/Ashfall.md -> [[Thoric]]"],
+      ["cross-boundary-link", "settings/rolara/Karsk.md -> [[Ashfall]]"],
+      ["cross-boundary-link", "settings/rolara/Thoric.md -> [[Ashfall]]"],
+    ]);
+  // Nothing repairs them, and the row says so. Rewriting the article text under a
+  // structural approval would be chronicler's work done without chronicler's gate.
+  check("and the row says the link is reported rather than repaired",
+    /the DM's to change/.test(String(obj(r.declined[0]).reason)), true);
+  rmSync(root, { recursive: true, force: true, maxRetries: 5 });
+}
+
+{
+  const root = splitSettingFixture();
+  const r = lifecycle(splitScope({ from: "nope", files: ["settings/rolara/Ashfall.md"] }), root);
+  check("splitting a setting that is not in conventions.json is declined",
+    [r.operations.length, r.declined.length], [0, 1]);
+  const noName = lifecycle(splitScope({ name: "", files: ["settings/rolara/Ashfall.md"] }), root);
+  check("and so is a split with no name for the world it creates",
+    [noName.operations.length, noName.declined.length], [0, 1]);
+  rmSync(root, { recursive: true, force: true, maxRetries: 5 });
+}
+
+{
+  // A name conventions.json already records. conventionsAfterScope keeps one
+  // entry per name and refuses to add a second, so planning the moves anyway
+  // would carry the articles across and leave the world they landed in
+  // unrecorded: unattributed to the sweep, unresolvable to /scribe and /log.
+  const root = splitSettingFixture();
+  const r = lifecycle(splitScope({ name: "rolara", kbRoot: "settings/rolara-two", files: ["settings/rolara/Ashfall.md"] }), root);
+  check("splitting into a name a setting already has is declined",
+    [r.operations.length, r.declined.map((d) => [d.op, d.target])],
+    [0, [["relocate-path", "rolara"]]]);
+  rmSync(root, { recursive: true, force: true, maxRetries: 5 });
+}
+
+{
+  // The new knowledge base inside the old one, or at the very same path.
+  // settingOwning resolves an article to whichever setting claims it first, so
+  // two roots nested one inside the other leave every article under the inner one
+  // claimed by both; identical roots would move each file onto itself.
+  const root = splitSettingFixture();
+  const nested = lifecycle(splitScope({ kbRoot: "settings/rolara/ashlands", files: ["settings/rolara/Ashfall.md"] }), root);
+  check("a new knowledge base nested inside the source setting's is declined",
+    [nested.operations.length, nested.declined.map((d) => d.target)], [0, ["settings/rolara/ashlands"]]);
+  const same = lifecycle(splitScope({ kbRoot: "settings/rolara", files: ["settings/rolara/Ashfall.md"] }), root);
+  check("and so is one at the very same path",
+    [same.operations.length, same.declined.map((d) => d.target)], [0, ["settings/rolara"]]);
+  rmSync(root, { recursive: true, force: true, maxRetries: 5 });
+}
+
+{
+  // A file outside the world being divided. crossBoundaryLinks walks the SOURCE
+  // setting's kbRoot, so a file from anywhere else would move with its own
+  // outgoing links uncounted, understating the cost in the proposal the DM
+  // approves on. Understating it is the one direction of error this whole
+  // operation exists to avoid.
+  const root = splitSettingFixture();
+  writeAt(root, "homebrew/rolara/Blade.md", "---\ntype: Item\n---\n\nForged in [[Ashfall]].\n");
+  const r = lifecycle(
+    splitScope({ files: ["homebrew/rolara/Blade.md", "settings/rolara/Ashfall.md"] }),
+    root
+  );
+  check("a file outside the source setting's knowledge base is declined, and the rest still move",
+    [
+      r.operations.map((o) => o.from),
+      r.declined.filter((d) => d.op === "relocate-path").map((d) => d.target),
+    ],
+    [["settings/rolara/Ashfall.md"], ["homebrew/rolara/Blade.md"]]);
+  rmSync(root, { recursive: true, force: true, maxRetries: 5 });
+}
+
+{
+  // A typo in a filename. Without the check the plan reads clean and then fails
+  // on `git mv` after the snapshot; and the article that IS at that stem would
+  // have had every link into it counted as a crossing that never happens.
+  const root = splitSettingFixture();
+  const r = lifecycle(splitScope({ files: ["settings/rolara/notes/Karsk.md"] }), root);
+  check("a file that is not there is declined, and no crossing is reported for it",
+    [r.operations.length, r.declined.map((d) => [d.op, d.target])],
+    [0, [["relocate-path", "settings/rolara/notes/Karsk.md"]]]);
+  rmSync(root, { recursive: true, force: true, maxRetries: 5 });
+}
+
+{
+  // The destination is the new kbRoot plus the BASENAME, so two articles that sat
+  // in different subfolders under one basename aim at one path. No new guard for
+  // it: findDestinationCollisions already refuses, because relocate-path is not in
+  // DESTINATION_MAY_EXIST, and applyPlan refuses a plan whose prechecks did not
+  // pass. Pinned here so that stays true.
+  const root = mkdtempSync(path.join(os.tmpdir(), "orb-setsplit-flat-"));
+  writeAt(root, "settings/rolara/north/Keep.md", "---\ntype: Location\n---\n\nBody.\n");
+  writeAt(root, "settings/rolara/south/Keep.md", "---\ntype: Location\n---\n\nBody.\n");
+  const r = lifecycle(
+    splitScope({ files: ["settings/rolara/north/Keep.md", "settings/rolara/south/Keep.md"] }),
+    root
+  );
+  check("two articles flattening onto one destination are refused by the prechecks",
+    [r.operations.map((o) => o.to), r.prechecks.ok, r.prechecks.collisions.map((c) => [c.kind, c.b])],
+    [
+      ["settings/ashlands/Keep.md", "settings/ashlands/Keep.md"],
+      false,
+      [["in-plan", "settings/ashlands/Keep.md"]],
+    ]);
+  rmSync(root, { recursive: true, force: true, maxRetries: 5 });
+}
+
+{
+  // THE GROUP UNIT AS A REGRESSION, against a real repository. One article is
+  // git-ignored, so the pre-migration snapshot does not contain it and moving it
+  // could not be undone. The whole entry goes, both moves: the cost the DM read
+  // excluded the Ashfall-to-Thoric link because both of them were moving, and
+  // leaving Thoric behind turns that into a crossing they were never shown.
+  //
+  // The cross-boundary rows this entry already pushed stay in the declined list.
+  // They cannot be withdrawn from here: prechecks.ignored is computed from the
+  // FINISHED plan, after every planner has run, so the planner that reported the
+  // cost cannot know the entry will be dropped. What the DM reads is a split whose
+  // moves are all declined, alongside the crossings it would have cost, which is
+  // wordy rather than wrong.
+  const root = splitSettingFixture();
+  writeAt(root, ".gitignore", "settings/rolara/Thoric.md\n");
+  commitFixture(root);
+  const r = lifecycle(
+    splitScope({ files: ["settings/rolara/Ashfall.md", "settings/rolara/Thoric.md"] }),
+    root
+  );
+  check("one git-ignored article declines the whole split, not just its own move",
+    [r.operations.length, r.declined.filter((d) => d.op === "relocate-path").length], [0, 2]);
+  check("and every declined move names the entry that took it and the ignored article",
+    r.declined
+      .filter((d) => d.op === "relocate-path")
+      .map((d) => [/settingSplits\[0\]/.test(String(d.reason)), /Thoric\.md/.test(String(d.reason))]),
+    [[true, true], [true, true]]);
   rmSync(root, { recursive: true, force: true, maxRetries: 5 });
 }
 
