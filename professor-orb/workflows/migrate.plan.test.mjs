@@ -3903,6 +3903,59 @@ const MERGE_KARSK = { settingMerges: [{ from: "karsk", into: "rolara" }] };
 }
 
 {
+  // ORDER-INDEPENDENT BY CONSTRUCTION: the identical sibling collision, presented in
+  // both possible visiting orders, reaches the identical outcome. A single left-to-
+  // right pass with a running claimed set cannot promise this, because whether one
+  // sibling's rename target is free depends on a fact about the OTHER sibling that a
+  // one-pass walk has not looked at yet when it decides the first one it meets.
+  // mergeCollisions takes a `children` hook precisely so this can be asked directly,
+  // without depending on which order a real directory listing happens to sort into.
+  const root = mergeFixture();
+  const source = MERGE_SETTINGS[1]; // karsk
+  const target = MERGE_SETTINGS[0]; // rolara, which already holds session-reports/rolara/deeps
+  const withOrder = (order) => (rel) => (rel === source.sessionReportsRoot ? order : []);
+  const forward = mergeCollisions({ projectRoot: root, source, target, children: withOrder(["deeps", "deeps-karsk"]) });
+  const backward = mergeCollisions({ projectRoot: root, source, target, children: withOrder(["deeps-karsk", "deeps"]) });
+  check("a sibling collision reaches the identical outcome whichever order it is visited in",
+    JSON.stringify(forward), JSON.stringify(backward));
+  check("and the outcome is a decline naming the occupied rename target, not a second suffix",
+    forward.map((c) => [c.basename, c.blocked, c.blockedBy, c.proposed]),
+    [["deeps", "taken", "session-reports/rolara/deeps-karsk", null]]);
+  rmSync(root, { recursive: true, force: true, maxRetries: 5 });
+}
+
+{
+  // THE EXTENSIONLESS CASE, which is what campaign folders under sessionReportsRoot
+  // always are. disambiguatedName APPENDS the suffix rather than inserting it before
+  // an extension, so the plain name (deeps) is a SORT-PREFIX of its own suffixed form
+  // (deeps-karsk) and sorts first, the opposite of the .md case above where the
+  // suffixed form sorts first by an accident of ASCII (- before .). karsk holds both
+  // deeps and deeps-karsk, the ordinary shape for a DM who once hand-suffixed a
+  // folder before ever running /migrate; rolara already holds deeps. Before the fix,
+  // this order silently invented session-reports/rolara/deeps-karsk-karsk instead of
+  // declining.
+  const root = mergeFixture();
+  writeAt(root, "session-reports/karsk/deeps-karsk/2026-02-03-Five-REPORT.md",
+    "---\ntype: Session Report\n---\n\nHand-suffixed years ago.\n");
+  const r = mergeScoped(MERGE_KARSK, root);
+  check("the plan is still executable", r.prechecks.ok, true);
+  check("no machine-invented double suffix is ever proposed",
+    JSON.stringify(r.operations).includes("deeps-karsk-karsk"), false);
+  check("the pre-suffixed sibling moves to its own name unrenamed",
+    r.operations.some((o) => o.from === "session-reports/karsk/deeps-karsk" &&
+      o.to === "session-reports/rolara/deeps-karsk"), true);
+  const row = r.declined.find((d) => d.op === "relocate-path" && d.target === "session-reports/karsk/deeps") || {};
+  check("the plain sibling declines instead, naming all three files",
+    [String(row.reason).includes("session-reports/rolara/deeps,"),
+     String(row.reason).includes("session-reports/rolara/deeps-karsk")],
+    [true, true]);
+  check("and the moves that had nothing to do with the collision still happen",
+    r.operations.map((o) => o.from).filter((f) => !/session-reports/.test(f)),
+    ["settings/karsk/Emberhold.md", "settings/karsk/Tavern.md", "homebrew/karsk/Blade.md", "homebrew/karsk/Censer.md"]);
+  rmSync(root, { recursive: true, force: true, maxRetries: 5 });
+}
+
+{
   // A pathMoves ENTRY THAT CARRIES A MERGE SOURCE AWAY. pathMoves is declared at
   // rank 1 and registered first, so it runs before this merge does. Enumerating the
   // source prong off the RAW DISK plans a second move reading a path the first one

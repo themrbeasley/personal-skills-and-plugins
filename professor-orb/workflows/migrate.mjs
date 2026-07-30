@@ -3371,33 +3371,70 @@ export function mergeCollisions({ projectRoot, source, target, suffix, occupied,
   const childrenAt = typeof children === "function" ? children : (rel) => prongChildren(projectRoot, rel);
 
   const out = [];
-  // The destinations THIS merge has already spoken for. `taken` cannot see them: the
-  // plan-aware caller asks about the operations produced before this scope entry, and
-  // this entry's own moves are deliberately not among them, because no planner shows
-  // a check its own item's operations (see precedingOperations). Without this, a
-  // source world holding both Tavern.md and Tavern-karsk.md against a target holding
-  // Tavern.md sends two moves to one destination, and two operations targeting one
-  // path is refused by findDestinationCollisions, which refuses the whole migration.
-  const claimed = new Set();
+  // ORDER-INDEPENDENT BY CONSTRUCTION. A single left-to-right pass that records a
+  // running `claimed` set cannot answer this question the same way regardless of
+  // which sibling it meets first: whether a rename's own target is free depends on
+  // ANOTHER child of this same source folder that the pass has not looked at yet, so
+  // whichever child is visited first gets the wrong answer about the one visited
+  // second, and the direction that goes wrong flips with the visiting order. There is
+  // no ordering of `names` that fixes this in one pass, because the two children each
+  // need to know a fact about the other before either is decided. So this asks the
+  // whole sibling set the relevant question BEFORE deciding any one child's fate,
+  // rather than deciding child by child and hoping the walk order cooperates (it does
+  // for .md names, by an accident of ASCII sort putting the suffixed form first; it
+  // does not for extensionless names, where the plain form is a sort-prefix of its
+  // own suffixed form and is visited first instead).
   for (const pair of mergeProngPairs(source, target)) {
     if (pair.refusal) continue;
-    for (const name of childrenAt(pair.from)) {
-      const dest = `${pair.to}/${name}`;
-      if (!taken(dest) && !claimed.has(dest)) {
-        claimed.add(dest);
-        continue;
-      }
+    const names = childrenAt(pair.from);
+    // WHETHER A NAME'S OWN SPOT IS FREE, settled for every child of this pair before
+    // any one of them is decided, and asked only of the target disk (through `taken`,
+    // plan-aware or not), never of another child of this same source folder, because
+    // readdir cannot hand back two entries sharing one name, so two children can never
+    // contend for the same DIRECT destination. That is what makes this map correct
+    // regardless of the order `names` is walked in.
+    const nameSet = new Set(names);
+    const directTaken = new Map(names.map((name) => [name, taken(`${pair.to}/${name}`)]));
+    for (const name of names) {
+      if (!directTaken.get(name)) continue; // free: settles here, nothing to report.
       const isIndex =
         Boolean(suffix) && name.toLowerCase().endsWith(".md") && name.slice(0, -3).endsWith(suffix);
-      const wanted = `${pair.to}/${disambiguatedName(name, label)}`;
-      const blockedByTaken = !isIndex && (taken(wanted) || claimed.has(wanted));
-      if (!isIndex && !blockedByTaken) claimed.add(wanted);
+      if (isIndex) {
+        out.push({
+          field: pair.field,
+          from: `${pair.from}/${name}`,
+          basename: name,
+          proposed: null,
+          blocked: "index",
+          blockedBy: null,
+        });
+        continue;
+      }
+      // THE RENAME'S OWN SPOT CAN BE OCCUPIED TWO WAYS, both asked here rather than
+      // discovered by which child this loop happens to reach first.
+      //
+      // The first is `taken(wanted)`: the target disk, or an earlier operation in the
+      // plan. This name's own move could never change that answer, so no walk order
+      // changes it either.
+      //
+      // The second is a SIBLING OF THIS SAME SOURCE FOLDER that is literally named
+      // the disambiguated form and whose own spot is free (`nameSet` plus
+      // `directTaken`, both already settled above, independent of this loop's
+      // position). That sibling is this function's OWN move, not the target's, and it
+      // never yields the spot it is headed for, whether it is visited before this
+      // name or after. A rename can never collide with ANOTHER sibling's rename,
+      // because two children never share a name and disambiguatedName never maps two
+      // different names to the same result, so only this one lookup is needed.
+      const wantedName = disambiguatedName(name, label);
+      const wanted = `${pair.to}/${wantedName}`;
+      const siblingClaimsIt = nameSet.has(wantedName) && !directTaken.get(wantedName);
+      const blockedByTaken = taken(wanted) || siblingClaimsIt;
       out.push({
         field: pair.field,
         from: `${pair.from}/${name}`,
         basename: name,
-        proposed: isIndex || blockedByTaken ? null : wanted,
-        blocked: isIndex ? "index" : blockedByTaken ? "taken" : null,
+        proposed: blockedByTaken ? null : wanted,
+        blocked: blockedByTaken ? "taken" : null,
         blockedBy: blockedByTaken ? wanted : null,
       });
     }
