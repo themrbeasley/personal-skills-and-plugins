@@ -1479,6 +1479,89 @@ withRepo(
   }
 );
 
+// The half that must keep working, which matters exactly as much: a merge that RAN
+// did rewrite its git-ignored referrer, and that edit is unrecoverable, so suppressing
+// the disclosure would be the mirror image of the defect above. The suppression is
+// keyed on the skip decision for the paths an operation names, and merge-index is the
+// kind whose keying was just changed, so the direction the change must NOT alter needs
+// its own case rather than a case about renames.
+withRepo(
+  {
+    ".gitignore": "drafts/\n",
+    "settings/rolara/items/Sword.md": article("type: Item", "A blade."),
+    "settings/rolara/items/Items-INDEX.md": article("type: Index", "- [[Sword]]"),
+    "settings/rolara/items/Old-INDEX.md": article("type: Index", "- [[Sword]]"),
+    "drafts/Notes.md": "See [[Old-INDEX]].\n",
+  },
+  (root) => {
+    const r = apply(root, [
+      {
+        op: "merge-index",
+        to: "settings/rolara/items/Items-INDEX.md",
+        sources: ["settings/rolara/items/Old-INDEX.md"],
+        sourceLinks: { "settings/rolara/items/Old-INDEX.md": ["drafts/Notes.md"] },
+        reason: "two indexes in one folder",
+      },
+    ]);
+    check("a merge whose sources are all tracked runs",
+      [r.applied.length, r.skipped.length, r.failed.length], [1, 0, 0]);
+    check("the git-ignored referrer really was rewritten, so the edit is unrecoverable",
+      read(root, "drafts/Notes.md"), "See [[Items-INDEX]].\n");
+    check("so the run names it rather than filtering it out with the skipped ones",
+      r.ignoredEdits.map((e) => [e.op, e.source, e.referrer]),
+      [["merge-index", "settings/rolara/items/Old-INDEX.md", "drafts/Notes.md"]]);
+    check("in a message the DM will see",
+      [r.messages.some((m) => /rewritten in place/.test(m)),
+       r.messages.some((m) => /drafts\/Notes\.md/.test(m))],
+      [true, true]);
+  }
+);
+
+// And `ranKeys` itself, which is the clause that makes the suppression a decision
+// about the PATH rather than about the kind. Two merges name one source; one is skipped
+// for an ignored source of its own, the other runs and does the rewrite. The row is
+// keyed by op kind and source path, so both operations claim the same key: without the
+// ran half the skipped one would suppress a disclosure the other one earned, which is
+// the same unrecoverable-edit-gone-unreported defect in a shape one operation cannot
+// produce.
+withRepo(
+  {
+    ".gitignore": "drafts/\nsettings/rolara/items/Hidden-INDEX.md\n",
+    "settings/rolara/items/Sword.md": article("type: Item", "A blade."),
+    "settings/rolara/items/Items-INDEX.md": article("type: Index", "- [[Sword]]"),
+    "settings/rolara/items/Spare-INDEX.md": article("type: Index", "- [[Sword]]"),
+    "settings/rolara/items/Old-INDEX.md": article("type: Index", "- [[Sword]]"),
+    "settings/rolara/items/Hidden-INDEX.md": article("type: Index", "- [[Sword]]"),
+    "drafts/Notes.md": "See [[Old-INDEX]].\n",
+  },
+  (root) => {
+    const r = apply(root, [
+      {
+        op: "merge-index",
+        to: "settings/rolara/items/Spare-INDEX.md",
+        sources: ["settings/rolara/items/Hidden-INDEX.md", "settings/rolara/items/Old-INDEX.md"],
+        sourceLinks: { "settings/rolara/items/Old-INDEX.md": ["drafts/Notes.md"] },
+        reason: "hand-edited plan, one source git-ignored",
+      },
+      {
+        op: "merge-index",
+        to: "settings/rolara/items/Items-INDEX.md",
+        sources: ["settings/rolara/items/Old-INDEX.md"],
+        sourceLinks: { "settings/rolara/items/Old-INDEX.md": ["drafts/Notes.md"] },
+        reason: "two indexes in one folder",
+      },
+    ]);
+    check("the merge carrying the git-ignored source is skipped and the other runs",
+      [r.skipped.length, r.applied.length, r.failed.length], [1, 1, 0]);
+    check("the one that ran rewrote the ignored referrer",
+      read(root, "drafts/Notes.md"), "See [[Items-INDEX]].\n");
+    check("and the row survives, because one operation naming that source DID run",
+      r.ignoredEdits.map((e) => e.referrer), ["drafts/Notes.md"]);
+    check("in a message the DM will see",
+      r.messages.some((m) => /rewritten in place/.test(m)), true);
+  }
+);
+
 console.log("\nThe snapshot precedes every mutation");
 
 withRepo(

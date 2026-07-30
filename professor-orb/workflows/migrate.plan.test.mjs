@@ -15,7 +15,17 @@ import path from "node:path";
 import os from "node:os";
 import { fileURLToPath } from "node:url";
 
-import { buildPlan, runPrechecks, OPERATION_ORDER, DEFERRED_OPERATIONS, buildScopedPlan, APPLY_ORDER } from "./migrate.mjs";
+import {
+  buildPlan,
+  runPrechecks,
+  OPERATION_ORDER,
+  DEFERRED_OPERATIONS,
+  buildScopedPlan,
+  APPLY_ORDER,
+  SCOPED_PLANNERS,
+  scopedPlannerSequence,
+  assertScopedPlannerDeclarations,
+} from "./migrate.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const BASE_RULES = JSON.parse(readFileSync(path.join(HERE, "..", "references", "base-rules.json"), "utf8"));
@@ -943,6 +953,244 @@ const scoped = (scope, projectRoot) =>
     ranks.slice().sort((a, b) => a - b), ranks);
 }
 
+console.log("\n=== scoped plans: the planner registry orders itself ===");
+
+// The order the scoped planners RUN in is load-bearing for correctness, not cosmetic:
+// precedingOperations answers out of the operations produced so far, so a planner that
+// runs before one whose operations it needs to see reasons about an incomplete list and
+// declines a legitimate path as a typo. That order used to be read off source position
+// in SCOPED_PLANNERS, enforced by a comment, while this release's own plan document
+// instructs three later tasks to APPEND planners whose kinds rank 4, 10, and 5 after
+// one that ranks 9. These cases are the enforcement that replaces the comment.
+
+// One probe scope per registry entry, all of them satisfiable against absorbFixture.
+// The walk below runs each planner for real and checks its DECLARATION against the
+// kinds it actually emitted, because a declaration that disagrees with its planner is
+// the same hazard as a mis-ordered array. The coverage check is what stops a planner
+// added later from being silently unwalked.
+const PLANNER_PROBES = {
+  pathMoves: [{ from: "settings/rolara/misc/Odds.md", to: "settings/rolara/Odds.md", reason: "x" }],
+  absorbFolders: [{ folder: "settings/rolara/misc" }],
+  splitFolders: [{ folder: "settings/rolara/misc", buckets: [{ name: "odds", articles: ["Odds.md"] }] }],
+  rebuildIndexes: [{ index: "settings/rolara/misc/Misc-INDEX.md" }],
+};
+
+{
+  check("every registry entry declares a kind APPLY_ORDER can rank",
+    SCOPED_PLANNERS.map(([, , kind]) => kind).filter((kind) => APPLY_ORDER.indexOf(kind) < 0), []);
+
+  // An unrankable kind sorts to -1, which is silently FIRST, so this is the one
+  // malformed declaration that would reproduce the exact failure the mechanism exists
+  // to prevent.
+  let unrankable = "";
+  try {
+    assertScopedPlannerDeclarations([["retypes", () => ({}), "normalise-type"]]);
+    unrankable = "(accepted)";
+  } catch (err) {
+    unrankable = String(err && err.message);
+  }
+  check("and the validator refuses a kind APPLY_ORDER cannot rank",
+    [/retypes/.test(unrankable), /normalise-type/.test(unrankable)], [true, true]);
+
+  // The old two-member shape, which is what a copy-paste from an older revision of the
+  // plan document would produce.
+  let twoMember = "";
+  try {
+    assertScopedPlannerDeclarations([["pathMoves", () => ({})]]);
+    twoMember = "(accepted)";
+  } catch (err) {
+    twoMember = String(err && err.message);
+  }
+  check("and refuses an entry carrying no declared kind at all", /pathMoves/.test(twoMember), true);
+}
+
+{
+  // The exact shape the plan document's append instructions produce, three tasks from
+  // now: `retypes`, `frontmatterRepairs`, `suffixRenames` appended after
+  // `rebuildIndexes`, whose kinds rank 4, 10, and 5 against its 9.
+  const planDocShape = [
+    ...SCOPED_PLANNERS,
+    ["retypes", () => ({}), "normalize-type"],
+    ["frontmatterRepairs", () => ({}), "repair-frontmatter"],
+    ["suffixRenames", () => ({}), "rename-with-link-rewrite"],
+  ];
+  check("the append order the plan document instructs is out of rank order as written",
+    planDocShape.map(([, , kind]) => APPLY_ORDER.indexOf(kind)), [1, 2, 3, 9, 4, 10, 5]);
+  check("and the order those planners RUN in is ascending rank anyway",
+    scopedPlannerSequence(planDocShape).map(([, , kind]) => APPLY_ORDER.indexOf(kind)),
+    [1, 2, 3, 4, 5, 9, 10]);
+  check("which puts each scope key where its planner's rank belongs",
+    scopedPlannerSequence(planDocShape).map(([key]) => key),
+    ["pathMoves", "absorbFolders", "splitFolders", "retypes", "suffixRenames",
+     "rebuildIndexes", "frontmatterRepairs"]);
+}
+
+{
+  // Order irrelevance over EVERY permutation rather than one shuffle, which is the
+  // property that makes an append correct wherever it lands.
+  const permutations = (xs) =>
+    xs.length <= 1
+      ? [xs]
+      : xs.flatMap((x, i) =>
+          permutations([...xs.slice(0, i), ...xs.slice(i + 1)]).map((rest) => [x, ...rest]));
+  const expected = scopedPlannerSequence().map(([key]) => key);
+  const orders = permutations(SCOPED_PLANNERS).map((p) => scopedPlannerSequence(p).map(([key]) => key));
+  check("every permutation of the registry runs the planners in one order",
+    [orders.length, orders.every((o) => JSON.stringify(o) === JSON.stringify(expected))],
+    [24, true]);
+  check("and that order is the declared ranks ascending",
+    expected, ["pathMoves", "absorbFolders", "splitFolders", "rebuildIndexes"]);
+}
+
+{
+  check("every registry entry has a probe here, so none can skip the walk below",
+    SCOPED_PLANNERS.map(([key]) => key).filter((key) => !PLANNER_PROBES[key]), []);
+  const rows = [];
+  for (const [key, , kind] of SCOPED_PLANNERS) {
+    const root = absorbFixture();
+    const r = scoped({ [key]: PLANNER_PROBES[key] }, root);
+    const ranks = r.operations.map((o) => APPLY_ORDER.indexOf(o.op));
+    rows.push([
+      key,
+      r.declined.length,
+      Math.min(...ranks) === APPLY_ORDER.indexOf(kind),
+      kindsOf(r.operations).includes(kind),
+    ]);
+    rmSync(root, { recursive: true, force: true });
+  }
+  // Both halves matter: the declared kind must be the LOWEST-ranked one the planner
+  // emits (or it runs later than a planner needing to see that operation), and it must
+  // actually be one of them (or the declaration is fiction).
+  check("each declared kind is the lowest-ranked kind its planner emits, and is emitted",
+    rows, SCOPED_PLANNERS.map(([key]) => [key, 0, true, true]));
+}
+
+{
+  // The emit-side half of the contract, proved by a deliberately mis-declared entry
+  // rather than asserted. Nothing else would show it: buildScopedPlan's final sort
+  // still hands applyPlan a plan in dependency order, so the only trace of the mistake
+  // is the checks that already ran against a list the operation was missing from.
+  const probe = [
+    "orderingProbe",
+    () => ({ operations: [{ op: "relocate-path", from: "a", to: "b", reason: "probe" }], declined: [] }),
+    "rebuild-index",
+  ];
+  SCOPED_PLANNERS.push(probe);
+  let message = "";
+  try {
+    scoped({ orderingProbe: [{}] });
+    message = "(planned without complaint)";
+  } catch (err) {
+    message = String(err && err.message);
+  } finally {
+    SCOPED_PLANNERS.pop();
+  }
+  check("a planner emitting an operation ranked below its declaration fails loudly",
+    [/orderingProbe/.test(message), /relocate-path/.test(message), /rebuild-index/.test(message)],
+    [true, true, true]);
+  check("and the registry is back to its four entries",
+    SCOPED_PLANNERS.map(([key]) => key),
+    ["pathMoves", "absorbFolders", "splitFolders", "rebuildIndexes"]);
+}
+
+{
+  // The check-side half, proved against a REAL planner rather than a probe:
+  // planRebuildIndexes asks with rebuild-index (rank 9), so declaring it at rank 1
+  // makes it ask about ranks whose planners have not run. Needs a real root, or the
+  // predicates answer undetermined and never reach the question.
+  const root = absorbFixture();
+  const entry = SCOPED_PLANNERS.find(([key]) => key === "rebuildIndexes") || [];
+  const declared = entry[2];
+  entry[2] = "relocate-path";
+  let message = "";
+  try {
+    scoped({ rebuildIndexes: [{ index: "settings/rolara/misc/Misc-INDEX.md" }] }, root);
+    message = "(planned without complaint)";
+  } catch (err) {
+    message = String(err && err.message);
+  } finally {
+    entry[2] = declared;
+    rmSync(root, { recursive: true, force: true });
+  }
+  check("a planner asking about a rank above its declaration fails loudly too",
+    [/rebuildIndexes/.test(message), /rebuild-index/.test(message)], [true, true]);
+  check("and its declaration is restored", entry[2], "rebuild-index");
+}
+
+{
+  // The stronger property, end to end: buildScopedPlan returns the SAME plan from a
+  // registry in the reverse of rank order, so the mis-ordered array is harmless rather
+  // than merely detected. Mutated in place and restored, because buildScopedPlan reads
+  // the module's own array. Non-vacuous by construction: read off source position, the
+  // reversed registry runs planRebuildIndexes first against an empty plan, which
+  // declines this scope's rebuild as a typo for an index the relocate creates.
+  const root = absorbFixture();
+  const scope = {
+    pathMoves: [{ from: "settings/rolara/misc", to: "settings/rolara/notes", reason: "x" }],
+    rebuildIndexes: [{ index: "settings/rolara/notes/Misc-INDEX.md" }],
+    splitFolders: [
+      { folder: "settings/rolara/notes", buckets: [{ name: "odds", articles: ["Odds.md"] }] },
+    ],
+  };
+  const inOrder = scoped(scope, root);
+  check("the scope exercises three planners, each depending on an earlier one",
+    [kindsOf(inOrder.operations), inOrder.declined.length],
+    [["relocate-path", "split-folder", "create-index", "rebuild-index"], 0]);
+  const original = [...SCOPED_PLANNERS];
+  SCOPED_PLANNERS.reverse();
+  let reversed = null;
+  try {
+    reversed = scoped(scope, root);
+  } finally {
+    SCOPED_PLANNERS.length = 0;
+    SCOPED_PLANNERS.push(...original);
+  }
+  check("and a registry in the reverse of rank order produces an identical plan",
+    reversed, inOrder);
+  check("with the registry restored afterward",
+    SCOPED_PLANNERS.map(([key]) => key),
+    ["pathMoves", "absorbFolders", "splitFolders", "rebuildIndexes"]);
+  rmSync(root, { recursive: true, force: true });
+}
+
+{
+  // The append itself, which is what the plan document instructs and what a positional
+  // rule would break: a planner added at the END of the registry, emitting a kind that
+  // ranks BELOW rebuildIndexes, whose operation the rebuild must see. Read off source
+  // position this declines the rebuild as a typo, for an index the appended planner's
+  // own relocate creates eight ranks earlier.
+  const root = absorbFixture();
+  const probe = [
+    "probeMoves",
+    (items, ctx, key) => ({
+      operations: [
+        {
+          op: "relocate-path",
+          from: "settings/rolara/misc",
+          to: "settings/rolara/notes",
+          groups: [`${key}[0]`],
+          reason: "probe",
+        },
+      ],
+      declined: [],
+    }),
+    "relocate-path",
+  ];
+  SCOPED_PLANNERS.push(probe);
+  let r = null;
+  try {
+    r = scoped(
+      { probeMoves: [{}], rebuildIndexes: [{ index: "settings/rolara/notes/Misc-INDEX.md" }] },
+      root
+    );
+  } finally {
+    SCOPED_PLANNERS.pop();
+    rmSync(root, { recursive: true, force: true });
+  }
+  check("a planner appended LAST still runs first when its kind ranks lower",
+    [kindsOf(r.operations), r.declined.length], [["relocate-path", "rebuild-index"], 0]);
+}
+
 {
   const r = scoped({
     pathMoves: [
@@ -1619,6 +1867,77 @@ console.log("\n=== scoped plans: every path a scope names is checked at plan tim
   // failure this whole check exists to move to plan time.
   check("but a source only a LATER operation creates is still declined",
     [kindsOf(r.operations), r.declined.length], [["relocate-path"], 1]);
+  rmSync(root, { recursive: true, force: true });
+}
+
+// The plan is a model of FILLS and of FREES, because the checks ask in both
+// directions. namedPathPresent is the one that wants a path ABSENT, and with frees
+// unmodelled it refused a bucket name an earlier operation carries away, with "That
+// subfolder already exists" about a path that will be empty by the time the split
+// runs. The relocate is rank 1 and the split rank 3, so the order is not in doubt.
+{
+  const root = splitFixture();
+  writeAt(root, "settings/rolara/locations/north/Old.md", "---\ntype: Location\n---\n\nBody.\n");
+  const r = scoped(
+    {
+      pathMoves: [
+        { from: "settings/rolara/locations/north", to: "settings/rolara/north", reason: "x" },
+      ],
+      splitFolders: [
+        { folder: "settings/rolara/locations", buckets: [{ name: "north", articles: ["Ashfall.md"] }] },
+      ],
+    },
+    root
+  );
+  check("a bucket name an earlier operation vacates is not refused as already there",
+    [kindsOf(r.operations), r.declined.length],
+    [["relocate-path", "split-folder", "create-index", "rebuild-index"], 0]);
+  rmSync(root, { recursive: true, force: true });
+}
+
+{
+  // The variant the FILLS half introduced, rather than merely failed to fix: the
+  // rewind maps settings/rolara/notes/odds back through the folder move to
+  // settings/rolara/misc/odds, which is on disk, so a bucket name that was correctly
+  // accepted before the rewind existed started being declined. Both moves rank 1 and
+  // the second empties the path, so the name is free at rank 3.
+  const root = absorbFixture();
+  writeAt(root, "settings/rolara/misc/odds/Keep.md", "---\ntype: Concept\n---\n\nBody.\n");
+  const r = scoped(
+    {
+      pathMoves: [
+        { from: "settings/rolara/misc", to: "settings/rolara/notes", reason: "x" },
+        { from: "settings/rolara/notes/odds", to: "settings/rolara/attic", reason: "x" },
+      ],
+      splitFolders: [
+        { folder: "settings/rolara/notes", buckets: [{ name: "odds", articles: ["Odds.md"] }] },
+      ],
+    },
+    root
+  );
+  check("a bucket name freed by a chain of earlier moves is not refused either",
+    [kindsOf(r.operations), r.declined.length],
+    [["relocate-path", "relocate-path", "split-folder", "create-index"], 0]);
+  rmSync(root, { recursive: true, force: true });
+}
+
+{
+  // The frees model must not become a licence in the present-direction checks. A
+  // rebuild naming an index inside a folder an earlier operation carries away cannot
+  // execute, and declining it at plan time is the point: with fills alone this planned
+  // and then failed after the snapshot, with the paired operations running on top.
+  const root = absorbFixture();
+  const r = scoped(
+    {
+      pathMoves: [{ from: "settings/rolara/misc", to: "settings/rolara/notes", reason: "x" }],
+      rebuildIndexes: [{ index: "settings/rolara/misc/Misc-INDEX.md" }],
+    },
+    root
+  );
+  check("and a rebuild of an index an earlier move carries away is declined, not planned",
+    [kindsOf(r.operations), r.declined.length], [["relocate-path"], 1]);
+  check("with a reason naming the index the DM typed",
+    String(obj(r.declined[0]).reason).includes("settings/rolara/misc/Misc-INDEX.md"), true);
   rmSync(root, { recursive: true, force: true });
 }
 

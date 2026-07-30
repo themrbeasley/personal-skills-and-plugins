@@ -880,14 +880,93 @@ function frontmatterHasPublish(file) {
 //
 // Every planner here is pure and read-only, exactly like the setup planners.
 
-// Scope keys, in APPLY_ORDER's order. Each entry names the scope key the DM's
-// negotiated scope carries and the planner that turns it into operations.
-const SCOPED_PLANNERS = [
-  ["pathMoves", planPathMoves],
-  ["absorbFolders", planAbsorbFolders],
-  ["splitFolders", planSplitFolders],
-  ["rebuildIndexes", planRebuildIndexes],
+// Scope keys, their planners, and the APPLY_ORDER kind that GOVERNS when each
+// planner runs. Each entry names the scope key the DM's negotiated scope carries,
+// the planner that turns it into operations, and that kind.
+//
+// The third member is the point. The order these planners run in is load-bearing for
+// correctness: precedingOperations answers "everything already planned that runs
+// before one of `kind`" out of the operations produced SO FAR, so a planner that runs
+// before one whose operations it needs to see reasons about an incomplete list and
+// declines a legitimate path as a typo. Left to source position, that correctness
+// property was a property of wherever the next append happened to land, and this
+// release's own plan document instructs three later tasks to append planners whose
+// kinds rank 4, 10, and 5 AFTER one that ranks 9. So position decides nothing here:
+// scopedPlannerSequence orders the run by these declarations.
+//
+// THE GOVERNING KIND OF A PLANNER THAT EMITS SEVERAL IS THE LOWEST-RANKED ONE IT
+// EMITS, because both duties of the position force that same answer:
+//
+//   emit side   A later planner checking at rank r needs every operation ranked at or
+//               below r to be in the list already, so the LOWEST rank this planner
+//               emits is the latest position it may occupy.
+//   check side  This planner's own checks need exactly that of the planners before it,
+//               so it may not ask about a rank ABOVE its own position.
+//
+// splitFolders emits split-folder (3), create-index (7), and rebuild-index (9), so
+// split-folder governs, and its three checks all ask with split-folder. absorbFolders
+// emits absorb-folder (2) and rebuild-index (9), so absorb-folder governs; it makes no
+// plan-aware check at all, because every file it names comes out of readdirSync, so
+// the check side is vacuous for it. Neither planner's higher-ranked operations lose
+// anything by being produced early: buildScopedPlan sorts the finished plan, and a
+// later planner reading them at their own rank finds them already in ctx.planned.
+//
+// Both duties are VERIFIED against what the planners do rather than left to this
+// comment. buildScopedPlan checks the emit side against the operations a planner
+// actually returned; precedingOperations checks the check side against the kind
+// actually asked about. Exported so the plan suite can walk the declarations and
+// permute the array: a permuted registry producing an identical plan is the property
+// that makes a future append harmless rather than merely conventional.
+export const SCOPED_PLANNERS = [
+  ["pathMoves", planPathMoves, "relocate-path"],
+  ["absorbFolders", planAbsorbFolders, "absorb-folder"],
+  ["splitFolders", planSplitFolders, "split-folder"],
+  ["rebuildIndexes", planRebuildIndexes, "rebuild-index"],
 ];
+
+const applyRank = (kind) => APPLY_ORDER.indexOf(kind);
+
+// Every entry above is well formed and names a kind APPLY_ORDER can rank. An
+// unrankable kind sorts to -1, which is silently FIRST, so the single mistake this
+// catches is the one that would otherwise reproduce the exact failure the declaration
+// exists to prevent, with no symptom but a false decline.
+//
+// Safe on import, which this module's contract requires: it reads two module
+// constants and nothing else. No disk, no git, no scope, no await. It throws only for
+// a registry that cannot be ordered at all, which is a broken build rather than a
+// state any /migrate run can reach, and failing at import is the loudest available way
+// to say so before a plan is built on it. Exported separately from the load-time call
+// below so the suite can drive it with a deliberately malformed registry.
+export function assertScopedPlannerDeclarations(entries = SCOPED_PLANNERS) {
+  for (const entry of list(entries)) {
+    const [key, planner, kind] = list(entry);
+    if (!key || typeof planner !== "function" || applyRank(kind) < 0) {
+      throw new Error(
+        `SCOPED_PLANNERS entry ${JSON.stringify(key === undefined ? null : key)} is malformed. Each entry is ` +
+          "[scopeKey, plannerFunction, governingKind], where the governing kind is the lowest-ranked kind the " +
+          `planner emits and APPLY_ORDER ranks it. Got ${JSON.stringify(kind === undefined ? null : kind)}.`
+      );
+    }
+  }
+  return list(entries);
+}
+assertScopedPlannerDeclarations();
+
+// The order the planners RUN in: ascending declared rank, read at runtime, rather
+// than the order someone typed them in.
+//
+// Ties keep source order, because Array.prototype.sort is stable, and a tie is sound
+// either way round: two planners declaring one kind emit operations of one rank, and
+// same-rank operations run in the order they were produced, so whichever planner runs
+// first is also the one whose operations run first. Each therefore sees exactly the
+// operations that precede its own, which is what precedingOperations claims.
+//
+// Copies before sorting: sorting SCOPED_PLANNERS in place would be a module-level
+// mutation, and the suite permutes that array deliberately to prove the permutation
+// changes nothing.
+export function scopedPlannerSequence(entries = SCOPED_PLANNERS) {
+  return [...list(entries)].sort((a, b) => applyRank(list(a)[2]) - applyRank(list(b)[2]));
+}
 
 // The id every operation one scope entry emits carries; see groupsOf for what
 // applyPlan does with it. It names the scope key and the entry's own position
@@ -903,20 +982,49 @@ const groupIdFor = (key, index) => `${key}[${index}]`;
 // can depend on an earlier entry under the SAME key as well as under an earlier one.
 //
 // Ranked by APPLY_ORDER, which is the order buildScopedPlan sorts the finished plan
-// into, and <= rather than < on purpose: Array.prototype.sort is stable, so two
-// operations of one kind keep the order the planner emitted them in, which means a
-// same-kind operation already in these lists is an EARLIER scope entry and does run
-// first. Anything ranked higher runs later and must not count, which is what keeps
-// the absorb rebuilds (rank 9) already in the list from being read as preceding a
-// split (rank 3).
+// into, and <= rather than < on purpose: that sort is stable and applyPlan applies in
+// plan-array order, so two operations of one rank run in the order they were produced,
+// which means a same-rank operation already in these lists is an EARLIER scope entry
+// and does run first. Anything ranked higher runs later and must not count, which is
+// what keeps the absorb rebuilds (rank 9) already in the list from being read as
+// preceding a split (rank 3).
 //
-// This is complete only because SCOPED_PLANNERS is itself in ascending rank order,
-// so by the time a planner runs, every operation that could precede one of its own
-// has already been produced. A planner inserted out of that order would have its
-// predecessors' operations invisible here, and the false "check that path for a
-// typo" decline would be back.
+// COMPLETENESS, which is the whole value of this list, rests on the two halves of the
+// SCOPED_PLANNERS contract and on nothing about source position. Take any operation o
+// in the finished plan with rank(o) <= rank(kind). The planner Q that emitted it
+// declared a governing rank no higher than rank(o) (the emit-side half), and the
+// planner P asking here declared one no lower than rank(kind) (the check-side half),
+// so rank(Q) <= rank(o) <= rank(kind) <= rank(P). Three cases, and each one lands:
+//
+//   rank(Q) < rank(P)   Q ran earlier, so o is in ctx.planned.
+//   Q is P              o is in `pending`, unless it belongs to a LATER item of P, in
+//                       which case it runs after the operation being checked and is
+//                       correctly absent. No planner pushes its own item's operations
+//                       before checking them, so a check never sees its own.
+//   rank(Q) == rank(P), Q ran either before P, so o is in ctx.planned and does run
+//   Q is not P          first, or after P, in which case o runs after P's operations
+//                       and is correctly absent.
+//
+// The last two cases are the ones the <= above is for; both come out right for the
+// same stability reason.
 function precedingOperations(ctx, kind, pending) {
   const limit = APPLY_ORDER.indexOf(kind);
+  // The check-side half of the contract, asserted where it is actually relied on and
+  // against the kind actually asked about. A planner asking about a rank ABOVE its own
+  // declared one is asking a question this list cannot answer: the planners that emit
+  // those ranks have not run yet, so the answer comes back "nothing is there" for a
+  // path a later operation puts in place, which is the false typo decline in its
+  // original form. Silent when ctx carries no running planner, which is the
+  // undetermined case rather than a violation: buildScopedPlan sets it for every
+  // planner it calls, and a direct call from a test has no position to check against.
+  if (ctx && typeof ctx.plannerRank === "number" && limit > ctx.plannerRank) {
+    throw new Error(
+      `The ${ctx.plannerKey} planner asked about operations preceding ${JSON.stringify(kind)} ` +
+        `(rank ${limit}), but it is declared in SCOPED_PLANNERS at rank ${ctx.plannerRank}, so the planners ` +
+        "that emit the ranks between the two have not run yet and this answer would be incomplete. Either ask " +
+        "with a kind at or below the declared one, or declare the planner at the rank it reasons about."
+    );
+  }
   return [...list(ctx && ctx.planned), ...list(pending)]
     .filter((o) => o && typeof o === "object" && APPLY_ORDER.indexOf(o.op) <= limit)
     .sort((a, b) => APPLY_ORDER.indexOf(a.op) - APPLY_ORDER.indexOf(b.op));
@@ -961,9 +1069,34 @@ function planMovedOnto(o, target) {
   return null;
 }
 
+// Whether an operation takes whatever is at `target` AWAY, leaving the path empty.
+//
+// The frees half of the model, and the same rule findDestinationCollisions' `vacated`
+// applies: only an operation carrying BOTH a from and a to vacates anything, because
+// an in-place edit carries a from and no to exactly to say it leaves the file where it
+// is. So split-folder, which carries `from: folder` and no `to`, does not vacate its
+// own folder, which is correct: the folder survives the split and now holds the
+// buckets. absorb-folder's folder-level pair is excluded for the same reason it is
+// excluded from destinationEntriesOf and from planMovedOnto: it never moves that pair
+// as a unit, it moves each enumerated file, which the loop below covers.
+//
+// The prefix branch mirrors planMovedOnto's, and for the same mechanical reason: `git
+// mv` on a folder takes every path beneath it away. The per-file loop matches exactly
+// rather than by prefix, symmetrically with planMovedOnto, so a bucket article that is
+// itself a directory is not credited with freeing the paths inside it.
+function planVacates(o, target) {
+  for (const a of articleMovesOf(o)) {
+    if (a.from && a.to && toPosix(a.from) === target) return true;
+  }
+  if (o.op === "absorb-folder" || !o.from || !o.to) return false;
+  const from = toPosix(o.from);
+  return target === from || target.startsWith(`${from}/`);
+}
+
 // Where a path a scope names will have come FROM by the time the operation naming
-// it runs: `{path}` to ask the disk about, or `{creates}` when an earlier operation
-// in the same plan makes it out of nothing.
+// it runs: `{path}` to ask the disk about, `{creates}` when an earlier operation in
+// the same plan makes it out of nothing, or `{vacated}` when one takes away whatever
+// is there now and nothing puts anything back.
 //
 // existsSync alone reasons about the tree as it is, not as it will be when the
 // operation runs, and APPLY_ORDER is a dependency order, so a scope combining a
@@ -973,10 +1106,30 @@ function planMovedOnto(o, target) {
 // that path for a typo", for an index the relocate-path creates eight ranks earlier,
 // and the remedy that message implies is editing a scope which was already correct.
 //
-// This is the mirror image of findDestinationCollisions' `vacated`, and follows its
-// shape: that one asks which paths an operation FREES before a later one writes
-// them, this one asks which paths an operation FILLS before a later one reads them,
-// and both answer from the plan rather than from the disk.
+// BOTH DIRECTIONS, because the callers ask in both. findDestinationCollisions' own
+// plan-aware half asks which paths an operation FREES before a later one writes them;
+// the fills half here asks which paths an operation puts something at before a later
+// one reads them. Modelling fills alone was measurably wrong in the other direction:
+// namedPathPresent is the one check that wants a path ABSENT, and with frees unmodelled
+// it refused a bucket name an earlier operation vacates. Reachable, and a false refusal
+// the fills half introduced: `pathMoves [{A -> B}, {B/x -> D}]` plus `splitFolders
+// {folder: B, buckets: [{name: x}]}` had the rewind map B/x back to A/x, which exists,
+// and declined the entry with "That subfolder already exists" about a path that will be
+// free by the time the rank-3 split runs. See planVacates.
+//
+// NEITHER DIRECTION MODELS THE SKIP, and that is a limit rather than an oversight.
+// findDestinationCollisions withholds vacate credit from an operation whose source is
+// git-ignored, because the apply phase will skip it and the source will never move;
+// this function cannot ask that question at all, since prechecks.ignored is computed
+// from the finished plan, after every planner has run. So a path freed only by an
+// operation that turns out to be skipped reads as free here, and a path filled only by
+// one that turns out to be skipped reads as filled. What each costs is not symmetric.
+// In the present direction the answer is a decline, which is a plan nobody applies. In
+// the absent direction a bucket folder left in place by a skipped move is planned into,
+// and the collision half catches that only if one of the names moving in is already
+// inside it. Reaching it takes a git-ignored source at the exact path a bucket names,
+// which is why this is disclosed rather than guarded: the input that would settle it
+// does not exist yet at plan time.
 //
 // REWINDING rather than collecting the set of paths the plan will have created,
 // because the two differ exactly where the check earns its keep. A directory move
@@ -989,6 +1142,17 @@ function planMovedOnto(o, target) {
 // Walked in reverse rank order so a chain rewinds: misc -> notes in one entry and
 // notes/Odds.md -> somewhere else in another leaves each path resolving to where it
 // sits today.
+//
+// That direction is also what makes the frees answer right without a second pass. A
+// free is only the final word if no LATER operation put something back, and by the time
+// the walk reaches an operation, every later one has already been considered: had one
+// filled this path, the target would have been rewound to a different path and this
+// operation would no longer be asked about it. So a free found here is a path that is
+// still empty when the checked operation runs. For the same reason a fill wins over a
+// free within one operation and the walk moves on rather than asking: what the path
+// holds after the operation is what was moved onto it. No operation shape can do both
+// to one path anyway, since a from and a to are never equal and the per-file lists of
+// an absorb or a split draw their sources and destinations from different folders.
 function planResolve(ctx, rel, kind, pending) {
   let target = toPosix(rel);
   const preceding = precedingOperations(ctx, kind, pending);
@@ -996,7 +1160,11 @@ function planResolve(ctx, rel, kind, pending) {
     const creates = planCreatesOutright(preceding[i], target);
     if (creates) return { creates };
     const moved = planMovedOnto(preceding[i], target);
-    if (moved) target = moved;
+    if (moved) {
+      target = moved;
+      continue;
+    }
+    if (planVacates(preceding[i], target)) return { vacated: true };
   }
   return { path: target };
 }
@@ -1021,6 +1189,11 @@ function planResolve(ctx, rel, kind, pending) {
 // a directory still moves correctly through `git mv`.
 function namedPathSatisfies(ctx, rel, kind, pending, wants) {
   const at = planResolve(ctx, rel, kind, pending);
+  // Nothing of any kind is there, so no `wants` is satisfied, and every caller reads
+  // that correctly: the absent-direction check plans the bucket whose name is now free,
+  // and the three present-direction ones decline a path an earlier operation carried
+  // away rather than planning an operation that fails after the snapshot.
+  if (at.vacated) return false;
   if (at.creates) return wants === "any" || at.creates === wants;
   let st;
   try {
@@ -1051,9 +1224,9 @@ const namedPathNotAFolder = (ctx, rel, kind, pending) =>
 // undetermined verdict rather than either yes or no. It also routes the raw
 // path.resolve through the same guard: with no projectRoot that call throws a
 // TypeError, and the planner has no business crashing on a scope it could simply
-// decline to check. Plan-aware in the same direction: a bucket folder an earlier
-// operation moves something onto is occupied by the time the split runs, whatever
-// the disk says now.
+// decline to check. Plan-aware in both directions: a bucket folder an earlier
+// operation moves something onto is occupied by the time the split runs, and one an
+// earlier operation carries away is free by then, whatever the disk says now.
 const namedPathPresent = (ctx, rel, kind, pending) =>
   Boolean(ctx.rootUsable) && Boolean(rel) && namedPathSatisfies(ctx, rel, kind, pending, "any");
 
@@ -1080,20 +1253,51 @@ export function buildScopedPlan({ projectRoot, settings, baseRules, scope }) {
     planned: operations,
   };
 
+  // In declared rank order, NOT in the order the entries are written. See
+  // SCOPED_PLANNERS for why the order is load-bearing and scopedPlannerSequence for
+  // how it is derived.
+  //
   // The scope KEY is handed to the planner as well as its items, because every
   // operation an entry emits is stamped with an id built from that key and the
   // entry's index. See groupIdFor and groupsOf.
-  for (const [key, planner] of SCOPED_PLANNERS) {
+  for (const [key, planner, kind] of scopedPlannerSequence()) {
     const items = list(ctx.scope[key]);
     if (items.length === 0) continue;
+    // The running planner's declared position, so precedingOperations can check the
+    // check-side half of the contract at the moment of the check. On ctx rather than a
+    // fifth argument threaded through five predicates, because every one of them
+    // already carries ctx and none of them should have to grow a parameter to reach a
+    // fact about which planner is running.
+    ctx.plannerKey = key;
+    ctx.plannerRank = applyRank(kind);
     const out = planner(items, ctx, key);
-    operations.push(...list(out.operations));
+    const emitted = list(out.operations);
+    // The emit-side half, verified against what the planner ACTUALLY emitted rather
+    // than trusted from its declaration. A declaration that disagrees with the kinds
+    // its planner emits is the same hazard as a mis-ordered array: an operation ranked
+    // BELOW where this planner ran was produced after every planner that could have
+    // needed to see it, and there is no symptom, because the sort below still hands
+    // applyPlan a plan in dependency order. The only trace is the checks that already
+    // ran against a list this operation was missing from.
+    for (const o of emitted) {
+      if (o && typeof o === "object" && applyRank(o.op) < ctx.plannerRank) {
+        throw new Error(
+          `The ${key} planner emitted a ${JSON.stringify(o.op)} operation (rank ${applyRank(o.op)}), but it is ` +
+            `declared in SCOPED_PLANNERS as ${JSON.stringify(kind)} (rank ${ctx.plannerRank}). A planner runs at its ` +
+            "declared rank, so every planner that reasons about the lower rank has already run and cannot see this " +
+            "operation. Declare the planner as the LOWEST-ranked kind it emits."
+        );
+      }
+    }
+    operations.push(...emitted);
     declined.push(...list(out.declined));
   }
 
-  // The result is sorted into APPLY_ORDER rather than trusted to arrive that
-  // way, because SCOPED_PLANNERS is edited by hand and a planner added in the
-  // wrong slot would produce a plan applyPlan refuses, with a message about
+  // The result is sorted into APPLY_ORDER rather than trusted to arrive that way,
+  // because a planner emits several kinds: absorbFolders runs at rank 2 and produces a
+  // rank-9 rebuild, splitFolders runs at rank 3 and produces a rank-7 create-index, so
+  // the accumulated list is in no single order even when every planner ran in the right
+  // place. Without this, applyPlan would refuse the plan with a message about
   // dependency order that would read as a bug in the DM's scope.
   operations.sort((a, b) => APPLY_ORDER.indexOf(a.op) - APPLY_ORDER.indexOf(b.op));
 
