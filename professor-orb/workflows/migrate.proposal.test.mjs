@@ -495,6 +495,171 @@ const CONVENTIONS = {
   check("and nothing is reported as changed", r.changes, []);
 }
 
+{
+  // MINOR 1, the DM-facing line. A setting recording ONE prong root was still
+  // told all three were repointed, and a registry path the name does not appear
+  // in was still told it "follows the name" when nothing about it changed. Both
+  // land in the /migrate report, so both were reporting work that did not happen.
+  const oneRoot = { settings: [{ name: "rolara", kbRoot: "settings/rolara" }] };
+  const r = conventionsAfterScope(oneRoot, { settingRenames: [{ from: "rolara", to: "prime" }] });
+  check("the change line names the roots actually repointed, not three of them",
+    [/repointed every prong root it records \(kbRoot\)/.test(r.changes[0]), /all three/.test(r.changes[0])],
+    [true, false]);
+}
+
+{
+  const noMatch = JSON.parse(JSON.stringify(CONVENTIONS));
+  noMatch.settings[0].tagRegistryPath = ".professor-orb/tag-registry.json";
+  const r = conventionsAfterScope(noMatch, { settingRenames: [{ from: "rolara", to: "prime" }] });
+  check("a registry path the name does not appear in is reported unchanged, not as following the name",
+    [
+      r.conventions.settings[0].tagRegistryPath,
+      /is unchanged/.test(r.changes[0]),
+      /follows the name/.test(r.changes[0]),
+    ],
+    [".professor-orb/tag-registry.json", true, false]);
+}
+
+{
+  // MINOR 2. A setting whose name is also a file extension. The dot-delimited
+  // basename rewrite matched the extension too, so ".../tag-registry.json.json"
+  // came back as ".../tag-registry.ledger.ledger": a path with no extension at
+  // all, pointing at a file that is not there.
+  const named = {
+    settings: [
+      {
+        name: "json",
+        kbRoot: "settings/json",
+        tagRegistryPath: ".professor-orb/tag-registry.json.json",
+      },
+    ],
+  };
+  const r = conventionsAfterScope(named, { settingRenames: [{ from: "json", to: "ledger" }] });
+  check("a name that is also a file extension does not rewrite the extension",
+    r.conventions.settings[0].tagRegistryPath, ".professor-orb/tag-registry.ledger.json");
+  check("and the directory component is still left alone",
+    r.conventions.settings[0].kbRoot, "settings/ledger");
+}
+
+console.log("\n=== conventions after a scope: what RAN, not what was asked for ===");
+
+// The third argument is the operations that actually applied. Without it this
+// function has to assume the whole scope ran, and a scope entry that was declined
+// at plan time or skipped at apply time still rewrote conventions.json to prong
+// roots nothing created. See conventionsAfterScope's own header for the rule.
+const RENAME = { settingRenames: [{ from: "rolara", to: "prime" }] };
+const ranOp = (from, to, group) => ({
+  op: "relocate-prong",
+  from,
+  to,
+  applied: true,
+  detail: "Relocated with git mv (direct).",
+  groups: [group],
+});
+const FULL_RENAME = [
+  ranOp("settings/rolara", "settings/prime", "settingRenames[0]"),
+  ranOp("homebrew/rolara", "homebrew/prime", "settingRenames[0]"),
+  ranOp("session-reports/rolara", "session-reports/prime", "settingRenames[0]"),
+];
+
+{
+  // THE HEADLINE CASE. One git-ignored prong root declines the whole entry, so
+  // all three moves are declined and the plan applies nothing. The conventions
+  // file must come back exactly as it went in: the tree it describes is still
+  // the tree on disk.
+  const r = conventionsAfterScope(CONVENTIONS, RENAME, []);
+  check("a rename whose every operation was declined leaves the file untouched", r.conventions, CONVENTIONS);
+  check("...and reports no change to the DM", r.changes, []);
+}
+
+{
+  // Some but not all. The homebrew move failed after the two others landed, and
+  // applyPlan does not roll back, so two folders are at the new name and one is
+  // still at the old. Each root is recorded where its folder actually IS.
+  const partial = [
+    ranOp("settings/rolara", "settings/prime", "settingRenames[0]"),
+    ranOp("session-reports/rolara", "session-reports/prime", "settingRenames[0]"),
+  ];
+  const r = conventionsAfterScope(CONVENTIONS, RENAME, partial);
+  const s = r.conventions.settings[0];
+  check("a root whose move did not apply keeps the path its folder is still at",
+    [s.kbRoot, s.homebrewRoot, s.sessionReportsRoot],
+    ["settings/prime", "homebrew/rolara", "session-reports/prime"]);
+  check("...and the change line names it rather than claiming it moved",
+    /homebrewRoot \(homebrew\/rolara\) did not move/.test(r.changes[0]), true);
+}
+
+{
+  // Recorded from the operation that ran, not from the scope. A proposal file the
+  // DM edited can send a prong somewhere the scope's own arithmetic never would,
+  // and the file has to describe where the folder went, not where it was aimed.
+  const edited = [ranOp("settings/rolara", "worlds/prime", "settingRenames[0]")];
+  const r = conventionsAfterScope(CONVENTIONS, RENAME, edited);
+  check("a root is recorded where the operation actually put it",
+    r.conventions.settings[0].kbRoot, "worlds/prime");
+}
+
+{
+  // The gate is keyed on the entry's OWN group id. An operation belonging to a
+  // different entry under the same key does not license this one.
+  const two = {
+    settings: [
+      { name: "karsk", kbRoot: "settings/karsk" },
+      { name: "rolara", kbRoot: "settings/rolara" },
+    ],
+  };
+  const r = conventionsAfterScope(
+    two,
+    { settingRenames: [{ from: "karsk", to: "karsk-two" }, { from: "rolara", to: "prime" }] },
+    [ranOp("settings/karsk", "settings/karsk-two", "settingRenames[0]")]
+  );
+  check("one entry running does not record a second entry that did not",
+    [r.conventions.settings[0].name, r.conventions.settings[1].name, r.changes.length],
+    ["karsk-two", "rolara", 1]);
+}
+
+{
+  const r = conventionsAfterScope(CONVENTIONS, { settingRetirements: [{ setting: "rolara" }] }, []);
+  const s = r.conventions.settings[0];
+  check("a retirement whose every operation was declined does not mark the setting retired",
+    [s.retired, s.kbRoot, r.changes.length], [undefined, "settings/rolara", 0]);
+}
+
+{
+  const r = conventionsAfterScope(
+    CONVENTIONS,
+    { campaignRetirements: [{ setting: "rolara", campaign: "karsk" }] },
+    []
+  );
+  const s = r.conventions.settings[0];
+  check("a campaign retirement that did not run leaves the campaign in the active list",
+    [s.campaigns, s.retiredCampaigns, r.changes.length], [["karsk"], undefined, 0]);
+}
+
+{
+  // Retypes stay UNCONDITIONAL. Extending the type enum records the values the
+  // scope introduced rather than a folder that moved, and an enum carrying a value
+  // no article uses costs nothing, while an enum missing one fails the write-time
+  // hook on output the migration itself produced. Tasks 13 and 14 add cases to
+  // this function; this is the line that says which side of the gate they go on.
+  const r = conventionsAfterScope(
+    CONVENTIONS,
+    { retypes: [{ files: ["a.md"], typeFrom: "Person", typeTo: "Character" }] },
+    []
+  );
+  check("a retype extends the enum even when nothing in the plan applied",
+    r.conventions.settings[0].rules.frontmatterTypeEnum.extendedBy, ["Character"]);
+}
+
+{
+  // TWO-ARGUMENT COMPATIBILITY, stated as a property rather than left to the
+  // cases above: an omitted third argument means "the whole scope ran", so it must
+  // equal the same call handed every operation the scope emits, changes text and all.
+  check("omitting the third argument is the same as being told everything applied",
+    conventionsAfterScope(CONVENTIONS, RENAME),
+    conventionsAfterScope(CONVENTIONS, RENAME, FULL_RENAME));
+}
+
 console.log(`\n${passed} passed, ${failures.length} failed`);
 if (failures.length > 0) {
   for (const f of failures) console.log(`  FAILED: ${f}`);

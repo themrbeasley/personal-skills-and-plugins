@@ -82,7 +82,7 @@ If the DM approved predecessor removal at Step 1, remove the predecessor's insta
 
 ## Step 6: move any existing conventions.json aside
 
-Read its rules, its extras layer, and its per-rule enforcement levels into memory **first**. Then move the file to `.professor-orb/conventions.json.pre-migration`, which the snapshot has already captured.
+Read its rules, its extras layer, and its per-rule enforcement levels into memory **first**, together with any `retired` or `retiredCampaigns` field a settings entry carries. Those two are `/migrate`'s to write and Step 12 carries them forward unchanged; once the file is aside they are the only record that a world or a campaign was retired. Then move the file to `.professor-orb/conventions.json.pre-migration`, which the snapshot has already captured.
 
 `conventions.json` exists on disk at no point between this step and Step 12. That is what keeps the write-time hook silent through the migration on **resync** as well as on a first run, and resync is the path an established project takes. Without it the hook is armed for every write the migration makes, blocking on rule violations and dispatching autofixes that race the migration's own edits.
 
@@ -157,7 +157,7 @@ AskUserQuestion is mandatory for this confirmation. Do not write `conventions.js
 
 ## Step 12: write the .professor-orb/ artifacts
 
-- **`conventions.json`**: the approved rules, in the exact shape documented in `references/conventions-schema.md`. It is a v3 file: a `settings` array, with `kbRoot`, `homebrewRoot`, `sessionReportsRoot`, `campaigns`, `tagRegistryPath`, and `rules` inside each setting. Copy `schemaVersion` from the `schemaVersion` of `references/base-rules.json`; it is what lets a later run detect that the base rule set has moved on, so a file written without it defeats its own purpose.
+- **`conventions.json`**: the approved rules, in the exact shape documented in `references/conventions-schema.md`. It is a v3 file: a `settings` array, with `kbRoot`, `homebrewRoot`, `sessionReportsRoot`, `campaigns`, `tagRegistryPath`, and `rules` inside each setting. Copy `schemaVersion` from the `schemaVersion` of `references/base-rules.json`; it is what lets a later run detect that the base rule set has moved on, so a file written without it defeats its own purpose. **On a resync, carry any `retired` or `retiredCampaigns` field forward from what Step 6 read, exactly as it stood.** Setup never authors either one; `/migrate` writes them when it retires a setting or a campaign, and a resync that regenerated the entry without them would silently un-retire a world the DM retired and lose the record of which campaigns were retired. See the schema reference's note on both fields.
 - **`pipeline-state.json`**: an empty initial state, `{}`. Setup does not write a `lastStep` here; setup is not a pipeline step, it is the prerequisite the pipeline runs on top of. On a resync, leave this file untouched.
 - **A tag registry per setting**, at each setting's `tagRegistryPath`. Scan that setting's KB article frontmatter for `tags` fields and build a flat object mapping each tag name to a rough count of how many articles use it, for example `{"npc": 12, "faction": 6}`. This is a quick scan for a starting inventory, not an exhaustive audit; the validation sweep regenerates these files properly later.
 - **`proposals/`**: an empty directory where the chronicler skill will later write lore-update proposals for DM review. On a resync, leave it and its contents untouched.

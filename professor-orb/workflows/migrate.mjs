@@ -3238,10 +3238,18 @@ export function parseProposal(text) {
 // Pure: the argument is never mutated, because the caller holds the file it
 // moved aside and must be able to fall back to it unchanged if this returns
 // something it does not like.
-export function conventionsAfterScope(conventions, scope) {
+//
+// `applied` is OPTIONAL and is the operations that actually ran: applyPlan's
+// `result.applied`. Omitted, this function has to assume the whole scope ran,
+// which is what it did before the argument existed and what every two-argument
+// caller still gets, byte for byte. Handed the applied operations, the
+// setting-lifecycle cases below record only what those operations demonstrate.
+// See appliedGate for the rule and for why the scope alone is not enough.
+export function conventionsAfterScope(conventions, scope, applied) {
   const changes = [];
   const next = JSON.parse(JSON.stringify(conventions || {}));
   const s = scope || {};
+  const gate = appliedGate(applied);
 
   // Retypes extend the type enum. frontmatterTypeEnum ships at enforcement
   // block, so an article retyped to a value the enum does not carry fails the
@@ -3270,61 +3278,74 @@ export function conventionsAfterScope(conventions, scope) {
     }
   }
 
-  // A rename repoints the name, all three prong roots, and the tag registry.
-  // Every one of them, or the file describes a world that is half where it says.
-  for (const item of list(s.settingRenames)) {
+  // A rename repoints the name, the prong roots that moved, and the tag registry.
+  for (const [i, item] of list(s.settingRenames).entries()) {
     const from = String((item && item.from) || "");
     const to = String((item && item.to) || "");
     const setting = settingNamed(next.settings, from);
     // The same three conditions planSettingRenames declines on, so this half
     // cannot record a rename the plan half refused to plan.
     if (!setting || !to || to === from) continue;
-    for (const [field] of PRONG_FIELDS) {
-      if (!setting[field]) continue;
-      setting[field] = rootRenamedTo(setting[field], to);
-    }
-    if (typeof setting.tagRegistryPath === "string") {
-      setting.tagRegistryPath = renamePathComponents(setting.tagRegistryPath, from, to);
+    // Nothing this entry asked for ran, so nothing about it is recorded.
+    if (gate && !gate.ran(groupIdFor("settingRenames", i))) continue;
+    const moved = repointProngs(setting, groupIdFor("settingRenames", i), gate, (root) =>
+      rootRenamedTo(root, to)
+    );
+    // The tag registry follows the NAME rather than an applied operation, and it
+    // is the one path here that does. No operation moves it: it is a derived
+    // inventory the validation sweep regenerates at whatever path this file names,
+    // and the write-time hook's tag check returns undetermined rather than a
+    // violation while the file is absent, so pointing it at the new name costs a
+    // quiet check until the sweep /migrate's report recommends runs again.
+    const registryBefore = typeof setting.tagRegistryPath === "string" ? setting.tagRegistryPath : null;
+    if (registryBefore !== null) {
+      setting.tagRegistryPath = renamePathComponents(registryBefore, from, to);
     }
     setting.name = to;
     changes.push(
-      `Renamed setting ${from} to ${to} and repointed all three prong roots.` +
-        (typeof setting.tagRegistryPath === "string"
-          ? ` The tag registry path follows the name: ${setting.tagRegistryPath}.`
-          : " This setting records no tag registry path, so there was none to repoint.")
+      `Renamed setting ${from} to ${to} and ${repointedPhrase(moved)}.` +
+        (registryBefore === null
+          ? " This setting records no tag registry path, so there was none to repoint."
+          : setting.tagRegistryPath === registryBefore
+            ? ` The tag registry path does not contain the name, so it is unchanged: ${registryBefore}.`
+            : ` The tag registry path follows the name: ${setting.tagRegistryPath}.`)
     );
   }
 
-  for (const item of list(s.settingRetirements)) {
+  for (const [i, item] of list(s.settingRetirements).entries()) {
     const name = String((item && item.setting) || "");
     const setting = settingNamed(next.settings, name);
     if (!setting) continue;
+    if (gate && !gate.ran(groupIdFor("settingRetirements", i))) continue;
     const archiveRoot = toPosix((item && item.archiveRoot) || "") || "archive";
-    for (const [field, folder] of PRONG_FIELDS) {
-      if (!setting[field]) continue;
-      // The name as the SCOPE gave it. It equals setting.name here by
-      // construction, since that is what settingNamed matched on, and it is
-      // written this way because it is also the name planSettingRetirements built
-      // its destinations from: both halves read one source for the archive path.
-      setting[field] = `${archiveRoot}/${name}/${folder}`;
-    }
+    // The name as the SCOPE gave it. It equals setting.name here by construction,
+    // since that is what settingNamed matched on, and it is written this way
+    // because it is also the name planSettingRetirements built its destinations
+    // from: both halves read one source for the archive path.
+    const moved = repointProngs(
+      setting,
+      groupIdFor("settingRetirements", i),
+      gate,
+      (root, field) => `${archiveRoot}/${name}/${prongFolderFor(field)}`
+    );
     // MARKED, never deleted. Deleting the entry destroys the record that this
     // world existed, and every session report, article, and homebrew entry under
     // the archive would then belong to no setting at all: unattributed to the
     // validation sweep, unresolvable to /scribe and /log.
     setting.retired = true;
     changes.push(
-      `Marked setting ${name} retired and repointed its roots into ${archiveRoot}/. The entry is kept, not deleted: ` +
-        "everything under the archive would otherwise belong to no setting at all."
+      `Marked setting ${name} retired and ${repointedPhrase(moved, `into ${archiveRoot}/`)}. The entry is kept, ` +
+        "not deleted: everything under the archive would otherwise belong to no setting at all."
     );
   }
 
   // A retired campaign leaves the active list and is RECORDED, for the same
   // reason a retired setting's entry is kept rather than deleted.
-  for (const item of list(s.campaignRetirements)) {
+  for (const [i, item] of list(s.campaignRetirements).entries()) {
     const setting = settingNamed(next.settings, item && item.setting);
     const campaign = String((item && item.campaign) || "");
     if (!setting || !campaign) continue;
+    if (gate && !gate.ran(groupIdFor("campaignRetirements", i))) continue;
     const before = list(setting.campaigns);
     const named = (c) => (typeof c === "string" ? c : c && c.name);
     // Only a campaign the setting ACTUALLY lists, which is the same condition
@@ -3343,8 +3364,139 @@ export function conventionsAfterScope(conventions, scope) {
   // Tasks 13 and 14 add the remaining setting-lifecycle cases here. Task 13 adds
   // a setting split, which adds a settings entry. Task 14 adds a setting merge,
   // which removes one. Task 15 does not touch this function.
+  //
+  // BOTH GO INSIDE THE GATE, on the same two lines the three cases above use: a
+  // `gate && !gate.ran(groupIdFor(<key>, i))` skip at the top of the entry, and
+  // repointProngs rather than a hand-written loop for anything that moves. A merge
+  // has the higher stakes of the two, because the settings entry it removes cannot
+  // be recovered from the conventions file afterwards, so a merge whose moves were
+  // declined must remove nothing at all. Retypes stay OUTSIDE the gate, above,
+  // because extending the type enum records the values the scope introduced rather
+  // than a folder that moved.
 
   return { conventions: next, changes };
+}
+
+// What the applied operations say about a scope entry, or null when the caller
+// did not pass any.
+//
+// WHY THE SCOPE IS NOT ENOUGH. The scope is what the DM asked for. Between it and
+// the disk sit two filters that remove work without refusing the run: a plan-time
+// decline (a git-ignored prong root declines its whole scope entry, a recorded root
+// that is not on disk declines that prong) and an apply-time skip or failure. A plan
+// that resolved to no operations at all is not refused either, so a scope handed
+// here unfiltered can rewrite every prong root of a setting nothing touched. What
+// that costs is at the top of conventionsAfterScope: none of it announces itself as
+// a conventions problem.
+//
+// WHAT "SURVIVED" MEANS, and it is decided per OPERATION rather than per entry:
+//
+//   1. An entry counts as having happened at all when at least ONE operation
+//      carrying its group id applied. Zero means nothing moved, so nothing about
+//      that entry is recorded, not the name, not the retirement mark, not one root:
+//      the file the caller moved aside already describes the tree correctly.
+//   2. A recorded path is repointed only when an applied operation of that entry
+//      moved exactly that path, and it is repointed to where that operation
+//      actually put it rather than to where the scope said it would go.
+//
+// WHY NOT ALL-OR-NOTHING PER ENTRY, which is the tempting reading of "two of three
+// prongs moved is not a rename that happened". Because applyPlan does not roll back:
+// when the third `git mv` fails, the first two folders ARE at the new name. Skipping
+// the whole entry then leaves conventions.json pointing at two paths that no longer
+// exist, which is the exact failure this argument was added to prevent, only pointed
+// the other way. And it cannot be told apart from the ordinary case: a setting whose
+// homebrew folder does not exist yet has that prong declined at plan time, so two
+// operations are all the entry ever emitted, and an all-or-nothing rule would refuse
+// to record a rename that fully succeeded. Rule 2 is the only one that keeps every
+// recorded path a path an applied operation demonstrates. It cannot leave the file
+// describing a tree that does not exist, because it never writes a path no operation
+// reported reaching.
+//
+// The cost is disclosed rather than silent: repointedPhrase names every root that
+// did not move, and those lines are what Step 10 of /migrate reports to the DM.
+//
+// SCOPE OF THE RULE: paths an operation moves, which is every prong root and every
+// campaign folder. tagRegistryPath is not one of them and is argued where it is
+// written, in the rename case above.
+//
+// TOLERANT of a shape it did not produce, on the same asymmetry the rest of this
+// module runs on. A non-array (omitted, null, a caller that has no applied list)
+// yields null and every case records what the scope asked for, which is what this
+// function did before the argument existed. An entry with no group id licenses
+// nothing, which is the safe direction: a lost id costs a conventions update the DM
+// can re-run, while an invented one costs a file describing folders that are not there.
+function appliedGate(applied) {
+  if (!Array.isArray(applied)) return null;
+  const ran = new Set();
+  const moved = new Map();
+  for (const entry of applied) {
+    // `result.applied` holds only operations that applied, but a caller handing
+    // over a wider list must not have its failures read as successes.
+    if (!entry || typeof entry !== "object" || entry.applied === false) continue;
+    const from = toPosix(entry.from || "");
+    const to = toPosix(entry.to || "");
+    for (const id of groupsOf(entry)) {
+      ran.add(id);
+      // Keyed on the group AND the source path: two entries can move two roots,
+      // and a rename that moved one setting's kbRoot says nothing about another's.
+      if (from && to) moved.set(`${id}\n${from}`, to);
+    }
+  }
+  return {
+    ran: (id) => ran.has(id),
+    movedFrom: (id, from) => moved.get(`${id}\n${toPosix(from || "")}`) || null,
+  };
+}
+
+// Repoint the prong roots one lifecycle entry moves, and report what it did.
+//
+// Shared by the rename and the retirement, and by the split and merge Tasks 13 and
+// 14 add, so all of them read the applied set the same way rather than each
+// inventing a rule. `destinationFor` is consulted only when there is no gate, which
+// is the "assume the whole scope ran" path; with a gate the destination comes from
+// the operation that actually ran.
+//
+// Mutates the `setting` it is handed, which is already a deep clone of the caller's
+// file. conventionsAfterScope's purity rests on that clone and not on this.
+function repointProngs(setting, group, gate, destinationFor) {
+  const repointed = [];
+  const left = [];
+  for (const [field] of PRONG_FIELDS) {
+    const root = setting[field];
+    if (!root) continue;
+    const landed = gate ? gate.movedFrom(group, root) : destinationFor(toPosix(root), field);
+    if (!landed) {
+      left.push(`${field} (${toPosix(root)})`);
+      continue;
+    }
+    setting[field] = landed;
+    repointed.push(field);
+  }
+  return { repointed, left };
+}
+
+// What repointProngs did, in the DM's terms, for the `changes` array /migrate
+// reports in full.
+//
+// It counts rather than asserts. The line it replaced said "repointed all three
+// prong roots" whatever happened, so a setting recording one root was told about
+// three, and once the gate can leave a root behind that sentence would have been
+// reporting a move that failed as one that landed.
+function repointedPhrase(moved, into) {
+  const where = into ? ` ${into}` : "";
+  const names = moved.repointed.join(", ");
+  const total = moved.repointed.length + moved.left.length;
+  const head =
+    moved.repointed.length === 0
+      ? "repointed none of its prong roots"
+      : moved.left.length === 0
+        ? `repointed every prong root it records (${names})${where}`
+        : `repointed ${moved.repointed.length} of the ${total} prong roots it records (${names})${where}`;
+  if (moved.left.length === 0) return head;
+  const one = moved.left.length === 1;
+  return `${head}; ${moved.left.join(", ")} did not move and ${one ? "is" : "are"} left recorded where ${
+    one ? "it is" : "they are"
+  }`;
 }
 
 // The old setting name replaced inside a recorded path, by path COMPONENT rather
@@ -3363,23 +3515,30 @@ export function conventionsAfterScope(conventions, scope) {
 // rename of "rolara" while ".professor-orb" stays exactly where it is, and what
 // makes "settings/rolara/tags.json" follow the kbRoot it sits inside.
 //
+// THE EXTENSION IS NOT ONE OF THOSE PARTS. A setting may legitimately be named
+// after a file extension, and matching the basename's last piece rewrote
+// ".professor-orb/tag-registry.json.json" into ".professor-orb/tag-registry.j2.j2"
+// for a setting called "json": a path with no extension left, naming a file that
+// is not there. A name with no extension to hold back keeps every piece eligible,
+// which covers both a dotless basename and a leading-dot one like ".rolara".
+//
 // An empty old name replaces nothing. `"".split("")` is every character, and
 // joining those with the new name would rewrite the path into gibberish.
 function renamePathComponents(rel, from, to) {
   const source = toPosix(rel);
   if (!from) return source;
   const parts = source.split("/");
+  const last = parts.length - 1;
   return parts
-    .map((part, i) =>
-      i < parts.length - 1
-        ? part === from
-          ? to
-          : part
-        : part
-            .split(".")
-            .map((piece) => (piece === from ? to : piece))
-            .join(".")
-    )
+    .map((part, i) => {
+      if (i < last) return part === from ? to : part;
+      const pieces = part.split(".");
+      // A leading dot opens the basename rather than separating an extension, so
+      // ".rolara" is one piece with no extension while ".tags.json" has one.
+      const least = pieces[0] === "" ? 3 : 2;
+      const extensionAt = pieces.length >= least ? pieces.length - 1 : -1;
+      return pieces.map((piece, j) => (j !== extensionAt && piece === from ? to : piece)).join(".");
+    })
     .join("/");
 }
 
@@ -5625,8 +5784,22 @@ export function applyPlan(plan, options = {}) {
       });
       continue;
     }
-    if (entry.applied) result.applied.push(entry);
-    else result.failed.push(entry);
+    if (entry.applied) {
+      // The scope entry this operation came from, carried into the result because
+      // conventionsAfterScope's third argument is exactly this list and its whole
+      // question is which entries actually ran; see appliedGate.
+      //
+      // Read from the OPERATION rather than trusted from the worker, so a host
+      // dispatching its own workers cannot lose the id, and stamped only when there
+      // is one. Setup's unattended plan stamps no groups on anything, so groupsOf
+      // returns [] for every operation it emits and its entries come back byte for
+      // byte what they were before this field existed. Applied only: a failed or
+      // dropped operation is not evidence that anything moved, which is the only
+      // question this field answers.
+      const groups = groupsOf(record.op);
+      if (groups.length > 0) entry.groups = groups;
+      result.applied.push(entry);
+    } else result.failed.push(entry);
   }
   if (result.dropped.length > 0) {
     result.messages.push(

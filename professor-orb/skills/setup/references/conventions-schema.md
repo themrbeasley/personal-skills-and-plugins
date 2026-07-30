@@ -96,6 +96,20 @@ tag registry exists and where to find it; it does not embed the tag list.
       // see the note below.
       "campaigns": ["ashes-of-the-first-crown"],
 
+      // Written by /migrate, never by setup, and absent until a /migrate run
+      // retires something. Both are shown here so this document describes the
+      // whole shape a file on disk can have; see the note below on preserving
+      // them across a resync.
+      //
+      // true once /migrate has retired this world: its prong roots point into
+      // the archive and the lane commands stop offering it. The entry is MARKED
+      // rather than deleted, so the record that the world existed survives.
+      "retired": true,
+      // The campaigns /migrate has retired out of "campaigns", in the order it
+      // retired them. Their session reports still exist under the archive and
+      // still belong to this setting.
+      "retiredCampaigns": ["the-hollow-year"],
+
       // Where this setting's companion tag registry lives. The hook reads
       // this path when running any "tagVocabulary" check against an article
       // in this setting; conventions.json never embeds the tag list itself.
@@ -133,6 +147,20 @@ identical in every setting's `rules`; only `extendedBy` and the project rules di
 
 **`campaigns` is a cache, not the authority.** Lane resolution enumerates the
 filesystem under `sessionReportsRoot`; the array disambiguates and orders.
+
+**`retired` and `retiredCampaigns` are written by `/migrate`, and a resync must
+carry them forward rather than regenerate them away.** Setup never authors either
+field: they appear only after a `/migrate` setting retirement or campaign
+retirement has moved the corresponding folders under the archive root, and both
+are absent on a setting that has never been retired. Neither is optional to
+preserve. A retirement marks and never deletes, precisely so the record that a
+world or a campaign existed survives it; a resync that rewrote the settings entry
+from scratch would silently un-retire the setting, drop the list of retired
+campaigns, and leave everything under the archive belonging to no setting at all,
+which is unattributed to the validation sweep and unresolvable to `/scribe` and
+`/log`. When resyncing a file that carries either field, copy it across
+unchanged, alongside the prong roots, which by then point into the archive and
+are equally not setup's to recompute.
 
 A file with a bare top-level `kbRoot` and no `settings` array (versions 1 and 2) is
 still read, as a single unnamed setting whose other prong roots are unknown. That is

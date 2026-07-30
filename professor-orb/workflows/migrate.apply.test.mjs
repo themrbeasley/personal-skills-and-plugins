@@ -3536,6 +3536,41 @@ console.log("\n=== plan-side decline and apply-side skip stay one rule ===");
   });
 }
 
+console.log("\nAn applied entry carries the scope entry that emitted it");
+
+// The seam /migrate's Step 8 stands on. conventionsAfterScope is handed
+// result.applied and asks which scope entries actually ran; it can only ask that
+// if the group id survives the trip through applyPlan. Nothing else in this suite
+// would notice the id going missing, and the failure it would cause is silent:
+// every setting rename and retirement would stop updating conventions.json at all.
+withRepo(
+  {
+    "settings/rolara/items/Sword.md": article("publish: false\ntype: Item", "A blade."),
+    "settings/rolara/items/Items-INDEX.md": article("publish: false\ntype: Index", "- [[Sword]]"),
+    "homebrew/rolara/Spell.md": article("publish: false\ntype: Homebrew", "A cantrip."),
+  },
+  (root) => {
+    const r = apply(root, [
+      {
+        op: "relocate-prong",
+        from: "settings/rolara",
+        to: "settings/prime",
+        groups: ["settingRenames[0]"],
+        reason: "Setting rolara renamed to prime: its kbRoot moves with the name.",
+      },
+      // Setup's shape: the same kind, emitted by a planner that stamps no groups.
+      { op: "relocate-prong", from: "homebrew/rolara", to: "homebrew/prime", reason: "canonical layout" },
+    ]);
+    check("both relocations applied", [r.applied.length, r.failed.length, r.skipped.length], [2, 0, 0]);
+    check("the scoped one comes back naming the scope entry it belongs to",
+      r.applied[0].groups, ["settingRenames[0]"]);
+    // Setup's unattended migration emits this kind too, and its entries must be
+    // exactly what they were before the field existed: absent, not an empty array.
+    check("an operation with no group grows no field at all",
+      "groups" in r.applied[1], false);
+  }
+);
+
 console.log(`\n${passed} passed, ${failures.length} failed`);
 if (failures.length > 0) {
   for (const f of failures) console.log(`  FAILED: ${f}`);
