@@ -1277,12 +1277,15 @@ function splitFixture() {
 }
 
 // The one-article-one-home rail has to hold ACROSS scope entries, not only
-// within one. The fixture drops the folder's index deliberately: with it present
-// the two entries emit the same rebuild-index twice, and that in-plan collision
-// refuses the run before the double claim can do any harm, which masks the hazard
-// without fixing it. A folder with no index yet is an ordinary split candidate,
-// since "content with no index" is one of the things the sweep flags, and there
-// nothing masks it. Measured with the claim ledger scoped per entry: the plan
+// within one. The fixture drops the folder's index deliberately, and the reason has
+// since narrowed: back when planSplitFolders emitted one rebuild-index per entry
+// rather than deduping them, an index here made the two entries collide in-plan and
+// the run refused before the double claim could do any harm, which masked the
+// hazard without fixing it. The dedupe removes that masking, and the index-free
+// fixture is kept because it isolates the ledger from every other refusal path. A
+// folder with no index yet is an ordinary split candidate anyway, since "content
+// with no index" is one of the things the sweep flags. Measured with the claim
+// ledger scoped per entry: the plan
 // carried TWO moves of one file with the prechecks reporting ok, and applying it
 // moved Ashfall.md into north, failed the second split with "bad source", and left
 // a south bucket holding nothing but a freshly created index.
@@ -1416,6 +1419,239 @@ function splitFixture() {
     [r.prechecks.ok, list(r.prechecks.collisions).map((c) => [c.kind, c.op, c.to])],
     [false, [["on-disk", "relocate-path", "settings/rolara/locations/Karsk.md"]]]);
   rmSync(root, { recursive: true, force: true, maxRetries: 5 });
+}
+
+console.log("\n=== scoped plans: every path a scope names is checked at plan time ===");
+
+// The module's stated posture is that the prechecks run BEFORE the plan is shown
+// and that a plan which cannot execute is worse than no plan. The scoped planners
+// did not honour it: no planner did a per-article existsSync, so a DM typo in a
+// filename passed every precheck, produced a clean-looking proposal, and then
+// half-applied the partition before failing on the missing file. Measured on a
+// bucket naming Ashfal.md: prechecks ok true, one failed split entry, and the
+// paired create-index operations ran and committed empty bucket folders on top of
+// it.
+{
+  const root = splitFixture();
+  const r = scoped(
+    {
+      splitFolders: [
+        { folder: "settings/rolara/locations", buckets: [{ name: "north", articles: ["Ashfal.md"] }] },
+      ],
+    },
+    root
+  );
+  check("a bucket article that is not on disk is declined at plan time",
+    [r.operations.length, r.declined.length], [0, 1]);
+  check("and the reason names the path, so the typo is visible in the proposal",
+    String(obj(r.declined[0]).reason).includes("settings/rolara/locations/Ashfal.md"), true);
+  rmSync(root, { recursive: true, force: true });
+}
+
+{
+  const root = splitFixture();
+  const r = scoped(
+    {
+      splitFolders: [
+        { folder: "settings/rolara/lcoations", buckets: [{ name: "north", articles: ["Ashfall.md"] }] },
+      ],
+    },
+    root
+  );
+  check("a split folder that is not on disk is declined at plan time",
+    [r.operations.length, r.declined.length], [0, 1]);
+  check("and that reason names the folder",
+    String(obj(r.declined[0]).reason).includes("settings/rolara/lcoations"), true);
+  rmSync(root, { recursive: true, force: true });
+}
+
+{
+  const root = splitFixture();
+  const r = scoped(
+    {
+      pathMoves: [
+        { from: "settings/rolara/locations/Ashfal.md", to: "settings/rolara/north/Ashfal.md", reason: "DM scope" },
+      ],
+    },
+    root
+  );
+  check("a path move whose source is not on disk is declined at plan time",
+    [r.operations.length, r.declined.length], [0, 1]);
+  check("and names the missing source",
+    String(obj(r.declined[0]).reason).includes("settings/rolara/locations/Ashfal.md"), true);
+  rmSync(root, { recursive: true, force: true });
+}
+
+{
+  const root = splitFixture();
+  const r = scoped({ rebuildIndexes: [{ index: "settings/rolara/locations/Locatons-INDEX.md" }] }, root);
+  // rebuild-index is in DESTINATION_MAY_EXIST precisely because it edits an index
+  // that is supposed to be there already, so the collision half never checks it
+  // and applyRebuildIndex is left to discover the typo after the snapshot.
+  check("a rebuild whose index is not on disk is declined at plan time",
+    [r.operations.length, r.declined.length], [0, 1]);
+  check("and names the missing index",
+    String(obj(r.declined[0]).reason).includes("settings/rolara/locations/Locatons-INDEX.md"), true);
+  rmSync(root, { recursive: true, force: true });
+}
+
+{
+  // absorb-folder deliberately gains NO per-file check: every file it names comes
+  // out of readdirSync plus statSync, so the enumeration itself is the proof they
+  // exist, and a second existsSync there would be noise. Its one DM-supplied path
+  // is the folder, and the readdirSync it already does declines that. Pinned so
+  // the asymmetry between the planners is a decision rather than an oversight.
+  const root = absorbFixture();
+  const r = scoped({ absorbFolders: [{ folder: "settings/rolara/msic" }] }, root);
+  check("an absorb folder that is not on disk is already declined by the enumeration",
+    [r.operations.length, r.declined.length], [0, 1]);
+  rmSync(root, { recursive: true, force: true });
+}
+
+{
+  // The check is guarded on a USABLE project root, the same way
+  // findDestinationCollisions guards its own on-disk half. A planner re-run
+  // against a scope with no root on disk cannot answer the question, and
+  // answering "missing" there would decline every legitimate scope in the suite.
+  const r = scoped({
+    pathMoves: [{ from: "settings/rolara/A.md", to: "settings/rolara/people/A.md", reason: "x" }],
+  });
+  check("with no project root nothing is declined for not existing",
+    [kindsOf(r.operations), r.declined.length], [["relocate-path"], 0]);
+}
+
+console.log("\n=== scoped plans: one folder, two scope entries ===");
+
+// planAbsorbFolders dedupes its parent rebuild and planSplitFolders did not, so
+// two entries naming one folder emitted two rebuild-index operations with one
+// `to`. That is an in-plan collision by the generic rule, and the run refused
+// with a message about an index path rather than about the scope the DM wrote.
+{
+  const root = splitFixture();
+  const r = scoped(
+    {
+      splitFolders: [
+        { folder: "settings/rolara/locations", buckets: [{ name: "north", articles: ["Ashfall.md"] }] },
+        { folder: "settings/rolara/locations", buckets: [{ name: "south", articles: ["Karsk.md"] }] },
+      ],
+    },
+    root
+  );
+  check("two scope entries splitting one folder plan ONE parent rebuild",
+    kindsOf(r.operations),
+    ["split-folder", "split-folder", "create-index", "create-index", "rebuild-index"]);
+  check("and the planner does not hand its own prechecks a plan they refuse",
+    [r.declined.length, r.prechecks.ok, r.prechecks.collisions], [0, true, []]);
+  check("the surviving rebuild counts every bucket, not only the first entry's",
+    /2 subfolder/.test(String(find(r.operations, "rebuild-index").reason)), true);
+  rmSync(root, { recursive: true, force: true });
+}
+
+{
+  const root = splitFixture();
+  const r = scoped(
+    {
+      splitFolders: [
+        {
+          folder: "settings/rolara/locations",
+          buckets: [{ name: "north", articles: ["Ashfall.md", "Ashfall.md"] }],
+        },
+      ],
+    },
+    root
+  );
+  check("one bucket listing an article twice is declined",
+    [r.operations.length, r.declined.length], [0, 1]);
+  // The old message read "claimed by two buckets (locations/north and
+  // locations/north)", which names one bucket twice and describes a situation
+  // that did not happen.
+  const reason = String(obj(r.declined[0]).reason);
+  check("and the reason describes the real situation rather than naming one bucket twice",
+    [/two buckets/.test(reason), /same bucket/.test(reason)], [false, true]);
+  rmSync(root, { recursive: true, force: true });
+}
+
+console.log("\n=== scoped plans: scope-entry groups ===");
+
+// Every operation ONE scope entry emits carries the same `groups` id, so
+// applyPlan's skip pass can treat the entry as the unit rather than the single
+// operation. Plain JSON data on the operation rather than a closure or a symbol,
+// because the DM may hand-edit the plan file between the two phases and a later
+// task renders and re-parses it, so the id has to survive that round trip.
+{
+  const root = splitFixture();
+  const r = scoped(
+    {
+      splitFolders: [
+        {
+          folder: "settings/rolara/locations",
+          buckets: [
+            { name: "north", articles: ["Ashfall.md"] },
+            { name: "south", articles: ["Karsk.md"] },
+          ],
+        },
+      ],
+    },
+    root
+  );
+  check("every operation a split entry emits carries the same group id",
+    r.operations.map((o) => list(o.groups)),
+    [["splitFolders[0]"], ["splitFolders[0]"], ["splitFolders[0]"], ["splitFolders[0]"]]);
+  rmSync(root, { recursive: true, force: true });
+}
+
+{
+  const root = absorbFixture();
+  const r = scoped({ absorbFolders: [{ folder: "settings/rolara/misc" }] }, root);
+  check("an absorb entry stamps its parent rebuild with the same group id",
+    r.operations.map((o) => list(o.groups)),
+    [["absorbFolders[0]"], ["absorbFolders[0]"]]);
+  rmSync(root, { recursive: true, force: true });
+}
+
+{
+  // The parent rebuild two sibling absorbs share belongs to BOTH entries, so it
+  // carries both ids. applyPlan skips a multi-group operation only when every
+  // group it belongs to is skipped: dropping it because ONE of them was would
+  // leave the absorb that DID run with a parent index still linking the index it
+  // just removed, which is a dead wikilink and blocks the whole commit.
+  const root = absorbFixture();
+  writeAt(root, "settings/rolara/notes/Notes-INDEX.md", "---\ntype: Index\n---\n\n- [[Jot]]\n");
+  writeAt(root, "settings/rolara/notes/Jot.md", "---\ntype: Concept\n---\n\nBody.\n");
+  const r = scoped(
+    { absorbFolders: [{ folder: "settings/rolara/misc" }, { folder: "settings/rolara/notes" }] },
+    root
+  );
+  check("a rebuild two entries share carries both group ids",
+    list(find(r.operations, "rebuild-index").groups),
+    ["absorbFolders[0]", "absorbFolders[1]"]);
+  rmSync(root, { recursive: true, force: true });
+}
+
+{
+  const root = splitFixture();
+  const r = scoped(
+    {
+      pathMoves: [
+        { from: "settings/rolara/locations/Ashfall.md", to: "settings/rolara/north/Ashfall.md", reason: "x" },
+      ],
+      rebuildIndexes: [{ index: "settings/rolara/locations/Locations-INDEX.md" }],
+    },
+    root
+  );
+  check("the one-operation planners stamp a group too, so the shape is uniform",
+    r.operations.map((o) => list(o.groups)), [["pathMoves[0]"], ["rebuildIndexes[0]"]]);
+  rmSync(root, { recursive: true, force: true });
+}
+
+{
+  // Setup's unattended migration is untouched by the grouping: no setup planner
+  // stamps a group, so applyPlan's grouping pass is inert for every kind buildPlan
+  // emits. This is the same emission-site argument the last three tasks used, and
+  // it is pinned here rather than left to a grep.
+  const p = plan(FULL_SURVEY);
+  check("no setup operation carries a group",
+    p.operations.some((o) => Object.prototype.hasOwnProperty.call(o, "groups")), false);
 }
 
 console.log(`\n${passed} passed, ${failures.length} failed`);

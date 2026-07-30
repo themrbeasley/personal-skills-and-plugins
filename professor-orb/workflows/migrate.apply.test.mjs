@@ -2370,7 +2370,7 @@ withRepo(
         reason: "scope",
       },
     ]);
-    check("a split and its four paired index operations all apply",
+    check("a split and its three paired index operations all apply",
       [r.ok, r.applied.length], [true, 4]);
     // The index has to list what the split just put in the folder. Written
     // before the move it would list nothing, which is the ordering rule
@@ -2433,6 +2433,323 @@ withRepo(
       String(first(r.skipped).detail).includes("settings/rolara/locations/Hidden.md"), true);
   }
 );
+
+console.log("\n=== a skipped scope entry takes every operation it emitted with it ===");
+
+// The plan the PLANNER actually emits, not the bare operation. A split always
+// arrives with one create-index per bucket and a rebuild of the folder's own
+// index, and all four carry the split entry's group id. Measured before the
+// grouped skip: the split was skipped whole and correctly, and then its three
+// paired index operations ran anyway. applyCreateIndex writes through writeText,
+// whose recursive mkdirSync CREATED the two bucket folders the skipped split never
+// populated; the run reported ok true and committed them; and the planner then
+// declined the documented "unignore it and re-run the same scope" retry, because
+// those bucket folders now exist. The rebuild's reason also asserted that the
+// folder "was split into 2 subfolder(s)", which was false for that run.
+withRepo(
+  {
+    ".gitignore": "settings/rolara/locations/Hidden.md\n",
+    "settings/rolara/locations/Locations-INDEX.md": article("type: Index", "- [[Ashfall]]\n- [[Hidden]]"),
+    "settings/rolara/locations/Ashfall.md": article("type: Location", "Body."),
+    "settings/rolara/locations/Hidden.md": article("type: Location", "A draft the DM keeps out of git."),
+  },
+  (root) => {
+    const before = snapshotTree(root);
+    const group = ["splitFolders[0]"];
+    const r = apply(root, [
+      {
+        op: "split-folder",
+        from: "settings/rolara/locations",
+        buckets: [
+          {
+            folder: "settings/rolara/locations/north",
+            name: "north",
+            articles: [{ from: "settings/rolara/locations/Ashfall.md", to: "settings/rolara/locations/north/Ashfall.md" }],
+          },
+          {
+            folder: "settings/rolara/locations/south",
+            name: "south",
+            articles: [{ from: "settings/rolara/locations/Hidden.md", to: "settings/rolara/locations/south/Hidden.md" }],
+          },
+        ],
+        groups: group,
+        reason: "scope",
+      },
+      { op: "create-index", to: "settings/rolara/locations/north/North-INDEX.md", groups: group, reason: "scope" },
+      { op: "create-index", to: "settings/rolara/locations/south/South-INDEX.md", groups: group, reason: "scope" },
+      {
+        op: "rebuild-index",
+        to: "settings/rolara/locations/Locations-INDEX.md",
+        folder: "settings/rolara/locations",
+        groups: group,
+        reason: "scope",
+      },
+    ]);
+    check("a skipped split takes its paired index operations with it",
+      [r.ok, r.skipped.length, r.applied.length, r.failed.length], [true, 1, 0, 0]);
+    check("so no empty bucket folder is created and the documented retry stays possible",
+      [has(root, "settings/rolara/locations/north"), has(root, "settings/rolara/locations/south")],
+      [false, false]);
+    check("and the whole project is byte-identical", snapshotTree(root), before);
+    check("the one skip item accounts for every operation the entry emitted",
+      (first(r.skipped).ops || []).map((o) => o.op),
+      ["split-folder", "create-index", "create-index", "rebuild-index"]);
+    check("and the DM sees one item rather than four",
+      [r.skipped.length, /git-ignored/.test(String(first(r.skipped).detail))], [1, true]);
+  }
+);
+
+// The Task 3 shape of the same defect, carried in the finding ledger rather than
+// fixed there because the fix is this cross-cutting one. Measured before it: the
+// absorb was skipped whole, its paired parent rebuild ran anyway, and the parent
+// index lost [[Misc-INDEX]] while settings/rolara/misc was still sitting on disk
+// holding its own index. The rebuild's reason claimed the folder "was absorbed
+// into it", which was false for that run.
+withRepo(
+  {
+    ".gitignore": "settings/rolara/misc/Hidden.md\n",
+    "settings/rolara/Rolara-INDEX.md": article("type: Index", "- [[Misc-INDEX]]"),
+    "settings/rolara/misc/Misc-INDEX.md": article("type: Index", "- [[Odds]]"),
+    "settings/rolara/misc/Odds.md": article("type: Concept", "Body."),
+    "settings/rolara/misc/Hidden.md": article("type: Concept", "A draft the DM keeps out of git."),
+  },
+  (root) => {
+    const before = snapshotTree(root);
+    const group = ["absorbFolders[0]"];
+    const r = apply(root, [
+      {
+        op: "absorb-folder",
+        from: "settings/rolara/misc",
+        to: "settings/rolara",
+        articles: [
+          { from: "settings/rolara/misc/Odds.md", to: "settings/rolara/Odds.md" },
+          { from: "settings/rolara/misc/Hidden.md", to: "settings/rolara/Hidden.md" },
+        ],
+        index: "settings/rolara/misc/Misc-INDEX.md",
+        groups: group,
+        reason: "scope",
+      },
+      {
+        op: "rebuild-index",
+        to: "settings/rolara/Rolara-INDEX.md",
+        folder: "settings/rolara",
+        groups: group,
+        reason: "scope",
+      },
+    ]);
+    check("a skipped absorb takes its parent rebuild with it",
+      [r.ok, r.skipped.length, r.applied.length, r.failed.length], [true, 1, 0, 0]);
+    check("so the parent index still links the folder that survived",
+      read(root, "settings/rolara/Rolara-INDEX.md").includes("[[Misc-INDEX]]"), true);
+    check("and the whole project is byte-identical", snapshotTree(root), before);
+  }
+);
+
+// A hand-edited plan that LOST its group ids. The ids are plain JSON, so a DM can
+// delete them, and the decision is that a missing id degrades to per-operation
+// skipping, which is exactly the 1.6.0 behaviour, rather than widening a skip to
+// operations nothing connects it to.
+withRepo(
+  {
+    ".gitignore": "settings/rolara/locations/Hidden.md\n",
+    "settings/rolara/locations/Ashfall.md": article("type: Location", "Body."),
+    "settings/rolara/locations/Hidden.md": article("type: Location", "A draft the DM keeps out of git."),
+  },
+  (root) => {
+    const r = apply(root, [
+      {
+        op: "split-folder",
+        from: "settings/rolara/locations",
+        buckets: [
+          {
+            folder: "settings/rolara/locations/north",
+            name: "north",
+            articles: [{ from: "settings/rolara/locations/Hidden.md", to: "settings/rolara/locations/north/Hidden.md" }],
+          },
+        ],
+        reason: "hand-edited, group id deleted",
+      },
+      { op: "create-index", to: "settings/rolara/locations/north/North-INDEX.md", reason: "hand-edited" },
+    ]);
+    check("a plan whose group ids were edited away does not crash and does not widen the skip",
+      [r.refused, r.skipped.length, r.applied.length], [null, 1, 1]);
+  }
+);
+
+// A hand-edited plan that DUPLICATED a group id onto operations no scope entry
+// emitted together. That does widen the skip, because applyPlan cannot tell a
+// deliberate group from a duplicated id, so the widening is DISCLOSED instead: the
+// single report item names every operation it took with it.
+withRepo(
+  {
+    ".gitignore": "settings/rolara/editor-state/\n",
+    "settings/rolara/editor-state/scratch.md": article("type: Concept", "x"),
+    "settings/rolara/locations/Ashfall.md": article("type: Location", "Body."),
+  },
+  (root) => {
+    const before = snapshotTree(root);
+    const r = apply(root, [
+      {
+        op: "relocate-path",
+        from: "settings/rolara/editor-state/scratch.md",
+        to: "settings/rolara/notes/scratch.md",
+        groups: ["pathMoves[0]"],
+        reason: "hand-edited",
+      },
+      {
+        op: "relocate-path",
+        from: "settings/rolara/locations/Ashfall.md",
+        to: "settings/rolara/notes/Ashfall.md",
+        groups: ["pathMoves[0]"],
+        reason: "hand-edited, same id pasted twice",
+      },
+    ]);
+    check("a duplicated group id widens the skip rather than crashing",
+      [r.skipped.length, r.applied.length], [1, 0]);
+    check("and the report names every operation the widening took with it",
+      (first(r.skipped).ops || []).map((o) => o.to),
+      ["settings/rolara/notes/scratch.md", "settings/rolara/notes/Ashfall.md"]);
+    check("nothing moved", snapshotTree(root), before);
+  }
+);
+
+// A hand-edit can also put an operation in a group whose ignored source sits on an
+// operation reported under a DIFFERENT group of its own, which leaves the second
+// item with no ignored path of its own to name. It still has to say why it was
+// skipped: a skip that gives no reason is worse than one that reads unusually.
+withRepo(
+  {
+    ".gitignore": "settings/rolara/editor-state/\n",
+    "settings/rolara/editor-state/scratch.md": article("type: Concept", "x"),
+    "settings/rolara/locations/Ashfall.md": article("type: Location", "Body."),
+  },
+  (root) => {
+    const before = snapshotTree(root);
+    const r = apply(root, [
+      {
+        op: "relocate-path",
+        from: "settings/rolara/editor-state/scratch.md",
+        to: "settings/rolara/notes/scratch.md",
+        groups: ["pathMoves[0]", "pathMoves[1]"],
+        reason: "hand-edited",
+      },
+      {
+        op: "relocate-path",
+        from: "settings/rolara/locations/Ashfall.md",
+        to: "settings/rolara/notes/Ashfall.md",
+        groups: ["pathMoves[1]"],
+        reason: "hand-edited",
+      },
+    ]);
+    check("an operation skipped through a sibling's group is still skipped",
+      [r.skipped.length, r.applied.length], [2, 0]);
+    check("and its item explains why rather than naming an empty path list",
+      [/another operation from scope entry pathMoves\[1\]/.test(String(r.skipped[1].detail)),
+       /Skipped:  is git-ignored/.test(String(r.skipped[1].detail))],
+      [true, false]);
+    check("and nothing moved either way", snapshotTree(root), before);
+  }
+);
+
+console.log("\n=== a bucket article in the scope's own string syntax ===");
+
+// `buckets[].articles` is a bare string array in the SCOPE key and an object array
+// in the OPERATION, under the same field name, so a DM editing the proposal
+// between the two phases has a documented reason to write the string form.
+// Measured before this refusal: articleMovesOf dropped every string, the executor
+// fell out of its loop with moved 0 and set applied true, and the paired
+// create-index then created an empty bucket folder. "Split 0 article(s) across 2
+// subfolder(s)" with ok true is a success report for a no-op, which is the worst
+// outcome available here.
+withRepo(
+  {
+    "settings/rolara/locations/Ashfall.md": article("type: Location", "Body."),
+    "settings/rolara/locations/Karsk.md": article("type: Location", "Body."),
+  },
+  (root) => {
+    const before = snapshotTree(root);
+    const r = apply(root, [
+      {
+        op: "split-folder",
+        from: "settings/rolara/locations",
+        buckets: [{ folder: "settings/rolara/locations/north", name: "north", articles: ["Ashfall.md"] }],
+        reason: "hand-edited",
+      },
+      { op: "create-index", to: "settings/rolara/locations/north/North-INDEX.md", reason: "hand-edited" },
+    ]);
+    check("a bucket article written as a bare string refuses the run",
+      (r.refused || {}).reason, "malformed-operation");
+    const detail = String((r.refused || {}).detail);
+    check("and the refusal names the field and the shape it needs",
+      [/articles/.test(detail), /from/.test(detail), /to/.test(detail), /Ashfall\.md/.test(detail)],
+      [true, true, true, true]);
+    check("nothing was touched", snapshotTree(root), before);
+  }
+);
+
+withRepo(
+  {
+    "settings/rolara/locations/Ashfall.md": article("type: Location", "Body."),
+  },
+  (root) => {
+    const before = snapshotTree(root);
+    const r = apply(root, [
+      {
+        op: "split-folder",
+        from: "settings/rolara/locations",
+        buckets: [
+          {
+            folder: "settings/rolara/locations/north",
+            name: "north",
+            articles: [{ from: "settings/rolara/locations/Ashfall.md", to: "settings/rolara/locations/north/Ashfall.md" }],
+          },
+          null,
+        ],
+        reason: "hand-edited",
+      },
+    ]);
+    check("a bucket that is not an object refuses the run too",
+      (r.refused || {}).reason, "malformed-operation");
+    check("and nothing was touched for that one either", snapshotTree(root), before);
+  }
+);
+
+// The same silent drop by a different route: a field present but not an array reads
+// as empty through list(), so every entry it was meant to name is invisible to the
+// prechecks and to the executor alike, and the operation reports applied having
+// moved nothing.
+withRepo(
+  {
+    "settings/rolara/misc/Odds.md": article("type: Concept", "Body."),
+  },
+  (root) => {
+    const before = snapshotTree(root);
+    const r = apply(root, [
+      {
+        op: "absorb-folder",
+        from: "settings/rolara/misc",
+        to: "settings/rolara",
+        articles: "settings/rolara/misc/Odds.md",
+        reason: "hand-edited",
+      },
+    ]);
+    check("an articles field that is not an array refuses the run",
+      [(r.refused || {}).reason, /rather than an array/.test(String((r.refused || {}).detail))],
+      ["malformed-operation", true]);
+    check("and nothing was touched", snapshotTree(root), before);
+  }
+);
+
+{
+  // applyOperation is exported, so a caller can reach an executor without
+  // applyPlan's preflight in front of it. entry.buckets is a DM-facing field a
+  // later task renders, so a malformed bucket must not put a null in it.
+  const entry = applyOperation(
+    { op: "split-folder", from: "settings/rolara/locations", buckets: [null] },
+    { cwd: HERE }
+  );
+  check("a malformed bucket never renders null into the entry's bucket list", entry.buckets, []);
+}
 
 console.log(`\n${passed} passed, ${failures.length} failed`);
 if (failures.length > 0) {

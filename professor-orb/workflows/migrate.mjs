@@ -219,6 +219,71 @@ function articleMovesOf(o) {
   return out;
 }
 
+// The scope entries an operation came from, as plain JSON data on the operation.
+//
+// ONE scope entry can emit SEVERAL operations. A split emits the partition, one
+// create-index per bucket, and a rebuild of the folder's own index; an absorb
+// emits the dissolution and a rebuild of the parent's. Those are not independent
+// operations, and applying some without the others produces a tree that matches
+// neither the old shape nor the one the DM approved. Measured twice, both from
+// this module's own skip path:
+//
+//   A split skipped for a git-ignored article left its paired create-index
+//   operations to run anyway. applyCreateIndex writes through writeText, whose
+//   recursive mkdirSync CREATED the two bucket folders the skipped split never
+//   populated; the run reported ok true and committed them; and the planner then
+//   declined the documented "unignore it and re-run the same scope" retry,
+//   because existsSync on those bucket folders is now true. The remedy the skip
+//   message names stopped working.
+//
+//   A skipped absorb left its paired parent rebuild to run, which dropped
+//   [[Misc-INDEX]] out of the parent index while settings/rolara/misc was still
+//   on disk holding that very index, with a reason claiming the folder "was
+//   absorbed into it".
+//
+// So the SKIP UNIT is the scope entry rather than the single operation, and this
+// id is what applyPlan's skip pass groups on. Three properties it has to have:
+//
+//   PLAIN JSON, never a closure and never a symbol. The DM may hand-edit the plan
+//   file between the two phases and a later task renders and re-parses it, so the
+//   id has to survive that round trip unchanged.
+//
+//   AN ARRAY, because one operation can belong to more than one entry. Two
+//   sibling absorbs into one parent share a single deduped rebuild-index (see the
+//   rebuilds Map in planAbsorbFolders), and it genuinely belongs to both. So
+//   applyPlan skips a multi-group operation only when EVERY group it belongs to is
+//   skipped. Dropping it because ONE of them was would leave the absorb that DID
+//   run with a parent index still linking the index it just removed, which is a
+//   dead wikilink, and the link-integrity rail then blocks the whole commit. The
+//   asymmetry decides it: a rebuild that runs when one contributing entry was
+//   skipped leaves the surviving folder unlisted in its parent index, which is a
+//   reported documentation gap; a rebuild that does not run when its absorb did is
+//   a dead link that fails the run.
+//
+//   TOLERANT of what a hand-edit does to it. A missing, empty, or unreadable
+//   value yields no group at all, and an operation with no group is skipped ALONE,
+//   exactly as it was before grouping existed: a LOST id must never widen a skip.
+//   A DUPLICATED id does widen one, because nothing here can tell a deliberate
+//   group from a pasted duplicate, so the widening is disclosed rather than
+//   silent: the single report item names every operation it took with it.
+//
+// Setup's unattended plan carries no groups at all. Not one planner buildPlan
+// reaches stamps the field, so every grouping decision below is inert for those
+// kinds and each of their operations is skipped on its own terms, byte for byte as
+// before.
+function groupsOf(o) {
+  if (!o || typeof o !== "object") return [];
+  const raw = typeof o.groups === "string" ? [o.groups] : list(o.groups);
+  const out = [];
+  for (const g of raw) {
+    if (typeof g !== "string") continue;
+    const id = g.trim();
+    if (id === "" || out.includes(id)) continue;
+    out.push(id);
+  }
+  return out;
+}
+
 // Collisions are scoped to each DESTINATION DIRECTORY, which is what a move can
 // actually overwrite. Two settings legitimately holding a Tavern.md is not a
 // collision, and aborting on it would abort for the exact duplication the
@@ -258,11 +323,16 @@ function articleMovesOf(o) {
 // with one destination as a collision whatever their kinds, exemption or not.
 // Measured: two absorbs into settings/rolara reported ok false with an in-plan
 // collision of settings/rolara against itself, and applyPlan then refused the
-// run over a file that would not have been overwritten. The only thing dropping
-// the entry gives up is vacate credit on the dissolved folder path itself, which
-// nothing needs: no operation moves anything ONTO a folder another operation is
-// dissolving, and if one ever did, withheld credit costs a false collision and a
-// rerun rather than an overwrite.
+// run over a file that would not have been overwritten.
+//
+// Dropping the entry gives up TWO things, not one. The first is the in-plan
+// duplicate check on the parent path, and that is the POINT rather than a cost:
+// two absorbs into one parent legitimately share that destination, the parent is
+// never written as a unit, and every basename collision inside it is still caught
+// by the per-file entries below. The second is vacate credit on the dissolved
+// folder path itself, which nothing needs: no operation moves anything ONTO a
+// folder another operation is dissolving, and if one ever did, withheld credit
+// costs a false collision and a rerun rather than an overwrite.
 //
 // split-folder lands in the same place by a different route, and is NOT in the
 // exclusion above because it does not need to be: a split has no single
@@ -816,6 +886,40 @@ const SCOPED_PLANNERS = [
   ["rebuildIndexes", planRebuildIndexes],
 ];
 
+// The id every operation one scope entry emits carries; see groupsOf for what
+// applyPlan does with it. It names the scope key and the entry's own position
+// inside it, so a DM reading a skip report knows which entry to look at, and two
+// entries naming the SAME folder stay distinct from each other.
+const groupIdFor = (key, index) => `${key}[${index}]`;
+
+// Whether a path a scope NAMED is absent from disk.
+//
+// This is the plan phase's own stated posture, twice over: the prechecks run
+// before the plan is shown rather than after, and a plan that cannot execute is
+// worse than no plan. The scoped planners did not honour it. No planner checked
+// any per-article path, so a DM typo in a filename passed every precheck, produced
+// a clean-looking proposal, and then half-applied the operation before failing on
+// the missing file, with the paired index operations running on top of the
+// half-applied tree.
+//
+// UNDETERMINED IS NOT MISSING. With no usable project root this answers false and
+// the planner plans, which is the same guard findDestinationCollisions puts on its
+// own on-disk half: re-running a planner against a bare scope with no root on disk
+// cannot answer the question, and answering "missing" there would decline every
+// legitimate scope.
+const namedPathMissing = (ctx, rel) =>
+  Boolean(ctx.rootUsable) && Boolean(rel) && !existsSync(path.resolve(ctx.projectRoot, rel));
+
+// The other direction, for the one check that wants a path to be ABSENT: a
+// bucket folder a split is about to create. Not the negation of the predicate
+// above, because both answer false when the root is unusable, which is the
+// undetermined verdict rather than either yes or no. It also routes the raw
+// path.resolve through the same guard: with no projectRoot that call throws a
+// TypeError, and the planner has no business crashing on a scope it could simply
+// decline to check.
+const namedPathPresent = (ctx, rel) =>
+  Boolean(ctx.rootUsable) && Boolean(rel) && existsSync(path.resolve(ctx.projectRoot, rel));
+
 /**
  * @param {{projectRoot: string, settings: Array, baseRules: object, scope: object}} input
  * @returns {{operations: Array, declined: Array, prechecks: object}}
@@ -823,12 +927,23 @@ const SCOPED_PLANNERS = [
 export function buildScopedPlan({ projectRoot, settings, baseRules, scope }) {
   const operations = [];
   const declined = [];
-  const ctx = { projectRoot, settings: list(settings), baseRules, scope: scope || {} };
+  const ctx = {
+    projectRoot,
+    settings: list(settings),
+    baseRules,
+    scope: scope || {},
+    // Decided once for the whole plan: whether the on-disk existence checks can
+    // be answered at all. See namedPathMissing.
+    rootUsable: Boolean(projectRoot) && existsSync(projectRoot),
+  };
 
+  // The scope KEY is handed to the planner as well as its items, because every
+  // operation an entry emits is stamped with an id built from that key and the
+  // entry's index. See groupIdFor and groupsOf.
   for (const [key, planner] of SCOPED_PLANNERS) {
     const items = list(ctx.scope[key]);
     if (items.length === 0) continue;
-    const out = planner(items, ctx);
+    const out = planner(items, ctx, key);
     operations.push(...list(out.operations));
     declined.push(...list(out.declined));
   }
@@ -842,10 +957,10 @@ export function buildScopedPlan({ projectRoot, settings, baseRules, scope }) {
   return { operations, declined, prechecks: runPrechecks({ operations, projectRoot }) };
 }
 
-function planPathMoves(items, ctx) {
+function planPathMoves(items, ctx, key) {
   const operations = [];
   const declined = [];
-  for (const item of items) {
+  for (const [i, item] of items.entries()) {
     const from = toPosix(item && item.from);
     const to = toPosix(item && item.to);
     if (!from || !to) {
@@ -864,20 +979,33 @@ function planPathMoves(items, ctx) {
       });
       continue;
     }
+    // The source is a path the DM typed, and this planner never enumerates it, so
+    // nothing else proves it is there. `to` is deliberately NOT checked: a
+    // destination that already exists is findDestinationCollisions's question, and
+    // the answer there is the opposite one.
+    if (namedPathMissing(ctx, from)) {
+      declined.push({
+        op: "relocate-path",
+        target: from,
+        reason: `Nothing exists at ${from}, so there is nothing to move. Check that path for a typo: a scope naming a file that is not there plans cleanly and then fails after the snapshot.`,
+      });
+      continue;
+    }
     operations.push({
       op: "relocate-path",
       from,
       to,
+      groups: [groupIdFor(key, i)],
       reason: String((item && item.reason) || "Moved by a DM-approved /migrate scope."),
     });
   }
   return { operations, declined };
 }
 
-function planRebuildIndexes(items, ctx) {
+function planRebuildIndexes(items, ctx, key) {
   const operations = [];
   const declined = [];
-  for (const item of items) {
+  for (const [i, item] of items.entries()) {
     const index = toPosix(item && item.index);
     if (!index) {
       declined.push({
@@ -887,10 +1015,32 @@ function planRebuildIndexes(items, ctx) {
       });
       continue;
     }
+    // rebuild-index is in DESTINATION_MAY_EXIST precisely because its `to` is
+    // supposed to be there already, which means the collision half never looks at
+    // it and a typo here reaches applyRebuildIndex, after the snapshot. This is
+    // the one planner whose named path has to exist rather than not.
+    if (namedPathMissing(ctx, index)) {
+      declined.push({
+        op: "rebuild-index",
+        target: index,
+        reason: `No index exists at ${index}. rebuild-index edits an existing index's link list in place and create-index is the operation that creates one, so this cannot execute as written. Check that path for a typo.`,
+      });
+      continue;
+    }
+    const folder = toPosix(item.folder) || path.posix.dirname(index);
+    if (namedPathMissing(ctx, folder)) {
+      declined.push({
+        op: "rebuild-index",
+        target: index,
+        reason: `The folder to rebuild the list from, ${folder}, is not there, so there is nothing to list.`,
+      });
+      continue;
+    }
     operations.push({
       op: "rebuild-index",
       to: index,
-      folder: toPosix(item.folder) || path.posix.dirname(index),
+      folder,
+      groups: [groupIdFor(key, i)],
       reason: String((item && item.reason) || "Rebuilt by a DM-approved /migrate scope."),
     });
   }
@@ -916,7 +1066,12 @@ function protectedFolders(settings) {
   return out;
 }
 
-function planAbsorbFolders(items, ctx) {
+// Every file this planner names comes out of readdirSync plus statSync, so the
+// enumeration itself is the proof that those files exist and namedPathMissing has
+// nothing to add here: a redundant existsSync per file would be noise. The one
+// path the DM supplies is the folder, and the readdirSync below already declines
+// when that is not there.
+function planAbsorbFolders(items, ctx, key) {
   const operations = [];
   const declined = [];
   const protectedSet = protectedFolders(ctx.settings);
@@ -928,9 +1083,13 @@ function planAbsorbFolders(items, ctx) {
   // findDestinationCollisions compares. Collecting the folders as well as
   // deduping the path keeps the surviving operation's reason truthful: it names
   // every folder that made the rebuild necessary, not just the first.
+  //
+  // It also collects the GROUPS, because a rebuild two entries share belongs to
+  // both of them; see groupsOf for why that decides when applyPlan skips it.
   const rebuilds = new Map();
 
-  for (const item of items) {
+  for (const [i, item] of items.entries()) {
+    const group = groupIdFor(key, i);
     const folder = toPosix(item && item.folder);
     if (!folder) {
       declined.push({ op: "absorb-folder", target: "(unnamed)", reason: "The scope entry names no folder." });
@@ -1014,6 +1173,7 @@ function planAbsorbFolders(items, ctx) {
       // image is an article.
       articles: files,
       index,
+      groups: [group],
       reason: String((item && item.reason) || "Absorbed by a DM-approved /migrate scope."),
     });
 
@@ -1021,16 +1181,18 @@ function planAbsorbFolders(items, ctx) {
     // lists articles only, so rebuilding the parent is what clears that link.
     const parentIndex = existingIndexIn(ctx, parent, suffix);
     if (parentIndex) {
-      if (!rebuilds.has(parentIndex)) rebuilds.set(parentIndex, { folder: parent, absorbed: [] });
+      if (!rebuilds.has(parentIndex)) rebuilds.set(parentIndex, { folder: parent, absorbed: [], groups: [] });
       rebuilds.get(parentIndex).absorbed.push(folder);
+      rebuilds.get(parentIndex).groups.push(group);
     }
   }
 
-  for (const [to, { folder, absorbed }] of rebuilds) {
+  for (const [to, { folder, absorbed, groups }] of rebuilds) {
     operations.push({
       op: "rebuild-index",
       to,
       folder,
+      groups,
       reason:
         `Rebuilt because ${absorbed.join(", ")} ${absorbed.length === 1 ? "was" : "were"} absorbed into it.`,
     });
@@ -1056,7 +1218,7 @@ const indexStemFor = (name, suffix) =>
 // and applyPlan's skip list all read those nested articles through
 // articleMovesOf, so a bucket's per-file destinations and sources are checked on
 // exactly the same terms as absorb-folder's flat ones.
-function planSplitFolders(items, ctx) {
+function planSplitFolders(items, ctx, key) {
   const operations = [];
   const declined = [];
   const protectedSet = protectedFolders(ctx.settings);
@@ -1068,8 +1230,17 @@ function planSplitFolders(items, ctx) {
   // and then failed the second split outright, which is the half-applied
   // partition the one-entry-per-split accounting exists to prevent.
   const claimed = new Map();
+  // Split folder's own index path -> the rebuild of it, deduped across entries
+  // exactly as planAbsorbFolders dedupes its parent rebuild and for the same
+  // reason: two entries naming one folder emitted the same rebuild-index twice,
+  // which is an in-plan collision by the generic rule, so the run refused with a
+  // message about an index path rather than about the scope the DM wrote. One
+  // entry per folder is the ordinary case for a split, which is why this arrived
+  // later here than there.
+  const rebuilds = new Map();
 
-  for (const item of items) {
+  for (const [i, item] of items.entries()) {
+    const group = groupIdFor(key, i);
     const folder = toPosix(item && item.folder);
     if (!folder) {
       declined.push({ op: "split-folder", target: "(unnamed)", reason: "The scope entry names no folder." });
@@ -1081,6 +1252,16 @@ function planSplitFolders(items, ctx) {
         target: folder,
         reason:
           "This is a prong root or a campaign folder. Splitting it would divide a whole knowledge base, homebrew catalog, or campaign, which is a setting-lifecycle operation rather than a folder split.",
+      });
+      continue;
+    }
+    // Checked before the buckets, so a mistyped folder produces one clear decline
+    // naming it rather than one decline per article inside it.
+    if (namedPathMissing(ctx, folder)) {
+      declined.push({
+        op: "split-folder",
+        target: folder,
+        reason: `Nothing exists at ${folder}, so there is no folder to divide. Check that path for a typo.`,
       });
       continue;
     }
@@ -1102,7 +1283,7 @@ function planSplitFolders(items, ctx) {
         break;
       }
       const dest = `${folder}/${name}`;
-      if (existsSync(path.resolve(ctx.projectRoot, dest))) {
+      if (namedPathPresent(ctx, dest)) {
         declined.push({
           op: "split-folder",
           target: dest,
@@ -1123,7 +1304,28 @@ function planSplitFolders(items, ctx) {
           declined.push({
             op: "split-folder",
             target: folder,
-            reason: `${base} is claimed by two buckets (${owner} and ${dest}). An article has one home; pick which bucket owns it.`,
+            // The two-bucket wording is false when `owner` and `dest` are the same
+            // string, which is what a bucket listing one article twice produces:
+            // the message then read "claimed by two buckets (locations/north and
+            // locations/north)" and described a situation that did not happen.
+            reason:
+              owner === dest
+                ? `${base} is claimed twice by the same bucket (${dest}). An article has one home; list it once.`
+                : `${base} is claimed by two buckets (${owner} and ${dest}). An article has one home; pick which bucket owns it.`,
+          });
+          refused = true;
+          break;
+        }
+        // Every article is a path the DM typed and this planner never enumerates
+        // the folder, so nothing else proves the file is there. Refusing the whole
+        // ENTRY rather than dropping the one article: a typo means the DM meant a
+        // file, and quietly planning the partition without it would apply a
+        // partition nobody approved.
+        if (namedPathMissing(ctx, source)) {
+          declined.push({
+            op: "split-folder",
+            target: folder,
+            reason: `${source} is not there, so it cannot be moved into ${dest}. Check that name for a typo: a bucket naming a file that is not on disk plans cleanly and then fails partway through the partition, after the snapshot.`,
           });
           refused = true;
           break;
@@ -1145,6 +1347,7 @@ function planSplitFolders(items, ctx) {
       op: "split-folder",
       from: folder,
       buckets,
+      groups: [group],
       reason: String((item && item.reason) || "Split by a DM-approved /migrate scope."),
     });
 
@@ -1152,19 +1355,27 @@ function planSplitFolders(items, ctx) {
       operations.push({
         op: "create-index",
         to: `${bucket.folder}/${indexStemFor(bucket.name, suffix)}.md`,
+        groups: [group],
         reason: `Created for the ${bucket.name} bucket of the ${folder} split.`,
       });
     }
 
     const parentIndex = existingIndexIn(ctx, folder, suffix);
     if (parentIndex) {
-      operations.push({
-        op: "rebuild-index",
-        to: parentIndex,
-        folder,
-        reason: `Rebuilt because ${folder} was split into ${buckets.length} subfolder(s).`,
-      });
+      if (!rebuilds.has(parentIndex)) rebuilds.set(parentIndex, { folder, bucketCount: 0, groups: [] });
+      rebuilds.get(parentIndex).bucketCount += buckets.length;
+      rebuilds.get(parentIndex).groups.push(group);
     }
+  }
+
+  for (const [to, { folder, bucketCount, groups }] of rebuilds) {
+    operations.push({
+      op: "rebuild-index",
+      to,
+      folder,
+      groups,
+      reason: `Rebuilt because ${folder} was split into ${bucketCount} subfolder(s).`,
+    });
   }
   return { operations, declined };
 }
@@ -2317,7 +2528,11 @@ function applySplitFolder(op, ctx) {
   }
 
   entry.applied = true;
-  entry.buckets = list(op.buckets).map((b) => b && b.folder);
+  // Filtered, because a malformed bucket used to put a literal null in a field a
+  // later task renders into the DM's report. applyPlan refuses such a plan before
+  // this executor is reached, so this is the guard for a caller that reaches
+  // applyOperation directly, which is an exported entry point.
+  entry.buckets = list(op.buckets).map((b) => b && b.folder).filter(Boolean);
   entry.detail = `Split ${entry.moved} article(s) across ${entry.buckets.length} subfolder(s).`;
   return entry;
 }
@@ -3074,10 +3289,17 @@ const LINK_BEARING_OPERATIONS = new Set(["rename-with-link-rewrite", "merge-inde
 //
 // Chosen: the message names what else is needed. The alternative was for the
 // blocked path to remove what the run created, and it was rejected twice over.
-// This module deliberately imports no delete primitive (no rmSync, no
-// unlinkSync, no renameSync) precisely so that no code path can quietly destroy
-// a file, and the blocked path is the one where something has ALREADY gone
-// wrong, which is the worst available moment to start deleting unattended.
+// This module deliberately imports no primitive that can destroy a FILE (no
+// rmSync, no unlinkSync, no renameSync) precisely so that no code path can quietly
+// lose one, and the blocked path is the one where something has ALREADY gone wrong,
+// which is the worst available moment to start deleting unattended.
+//
+// rmdirSync IS imported, and it is the single exception rather than a hole in that
+// claim: it is non-recursive, it is reached only from removeAbsorbedFolder, and
+// that function verifies the folder is empty and resolves inside the project first,
+// so it can remove a directory this module has already emptied through git and
+// nothing else. See removeAbsorbedFolder for why the emptiness check is what makes
+// the non-recursive form the safe one.
 //
 // The leftovers are READ BACK from git rather than inferred from the plan, so
 // the list is what `git clean -fd` will actually remove and the DM can check it
@@ -3104,6 +3326,91 @@ function restoreInstruction(git, cwd, snapshot) {
   );
 }
 
+// One skip, in the DM's terms. A one-operation item reads exactly as it did before
+// grouping existed. A grouped item is ONE item rather than several, which is the
+// point of the grouping, and it names every operation it took with it so that the
+// accounting stays complete: an operation the DM cannot see in the report is an
+// operation the DM cannot check.
+function skipDetail(item) {
+  const entry = item.group === null ? "(no group id)" : item.group;
+  // `from` first, because for the two kinds that emit groups today it is the folder
+  // the DM named in the scope; `to` is the fallback for the index kinds, which carry
+  // no source. Naming an absorb by its `to` would name the PARENT it dissolves into
+  // rather than the folder being dissolved.
+  const named = item.ops.map((o) => `${o.op} ${o.from || o.to || "(unnamed)"}`).join(", ");
+  if (item.ignored.length === 0) {
+    // Reachable only from a hand-edited plan, where an operation can belong to a
+    // group whose ignored source sits on an operation reported under a DIFFERENT
+    // group of its own. Named rather than papered over: a skip that gives no reason
+    // is worse than one that reads unusually.
+    return (
+      `Skipped: another operation from scope entry ${entry} names a git-ignored source, so every operation from ` +
+      `that entry is skipped together and none of these was run: ${named}.`
+    );
+  }
+  const base = `Skipped: ${item.ignored.join(", ")} is git-ignored, so the pre-migration snapshot does not contain it and moving it would be unrecoverable. Reported and left exactly where it is.`;
+  if (item.ops.length <= 1) return base;
+  return (
+    `${base} All ${item.ops.length} operations from scope entry ${entry} are skipped together, because applying ` +
+    `the rest would leave the project matching neither its old shape nor the one that was approved: ${named}.`
+  );
+}
+
+// A description of how an operation's enumerated files fail to arrive in the shape
+// the executors and the prechecks both read, or null when they do not.
+//
+// `buckets[].articles` is a bare STRING array in the scope key the DM negotiates
+// with the command, and an OBJECT array carrying `from` and `to` in the operation,
+// under the same field name. So a DM editing the proposal between the two phases
+// has a documented reason to write the string form, and this is not an exotic
+// hand-edit. Measured on exactly that shape: articleMovesOf drops every non-object
+// entry, so the prechecks examined nothing and applySplitFolder moved nothing, and
+// the executor then fell out of its loop and set applied true with the detail
+// "Split 0 article(s) across 2 subfolder(s)". With the create-index operations the
+// planner always pairs with a split in the same plan, the DM got two empty bucket
+// folders and a report saying the split applied.
+//
+// REFUSED rather than coerced, and refused for the whole RUN rather than for the
+// one entry. Coercing would mean rebuilding each destination here out of the bucket
+// folder and the basename, which is the planner's job: the apply phase would be
+// inventing the moves it then performs, and the proposal the DM approved did not
+// contain them. Failing only the entry would leave the paired index operations to
+// run on top of a partition that never happened, which is the grouped-skip defect
+// again. This fires before the snapshot, so the project is byte-identical, which is
+// the posture every other unreadable-plan refusal here takes.
+function malformedShapeOf(o) {
+  const shape = "each entry must be an object carrying `from` and `to`, which is the shape the planner emits";
+  const stringNote =
+    "A bare string is the SCOPE syntax for that field, not the operation syntax. Moving nothing while reporting the operation as applied is worse than refusing to start.";
+  const where = `Operation ${JSON.stringify(o.op)} on ${o.from || o.to || "(unnamed)"}`;
+  // A field present but not an array is the same silent drop by a different route:
+  // list() reads it as empty, so articleMovesOf finds no moves and the executor
+  // reports the operation applied having moved nothing. Absent is fine, and is what
+  // every kind that carries neither field looks like.
+  for (const field of ["articles", "buckets"]) {
+    if (o[field] != null && !Array.isArray(o[field])) {
+      return `${where} carries \`${field}\` as ${JSON.stringify(o[field])} rather than an array, so every entry it was meant to name is invisible to the prechecks and to the executor alike.`;
+    }
+  }
+  for (const [i, a] of list(o.articles).entries()) {
+    if (a && typeof a === "object") continue;
+    return `${where} carries ${JSON.stringify(a)} in \`articles\` at position ${i}: ${shape}. ${stringNote}`;
+  }
+  for (const [bi, b] of list(o.buckets).entries()) {
+    if (!b || typeof b !== "object") {
+      return `${where} carries ${JSON.stringify(b)} in \`buckets\` at position ${bi}: each bucket must be an object carrying \`folder\`, \`name\`, and \`articles\`. A bucket that cannot be read is a bucket of the partition the DM approved that would silently not happen.`;
+    }
+    if (b.articles != null && !Array.isArray(b.articles)) {
+      return `${where} carries \`buckets[${bi}].articles\` as ${JSON.stringify(b.articles)} rather than an array, so every article it was meant to name is invisible to the prechecks and to the executor alike.`;
+    }
+    for (const [i, a] of list(b.articles).entries()) {
+      if (a && typeof a === "object") continue;
+      return `${where} carries ${JSON.stringify(a)} in \`buckets[${bi}].articles\` at position ${i}: ${shape}. ${stringNote}`;
+    }
+  }
+  return null;
+}
+
 /**
  * Applies a plan. Every refusal happens BEFORE any mutation, and every refusal
  * leaves the project byte-identical.
@@ -3116,6 +3423,12 @@ function restoreInstruction(git, cwd, snapshot) {
  *            applied: Array, failed: Array, dropped: Array, skipped: Array,
  *            ignoredEdits: Array, ignoredMoved: Array,
  *            linkIntegrity: object|null, messages: Array<string>}}
+ *
+ * `skipped` is one item per SKIP, not per operation, because a scope entry that
+ * emitted several operations is skipped as a unit; see groupsOf. Each item carries
+ * `group` (the scope-entry id, or null for an ungrouped operation), `ops` with
+ * every operation the item covers, and `ignored` with the git-ignored paths that
+ * caused it. An ungrouped operation still produces an item of exactly one.
  *
  * `settings` are the conventions that were on disk when the run started, so
  * their prong roots are PRE-migration paths. That is the ordinary shape and it
@@ -3176,6 +3489,10 @@ export function applyPlan(plan, options = {}) {
         "unknown-operation",
         `No executor for operation kind ${JSON.stringify(op.op)}. Refusing to start rather than silently skipping a whole class of work. Nothing was touched.`
       );
+    }
+    const malformed = malformedShapeOf(op);
+    if (malformed) {
+      return refuse("malformed-operation", `${malformed} Nothing was touched.`);
     }
   }
   const outOfOrder = findOutOfOrder(operations);
@@ -3245,48 +3562,88 @@ export function applyPlan(plan, options = {}) {
   };
 
   // ------------------------------------------------------------------
-  // Apply, in plan order
+  // What this run skips, decided for every operation BEFORE any of them runs
   // ------------------------------------------------------------------
-  const raw = [];
+  //
+  // The enumerated files of an absorb or a split are sources here for the same
+  // reason findIgnoredSources counts them: neither kind moves its own `from`, it
+  // moves each file it enumerates one `git mv` at a time, so the source that can
+  // be git-ignored is one of those files. articleMovesOf is what reaches a split's
+  // articles, which sit inside `buckets` rather than flat in `articles`.
+  //
+  // DECIDED: an absorb or a split carrying a git-ignored file is skipped WHOLE,
+  // not per file and, for a split, not per bucket. Adding the files to `sources`
+  // is what puts an ignored one inside the operation rather than beside it. Three
+  // reasons it is the right unit. The module's contract for an ignored source is
+  // that it is skipped and reported rather than moved, and per-file skipping would
+  // move the folder's other files, so the ignored file would be left sitting alone
+  // in a folder whose index had just been removed: skipped in name and stranded in
+  // fact. A half-absorbed folder, or a partition applied to some of its buckets,
+  // is precisely the failure the one-entry-per-operation accounting exists to
+  // prevent, and there is no partial entry to report it with. And `git mv` on an
+  // ignored file hard-fails with "not under version control", exit 128, so
+  // per-file skipping would only be choosing which way to arrive at that same
+  // half-applied folder: measured on a two-bucket split whose second bucket held
+  // an ignored draft, the first bucket's article moved, an empty second bucket
+  // folder was created, and only then did the operation fail.
+  //
+  // AND THE UNIT IS WIDER THAN THE OPERATION: it is the SCOPE ENTRY that emitted
+  // it. One entry emits several operations, and skipping the one that carries the
+  // ignored file while running its siblings produced two measured defects, both
+  // recorded against groupsOf, which is where the id and its hand-edit tolerance
+  // are documented. That is why this is a pass of its own ahead of the apply loop
+  // rather than a test inside it: whether an operation runs can depend on a LATER
+  // operation's ignored source, so every verdict has to be known before the first
+  // mutation.
+  //
+  // The cost is that one git-ignored draft declines the whole scope entry the DM
+  // asked for. That is a reported refusal the DM can act on by moving the draft or
+  // unignoring it, and it is recoverable; the alternative is not.
+  const ignoredByOp = new Map();
+  const skippedGroups = new Set();
   for (const op of operations) {
-    // The enumerated files of an absorb or a split are sources here for the same
-    // reason findIgnoredSources counts them: neither kind moves its own `from`, it
-    // moves each file it enumerates one `git mv` at a time, so the source that can
-    // be git-ignored is one of those files. articleMovesOf is what reaches a
-    // split's articles, which sit inside `buckets` rather than flat in `articles`.
-    //
-    // DECIDED: an absorb or a split carrying a git-ignored file is skipped WHOLE,
-    // not per file and, for a split, not per bucket. This loop skips per
-    // OPERATION, and adding the files to `sources` is what puts an ignored one
-    // inside that unit rather than beside it. Three reasons it is the right unit.
-    // The module's contract for an ignored source is that it is skipped and
-    // reported rather than moved, and per-file skipping would move the folder's
-    // other files, so the ignored file would be left sitting alone in a folder
-    // whose index had just been removed: skipped in name and stranded in fact. A
-    // half-absorbed folder, or a partition applied to some of its buckets, is
-    // precisely the failure the one-entry-per-operation accounting exists to
-    // prevent, and there is no partial entry to report it with. And `git mv` on an
-    // ignored file hard-fails with "not under version control", exit 128, so
-    // per-file skipping would only be choosing which way to arrive at that same
-    // half-applied folder: measured on a two-bucket split whose second bucket held
-    // an ignored draft, the first bucket's article moved, an empty second bucket
-    // folder was created, and only then did the operation fail.
-    //
-    // The cost is that one git-ignored draft declines the absorb or the split the
-    // DM asked for. That is a reported refusal the DM can act on by moving the
-    // draft or unignoring it, and it is recoverable; the alternative is not.
     const sources = [op.from, ...list(op.sources), ...articleMovesOf(op).map((a) => a.from)]
       .filter(Boolean)
       .map(toPosix);
     const ignoredHere = sources.filter((s) => ignoredSources.has(s));
-    if (ignoredHere.length > 0) {
-      result.skipped.push({
-        op: op.op,
-        from: op.from,
-        to: op.to,
-        applied: false,
-        detail: `Skipped: ${ignoredHere.join(", ")} is git-ignored, so the pre-migration snapshot does not contain it and moving it would be unrecoverable. Reported and left exactly where it is.`,
-      });
+    ignoredByOp.set(op, ignoredHere);
+    if (ignoredHere.length === 0) continue;
+    for (const g of groupsOf(op)) skippedGroups.add(g);
+  }
+
+  // The report item an operation is skipped UNDER, or null when it is not skipped.
+  // An operation carrying an ignored source of its own is always skipped. One
+  // carrying groups is skipped when EVERY group it belongs to is, which is the
+  // multi-group rule groupsOf explains. The item is keyed by the first of its
+  // skipped groups so that every operation one entry emitted lands in ONE item,
+  // and by the operation object itself when it carries no group at all, which
+  // reproduces the ungrouped one-item-per-operation shape exactly.
+  const skipItemKeyOf = (op) => {
+    const groups = groupsOf(op);
+    const own = (ignoredByOp.get(op) || []).length > 0;
+    if (!own && !(groups.length > 0 && groups.every((g) => skippedGroups.has(g)))) return null;
+    const group = groups.find((g) => skippedGroups.has(g));
+    return group === undefined ? { group: null, key: op } : { group, key: group };
+  };
+
+  // ------------------------------------------------------------------
+  // Apply, in plan order
+  // ------------------------------------------------------------------
+  const raw = [];
+  const skipItems = new Map();
+  for (const op of operations) {
+    const skip = skipItemKeyOf(op);
+    if (skip) {
+      let item = skipItems.get(skip.key);
+      if (!item) {
+        item = { op: op.op, from: op.from, to: op.to, applied: false, group: skip.group, ops: [], ignored: [], detail: "" };
+        skipItems.set(skip.key, item);
+        // Pushed now so the items stay in plan order; the detail is written once
+        // the item's whole membership is known, below.
+        result.skipped.push(item);
+      }
+      item.ops.push({ op: op.op, from: op.from, to: op.to });
+      for (const s of ignoredByOp.get(op) || []) if (!item.ignored.includes(s)) item.ignored.push(s);
       raw.push({ op, outcome: "skipped" });
       continue;
     }
@@ -3309,6 +3666,8 @@ export function applyPlan(plan, options = {}) {
     }
     raw.push({ op, outcome: "worked", entry });
   }
+
+  for (const item of result.skipped) item.detail = skipDetail(item);
 
   // Dropped-worker accounting, the shape validation-sweep.mjs's fix phase uses:
   // a worker that failed or returned nothing is NOT counted as done, because a
@@ -3340,12 +3699,20 @@ export function applyPlan(plan, options = {}) {
   // What the snapshot will not undo, disclosed rather than left silent
   // ------------------------------------------------------------------
   //
-  // Both lists are filtered to operations that actually RAN: an operation
-  // skipped for a git-ignored source moved nothing and rewrote nothing, so
-  // reporting its ignored contents or referrers would be reporting an edit that
-  // never happened.
-  result.ignoredEdits = list(prechecks.ignoredReferrers).filter((r) => !ignoredSources.has(r.source));
-  result.ignoredMoved = list(prechecks.ignoredBeneath).filter((r) => !ignoredSources.has(r.from));
+  // Both lists are filtered to operations that actually RAN: an operation that was
+  // skipped moved nothing and rewrote nothing, so reporting its ignored contents or
+  // referrers would be reporting an edit that never happened.
+  //
+  // Filtered on the SKIP DECISION rather than on the ignored-source set, so that
+  // the sentence above stays true for an operation skipped because its scope entry
+  // was. Identical for every kind today, verified rather than assumed: an operation
+  // skipped for its own ignored source has that source as its `from`, which is the
+  // key both lists carry, so the old test matched exactly the same rows.
+  const skippedKeys = new Set(
+    raw.filter((r) => r.outcome === "skipped").map((r) => `${r.op.op}::${toPosix(r.op.from || "")}`)
+  );
+  result.ignoredEdits = list(prechecks.ignoredReferrers).filter((r) => !skippedKeys.has(`${r.op}::${r.source}`));
+  result.ignoredMoved = list(prechecks.ignoredBeneath).filter((r) => !skippedKeys.has(`${r.op}::${r.from}`));
   if (result.ignoredEdits.length > 0) {
     result.messages.push(
       `Note: ${result.ignoredEdits.length} git-ignored referring file(s) were named by the plan and had their wikilinks ` +
