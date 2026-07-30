@@ -3036,6 +3036,68 @@ withRepo(
     check("a file with no name field still renames", [r.ok, first(r.applied).applied], [true, true]);
     check("and nothing is inserted",
       read(root, "settings/rolara/factions/Cinder-Pact.md").includes("name:"), false);
+    // Minor 2: the plan DID expect a name here (nameFrom is set), so its
+    // absence reads differently in the detail than a plan that never asked for
+    // one at all, even though both leave the entry applied and insert nothing.
+    check("and the detail names the name the plan expected, distinguishing it from a plan that never asked for one",
+      [first(r.applied).detail.includes("Ashfall Compact"), first(r.applied).detail.includes("there was no frontmatter name to update")],
+      [true, false]);
+  }
+);
+
+withRepo(
+  { "settings/rolara/factions/Ashfall-Compact.md": article("type: Organization", "Body.") },
+  (root) => {
+    // The contrasting half of Minor 2, same file, same missing field, but a
+    // plan that never expected a name at all (nameFrom: null). This is the
+    // genuinely ordinary case, and its wording must not borrow the other
+    // case's "the plan expected a name" language, since nothing here was ever
+    // stale.
+    const r = apply(root, [
+      {
+        op: "rename-entity",
+        from: "settings/rolara/factions/Ashfall-Compact.md",
+        to: "settings/rolara/factions/Cinder-Pact.md",
+        nameFrom: null,
+        nameTo: null,
+        links: [],
+        reason: "scope",
+      },
+    ]);
+    check("a plan that never expected a name reads as the plain ordinary case",
+      [r.ok, first(r.applied).detail.includes("there was no frontmatter name to update")], [true, true]);
+  }
+);
+
+withRepo(
+  {
+    "settings/rolara/factions/Ashfall-Compact.md":
+      "---\ntype: Organization\nname: Ashfall Compact\n---\n\nAlso called simply [[Ashfall-Compact]] in old records.\n",
+  },
+  (root) => {
+    // Minor 1: the plan names the entity's own `from` as one of its own
+    // referrers, because the article carries a self-referential wikilink to
+    // its own old name. Tolerated rather than declined: by the time the links
+    // loop runs, the move has already carried this file's content to `to`, so
+    // reading and writing the self-referential entry there (instead of at the
+    // now-gone `from` path) is the fix, not failing the whole entry over a
+    // shape the scope can legitimately produce.
+    const r = apply(root, [
+      {
+        op: "rename-entity",
+        from: "settings/rolara/factions/Ashfall-Compact.md",
+        to: "settings/rolara/factions/Cinder-Pact.md",
+        nameFrom: "Ashfall Compact",
+        nameTo: "Cinder Pact",
+        links: ["settings/rolara/factions/Ashfall-Compact.md"],
+        reason: "scope",
+      },
+    ]);
+    const e = first(r.applied);
+    check("a links entry naming the operation's own source does not fail the entry", [r.ok, e.applied], [true, true]);
+    check("and its own self-referential wikilink is rewritten at the new path",
+      read(root, "settings/rolara/factions/Cinder-Pact.md").includes("[[Cinder-Pact]]"), true);
+    check("counted like any other referrer", e.linksRewritten, 1);
   }
 );
 
@@ -3076,7 +3138,11 @@ withRepo(
   (root) => {
     // A stale plan is reported, never guessed at, exactly as applyNormalizeType
     // reports a type that no longer matches typeFrom. Rewriting whatever is there
-    // would overwrite a name the DM changed after the plan was built.
+    // would overwrite a name the DM changed after the plan was built. The name is
+    // checked BEFORE git mv runs, so a stale plan on this half is caught with the
+    // project untouched: nothing moves at all, rather than the file landing at
+    // its new path with the DM's own frontmatter intact and no way for a later
+    // reader of this entry to tell that from a clean rename.
     const r = apply(root, [
       {
         op: "rename-entity",
@@ -3090,10 +3156,59 @@ withRepo(
     ]);
     const e = first(r.failed);
     check("a name that no longer matches nameFrom fails the entry", [r.ok, e.applied], [false, false]);
+    check("nothing moved, so the file is still at its original path",
+      [has(root, "settings/rolara/factions/Ashfall-Compact.md"), has(root, "settings/rolara/factions/Cinder-Pact.md")],
+      [true, false]);
     check("and the name on disk is left exactly as the DM left it",
-      read(root, "settings/rolara/factions/Cinder-Pact.md").includes("name: The Ashfall Concord"), true);
+      read(root, "settings/rolara/factions/Ashfall-Compact.md").includes("name: The Ashfall Concord"), true);
     check("with both names in the detail, so the DM can see which is which",
       [/Ashfall Concord/.test(String(e.detail)), /Ashfall Compact/.test(String(e.detail))], [true, true]);
+  }
+);
+
+withRepo(
+  {
+    "settings/rolara/factions/Ashfall-Compact.md":
+      "---\ntype: Organization\nname: The Ashfall Concord\n---\n\nBody.\n",
+    // An unrelated, resolvable wikilink elsewhere in the same prong root, so
+    // link integrity's coverage reads "ok" rather than "no-links-checked" and
+    // the probe below is not dismissable as an accident of an empty walk. It
+    // names neither half of the rename, so it stays live regardless of the
+    // outcome here.
+    "settings/rolara/factions/Steadfast.md": article("type: Organization", "An unrelated faction."),
+    "settings/rolara/factions/Mentions.md": article("type: Concept", "See [[Steadfast]] elsewhere."),
+  },
+  (root) => {
+    // The exact reachable shape the review measured: a stale frontmatter name
+    // on an entity with `links: []`. With no referrer named, the rename orphans
+    // no wikilink, so the link-integrity rail has nothing to refuse on the
+    // stale name alone, and a run that moved the file first would commit a
+    // half-applied rename with no restore instruction printed, because no
+    // refusal path ran. Checking the name before git mv is what keeps this
+    // reachable shape from ever reaching the commit step at all.
+    const before = head(root);
+    const r = applyPlan(
+      {
+        operations: [
+          {
+            op: "rename-entity",
+            from: "settings/rolara/factions/Ashfall-Compact.md",
+            to: "settings/rolara/factions/Cinder-Pact.md",
+            nameFrom: "Ashfall Compact",
+            nameTo: "Cinder Pact",
+            links: [],
+            reason: "scope",
+          },
+        ],
+      },
+      { cwd: root, settings: SETTINGS, baseRules: BASE_RULES, commit: true }
+    );
+    check("a stale name with no named referrers still fails the entry", [r.ok, first(r.failed).applied], [false, false]);
+    check("the run does not commit", r.committed, false);
+    check("and HEAD did not move", head(root), before);
+    check("and the file never moved off its original path",
+      [has(root, "settings/rolara/factions/Ashfall-Compact.md"), has(root, "settings/rolara/factions/Cinder-Pact.md")],
+      [true, false]);
   }
 );
 

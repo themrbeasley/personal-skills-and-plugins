@@ -3150,14 +3150,37 @@ function applyRenameWithLinkRewrite(op, ctx) {
 // migrate.apply.test.mjs pins that boundary from both sides rather than trusting
 // this paragraph.
 //
+// The frontmatter name is read and checked against the plan BEFORE git mv runs,
+// on the same posture applyNormalizeType takes for its typeFrom check: a stale
+// plan is reported with the project untouched, rather than moved first and only
+// then discovered stale against a tree that already carries the move. That
+// ordering matters here specifically because a plan naming no referrers
+// (`links: []`) orphans nothing when the file moves, so link integrity has
+// nothing to refuse on a stale name alone; checking the name before git mv runs
+// is what stops a stale rename from landing, and committing, half-applied. A
+// file carrying no name field at all is a different case and is never treated
+// as stale: the base schema does not require the field, and this executor never
+// inserts it.
+//
 // The drop rules are the sibling's, deliberately identical rather than merely
 // similar. An unreadable or unwritable referrer, and a referrer holding no
-// wikilink to the old name, are all collected and reported together, and every
-// one of them makes the entry report applied false even though the file moved.
-// Zero rewrites in a NAMED file is the rewriteWikilinks contract's own case: a
-// wikilink inside a code span or a fenced block is left alone, so a plan naming a
-// documentation file as a referrer is a stale plan, and saying so is better than
-// editing prose that was never a link.
+// wikilink to the old name, are all collected and reported together after the
+// move has already landed, and every one of them makes the entry report applied
+// false even though the file moved; the frontmatter name check is the one
+// failure mode that runs before the move, for exactly this reason. Zero
+// rewrites in a NAMED file is the rewriteWikilinks contract's own case: a
+// wikilink inside a code span or a fenced block is left alone, so a plan naming
+// a documentation file as a referrer is a stale plan, and saying so is better
+// than editing prose that was never a link.
+//
+// A `links` entry naming this operation's own `from` is tolerated rather than
+// declined: the DM's scope can legitimately list the article being renamed as
+// its own referrer, when it carries a self-referential wikilink to its old
+// name, and by the time the links loop below runs, that content (self-link
+// included) already lives at `to`, because the move already carried it there.
+// So that one entry is read and written at `to` rather than at the `from` path
+// it names; every other entry is read and written at the path it names,
+// unchanged.
 function applyRenameEntity(op, ctx) {
   const entry = entryFor(op);
   entry.linksRewritten = 0;
@@ -3169,25 +3192,25 @@ function applyRenameEntity(op, ctx) {
 
   const from = toPosix(op.from);
   const to = toPosix(op.to);
-  const moved = gitMove(ctx, from, to);
-  if (!moved.ok) {
-    entry.detail = `git mv failed: ${moved.error}`;
-    return entry;
-  }
-  entry.mode = moved.mode;
 
-  // The frontmatter name, if the plan names one AND the article carries one.
-  // Absence is normal rather than a fault: the base schema does not require the
-  // field, so nothing is ever inserted here, on the same rule that keeps
-  // `publish` out of every insertion in this module. A plan carrying no nameFrom
-  // cannot match on anything, so it does not edit anything either.
+  // The frontmatter name, if the plan names one AND the article carries one,
+  // read from `from` because nothing has moved yet. Absence is normal rather
+  // than a fault: the base schema does not require the field, so nothing is
+  // ever inserted here, on the same rule that keeps `publish` out of every
+  // insertion in this module. A plan carrying no nameFrom cannot match on
+  // anything, so it does not check or edit anything either.
+  let namePrefix = "";
+  let nameQuote = "";
+  let nameComment = "";
+  let nameLineIndex = -1;
+  let doc = null;
   if (op.nameFrom != null && op.nameTo != null) {
-    const read = readText(ctx, to);
+    const read = readText(ctx, from);
     if (!read.ok) {
-      entry.detail = `The file moved with git mv (${moved.mode}) but could not be read back, so its frontmatter name still holds the old value: ${read.error}`;
+      entry.detail = `Could not read the file to check its frontmatter name before renaming, so nothing moved: ${read.error}`;
       return entry;
     }
-    const doc = splitTextLines(read.text);
+    doc = splitTextLines(read.text);
     const bounds = frontmatterBounds(doc.lines);
     if (bounds) {
       for (let i = bounds.start; i < bounds.end; i++) {
@@ -3207,26 +3230,44 @@ function applyRenameEntity(op, ctx) {
         if (value !== op.nameFrom) {
           entry.detail = `The file carries name ${JSON.stringify(value)}, not the ${JSON.stringify(
             op.nameFrom
-          )} this plan was built against. Left unchanged rather than guessed at, so the rename is incomplete; re-run the plan phase.`;
+          )} this plan was built against. Left unchanged rather than guessed at, so nothing moved; re-run the plan phase.`;
           return entry;
         }
-        doc.lines[i] = `${m[1]}${quote}${op.nameTo}${quote}${comment}`;
-        const written = writeText(ctx, to, joinTextLines(doc));
-        if (!written.ok) {
-          entry.detail = `Could not write the frontmatter name: ${written.error}`;
-          return entry;
-        }
-        entry.nameUpdated = true;
+        nameLineIndex = i;
+        namePrefix = m[1];
+        nameQuote = quote;
+        nameComment = comment;
         break;
       }
     }
+  }
+
+  const moved = gitMove(ctx, from, to);
+  if (!moved.ok) {
+    entry.detail = `git mv failed: ${moved.error}`;
+    return entry;
+  }
+  entry.mode = moved.mode;
+
+  if (nameLineIndex !== -1) {
+    doc.lines[nameLineIndex] = `${namePrefix}${nameQuote}${op.nameTo}${nameQuote}${nameComment}`;
+    const written = writeText(ctx, to, joinTextLines(doc));
+    if (!written.ok) {
+      entry.detail = `The file moved with git mv (${moved.mode}) but the frontmatter name could not be written, so it still holds the old value: ${written.error}`;
+      return entry;
+    }
+    entry.nameUpdated = true;
   }
 
   const oldStem = stemOf(from);
   const newStem = stemOf(to);
   const missed = [];
   for (const link of list(op.links)) {
-    const read = readText(ctx, link);
+    // The operation's own source is read and written at `to` instead of at
+    // the `from` path it names: the move already carried that file there, so
+    // `from` no longer exists to read.
+    const target = toPosix(link) === from ? to : link;
+    const read = readText(ctx, target);
     if (!read.ok) {
       missed.push(`${link} (unreadable: ${read.error})`);
       continue;
@@ -3236,7 +3277,7 @@ function applyRenameEntity(op, ctx) {
       missed.push(`${link} (no wikilink to ${oldStem} found)`);
       continue;
     }
-    const written = writeText(ctx, link, rewritten.text);
+    const written = writeText(ctx, target, rewritten.text);
     if (!written.ok) {
       missed.push(`${link} (unwritable: ${written.error})`);
       continue;
@@ -3244,7 +3285,20 @@ function applyRenameEntity(op, ctx) {
     entry.linksRewritten += rewritten.count;
   }
 
-  const nameNote = entry.nameUpdated ? "the frontmatter name was updated" : "there was no frontmatter name to update";
+  // A plan carrying no nameFrom never expected a name, so its absence on disk
+  // is the ordinary case. A plan carrying a nameFrom DID expect one, and
+  // finding none is the same kind of drift a value mismatch reports, just by
+  // absence rather than by a different value. It is not failed outright,
+  // because doing so would fail this executor's own no-name-field case (an
+  // entity that legitimately never carried the field still has to rename), so
+  // the distinction is carried in the wording rather than in `applied`.
+  const nameNote = entry.nameUpdated
+    ? "the frontmatter name was updated"
+    : op.nameFrom != null
+      ? `the plan expected a frontmatter name (${JSON.stringify(
+          op.nameFrom
+        )}) but the file carried no name field to update, so nothing was inserted and the plan should be re-checked`
+      : "there was no frontmatter name to update";
   if (missed.length > 0) {
     entry.detail =
       `The file moved with git mv (${moved.mode}) and ${nameNote}, but the link rewrite half did not complete ` +
