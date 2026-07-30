@@ -257,8 +257,11 @@ function articleMovesOf(o) {
 //   dead wikilink, and the link-integrity rail then blocks the whole commit. The
 //   asymmetry decides it: a rebuild that runs when one contributing entry was
 //   skipped leaves the surviving folder unlisted in its parent index, which is a
-//   reported documentation gap; a rebuild that does not run when its absorb did is
-//   a dead link that fails the run.
+//   documentation gap; a rebuild that does not run when its absorb did is a dead
+//   link that fails the run. The gap is REPORTED rather than silent, and it took a
+//   report of its own to become so: the skip item cannot mention it, because the
+//   operation it would have to name is one that ran. See the partiallySkipped note
+//   in applyPlan, which names every operation in that position and what it cost.
 //
 //   TOLERANT of what a hand-edit does to it. A missing, empty, or unreadable
 //   value yields no group at all, and an operation with no group is skipped ALONE,
@@ -892,7 +895,114 @@ const SCOPED_PLANNERS = [
 // entries naming the SAME folder stay distinct from each other.
 const groupIdFor = (key, index) => `${key}[${index}]`;
 
-// Whether a path a scope NAMED is absent from disk.
+// Every operation ALREADY in the plan that runs before one of `kind` will.
+//
+// `ctx.planned` is the live accumulating list buildScopedPlan shares with each
+// planner, so it holds everything the planners before this one produced; `pending`
+// is the calling planner's own list so far. Both are needed, because a scope entry
+// can depend on an earlier entry under the SAME key as well as under an earlier one.
+//
+// Ranked by APPLY_ORDER, which is the order buildScopedPlan sorts the finished plan
+// into, and <= rather than < on purpose: Array.prototype.sort is stable, so two
+// operations of one kind keep the order the planner emitted them in, which means a
+// same-kind operation already in these lists is an EARLIER scope entry and does run
+// first. Anything ranked higher runs later and must not count, which is what keeps
+// the absorb rebuilds (rank 9) already in the list from being read as preceding a
+// split (rank 3).
+//
+// This is complete only because SCOPED_PLANNERS is itself in ascending rank order,
+// so by the time a planner runs, every operation that could precede one of its own
+// has already been produced. A planner inserted out of that order would have its
+// predecessors' operations invisible here, and the false "check that path for a
+// typo" decline would be back.
+function precedingOperations(ctx, kind, pending) {
+  const limit = APPLY_ORDER.indexOf(kind);
+  return [...list(ctx && ctx.planned), ...list(pending)]
+    .filter((o) => o && typeof o === "object" && APPLY_ORDER.indexOf(o.op) <= limit)
+    .sort((a, b) => APPLY_ORDER.indexOf(a.op) - APPLY_ORDER.indexOf(b.op));
+}
+
+// Whether an operation puts something at a path without moving it there from
+// somewhere else, so there is no earlier path to ask the disk about. Returns what
+// kind of thing it makes, because the callers below care: a bucket folder is a
+// directory and a fresh index is a file.
+function planCreatesOutright(o, target) {
+  if (o.op === "create-index" && toPosix(o.to) === target) return "file";
+  for (const b of list(o.buckets)) {
+    if (b && typeof b === "object" && toPosix(b.folder) === target) return "directory";
+  }
+  return null;
+}
+
+// The path an operation moves TO `target`, or null when it puts nothing there.
+//
+// The prefix branch is what makes a directory move count: `git mv` on a folder
+// carries every path beneath it, so a rebuild naming an index inside the moved
+// folder is naming a file that exists today under the old prefix.
+//
+// A parent directory an operation IMPLIES is deliberately not counted. Moving a
+// file to settings/rolara/notes/A.md does create settings/rolara/notes on the way,
+// but reading that as "the folder will be there" would license a split into a folder
+// whose only content is a file the same plan is putting there, and two operations
+// targeting one path is findDestinationCollisions' question, which it already
+// answers with a refusal naming both.
+function planMovedOnto(o, target) {
+  for (const a of articleMovesOf(o)) {
+    if (a.to && toPosix(a.to) === target) return toPosix(a.from);
+  }
+  // absorb-folder carries a from and a to and never moves that pair as a unit: it
+  // moves each enumerated file, which the loop above already covered. Same
+  // exclusion, for the same reason, as destinationEntriesOf.
+  if (o.op === "absorb-folder" || !o.from || !o.to) return null;
+  const from = toPosix(o.from);
+  const to = toPosix(o.to);
+  if (target === to) return from;
+  if (target.startsWith(`${to}/`)) return `${from}${target.slice(to.length)}`;
+  return null;
+}
+
+// Where a path a scope names will have come FROM by the time the operation naming
+// it runs: `{path}` to ask the disk about, or `{creates}` when an earlier operation
+// in the same plan makes it out of nothing.
+//
+// existsSync alone reasons about the tree as it is, not as it will be when the
+// operation runs, and APPLY_ORDER is a dependency order, so a scope combining a
+// pathMoves entry with a rebuildIndexes or splitFolders entry that names a path
+// AFTER the move is legitimate. Measured with the raw question: that scope was
+// declined with "No index exists at settings/rolara/notes/Misc-INDEX.md ... Check
+// that path for a typo", for an index the relocate-path creates eight ranks earlier,
+// and the remedy that message implies is editing a scope which was already correct.
+//
+// This is the mirror image of findDestinationCollisions' `vacated`, and follows its
+// shape: that one asks which paths an operation FREES before a later one writes
+// them, this one asks which paths an operation FILLS before a later one reads them,
+// and both answer from the plan rather than from the disk.
+//
+// REWINDING rather than collecting the set of paths the plan will have created,
+// because the two differ exactly where the check earns its keep. A directory move
+// creates every path beneath its destination, so a set would have to hold either the
+// prefix alone, which misses the index inside the moved folder, or the prefix and
+// anything under it, which accepts Msic-INDEX.md and is the typo the check exists to
+// name. Mapping the named path back through the move and asking the disk about ITS
+// pre-move path finds the real file and still declines the typo.
+//
+// Walked in reverse rank order so a chain rewinds: misc -> notes in one entry and
+// notes/Odds.md -> somewhere else in another leaves each path resolving to where it
+// sits today.
+function planResolve(ctx, rel, kind, pending) {
+  let target = toPosix(rel);
+  const preceding = precedingOperations(ctx, kind, pending);
+  for (let i = preceding.length - 1; i >= 0; i--) {
+    const creates = planCreatesOutright(preceding[i], target);
+    if (creates) return { creates };
+    const moved = planMovedOnto(preceding[i], target);
+    if (moved) target = moved;
+  }
+  return { path: target };
+}
+
+// Whether the thing a scope named will be there, and be the KIND of thing the
+// operation needs. `wants` is "file", "directory", or "any".
 //
 // This is the plan phase's own stated posture, twice over: the prechecks run
 // before the plan is shown rather than after, and a plan that cannot execute is
@@ -902,23 +1012,50 @@ const groupIdFor = (key, index) => `${key}[${index}]`;
 // the missing file, with the paired index operations running on top of the
 // half-applied tree.
 //
-// UNDETERMINED IS NOT MISSING. With no usable project root this answers false and
+// The KIND matters and existence does not answer it: rebuild-index edits an index
+// FILE's link list in place and lists a FOLDER's contents, so a directory at the one
+// path or a file at the other passed an existsSync check and still reached
+// applyRebuildIndex after the snapshot. statSync answers both questions in one
+// read-only call. "any" is for the two paths where either kind is legitimate: a
+// relocate-path source can be a file or a whole folder, and a bucket article that is
+// a directory still moves correctly through `git mv`.
+function namedPathSatisfies(ctx, rel, kind, pending, wants) {
+  const at = planResolve(ctx, rel, kind, pending);
+  if (at.creates) return wants === "any" || at.creates === wants;
+  let st;
+  try {
+    st = statSync(path.resolve(ctx.projectRoot, at.path));
+  } catch {
+    return false;
+  }
+  if (wants === "file") return st.isFile();
+  if (wants === "directory") return st.isDirectory();
+  return true;
+}
+
+// UNDETERMINED IS NOT MISSING. With no usable project root these answer false and
 // the planner plans, which is the same guard findDestinationCollisions puts on its
 // own on-disk half: re-running a planner against a bare scope with no root on disk
 // cannot answer the question, and answering "missing" there would decline every
 // legitimate scope.
-const namedPathMissing = (ctx, rel) =>
-  Boolean(ctx.rootUsable) && Boolean(rel) && !existsSync(path.resolve(ctx.projectRoot, rel));
+const namedPathMissing = (ctx, rel, kind, pending) =>
+  Boolean(ctx.rootUsable) && Boolean(rel) && !namedPathSatisfies(ctx, rel, kind, pending, "any");
+const namedPathNotAFile = (ctx, rel, kind, pending) =>
+  Boolean(ctx.rootUsable) && Boolean(rel) && !namedPathSatisfies(ctx, rel, kind, pending, "file");
+const namedPathNotAFolder = (ctx, rel, kind, pending) =>
+  Boolean(ctx.rootUsable) && Boolean(rel) && !namedPathSatisfies(ctx, rel, kind, pending, "directory");
 
 // The other direction, for the one check that wants a path to be ABSENT: a
-// bucket folder a split is about to create. Not the negation of the predicate
-// above, because both answer false when the root is unusable, which is the
+// bucket folder a split is about to create. Not the negation of the predicates
+// above, because all of them answer false when the root is unusable, which is the
 // undetermined verdict rather than either yes or no. It also routes the raw
 // path.resolve through the same guard: with no projectRoot that call throws a
 // TypeError, and the planner has no business crashing on a scope it could simply
-// decline to check.
-const namedPathPresent = (ctx, rel) =>
-  Boolean(ctx.rootUsable) && Boolean(rel) && existsSync(path.resolve(ctx.projectRoot, rel));
+// decline to check. Plan-aware in the same direction: a bucket folder an earlier
+// operation moves something onto is occupied by the time the split runs, whatever
+// the disk says now.
+const namedPathPresent = (ctx, rel, kind, pending) =>
+  Boolean(ctx.rootUsable) && Boolean(rel) && namedPathSatisfies(ctx, rel, kind, pending, "any");
 
 /**
  * @param {{projectRoot: string, settings: Array, baseRules: object, scope: object}} input
@@ -935,6 +1072,12 @@ export function buildScopedPlan({ projectRoot, settings, baseRules, scope }) {
     // Decided once for the whole plan: whether the on-disk existence checks can
     // be answered at all. See namedPathMissing.
     rootUsable: Boolean(projectRoot) && existsSync(projectRoot),
+    // The SAME array as `operations` above, deliberately shared rather than copied
+    // per planner: each planner's existence checks have to see what the planners
+    // before it produced, because an operation earlier in the plan can be what puts
+    // a later operation's path there. See precedingOperations. Read-only from the
+    // planners' side; only the push below adds to it.
+    planned: operations,
   };
 
   // The scope KEY is handed to the planner as well as its items, because every
@@ -983,7 +1126,11 @@ function planPathMoves(items, ctx, key) {
     // nothing else proves it is there. `to` is deliberately NOT checked: a
     // destination that already exists is findDestinationCollisions's question, and
     // the answer there is the opposite one.
-    if (namedPathMissing(ctx, from)) {
+    //
+    // `operations` is handed over so an entry whose source an EARLIER entry moves
+    // into place is not read as a typo. Same-kind operations run in the order this
+    // loop emits them, so entry 2 may depend on entry 1 and never the reverse.
+    if (namedPathMissing(ctx, from, "relocate-path", operations)) {
       declined.push({
         op: "relocate-path",
         target: from,
@@ -1019,20 +1166,27 @@ function planRebuildIndexes(items, ctx, key) {
     // supposed to be there already, which means the collision half never looks at
     // it and a typo here reaches applyRebuildIndex, after the snapshot. This is
     // the one planner whose named path has to exist rather than not.
-    if (namedPathMissing(ctx, index)) {
+    //
+    // A FILE rather than merely a path: this executor edits an existing index's link
+    // list in place, so a directory sitting at that path cannot execute either, and
+    // existsSync answered yes for it. Both checks are handed the plan so far, because
+    // an earlier entry can be what puts the index and its folder where this entry
+    // names them; the rebuild kind ranks last of the four, so every operation a
+    // scoped plan can already hold does run before it.
+    if (namedPathNotAFile(ctx, index, "rebuild-index", operations)) {
       declined.push({
         op: "rebuild-index",
         target: index,
-        reason: `No index exists at ${index}. rebuild-index edits an existing index's link list in place and create-index is the operation that creates one, so this cannot execute as written. Check that path for a typo.`,
+        reason: `No index file exists at ${index}. rebuild-index edits an existing index's link list in place and create-index is the operation that creates one, so this cannot execute as written. Check that path for a typo.`,
       });
       continue;
     }
     const folder = toPosix(item.folder) || path.posix.dirname(index);
-    if (namedPathMissing(ctx, folder)) {
+    if (namedPathNotAFolder(ctx, folder, "rebuild-index", operations)) {
       declined.push({
         op: "rebuild-index",
         target: index,
-        reason: `The folder to rebuild the list from, ${folder}, is not there, so there is nothing to list.`,
+        reason: `The folder to rebuild the list from, ${folder}, is not a folder that is there to be read, so there is nothing to list.`,
       });
       continue;
     }
@@ -1256,8 +1410,10 @@ function planSplitFolders(items, ctx, key) {
       continue;
     }
     // Checked before the buckets, so a mistyped folder produces one clear decline
-    // naming it rather than one decline per article inside it.
-    if (namedPathMissing(ctx, folder)) {
+    // naming it rather than one decline per article inside it. Handed the plan so
+    // far, because a pathMoves entry (rank 1) can be what puts this folder where the
+    // split (rank 3) names it.
+    if (namedPathMissing(ctx, folder, "split-folder", operations)) {
       declined.push({
         op: "split-folder",
         target: folder,
@@ -1283,7 +1439,7 @@ function planSplitFolders(items, ctx, key) {
         break;
       }
       const dest = `${folder}/${name}`;
-      if (namedPathPresent(ctx, dest)) {
+      if (namedPathPresent(ctx, dest, "split-folder", operations)) {
         declined.push({
           op: "split-folder",
           target: dest,
@@ -1320,8 +1476,10 @@ function planSplitFolders(items, ctx, key) {
         // the folder, so nothing else proves the file is there. Refusing the whole
         // ENTRY rather than dropping the one article: a typo means the DM meant a
         // file, and quietly planning the partition without it would apply a
-        // partition nobody approved.
-        if (namedPathMissing(ctx, source)) {
+        // partition nobody approved. Existence rather than file-ness, because a
+        // directory named as a bucket article still moves correctly through `git mv`
+        // and declining it would be a new false refusal.
+        if (namedPathMissing(ctx, source, "split-folder", operations)) {
           declined.push({
             op: "split-folder",
             target: folder,
@@ -3669,6 +3827,42 @@ export function applyPlan(plan, options = {}) {
 
   for (const item of result.skipped) item.detail = skipDetail(item);
 
+  // An operation belonging to BOTH a skipped scope entry and one that ran, runs. The
+  // asymmetry that decides it is argued at groupsOf, and it is the right call: the
+  // alternative leaves the entry that DID run with a parent index linking an index it
+  // just removed, which is a dead wikilink and blocks the whole commit.
+  //
+  // This is where the cost of that call is disclosed. Two sibling absorbs into one
+  // parent share the deduped parent rebuild, so one entry being skipped still rebuilds
+  // the parent index from what the parent holds NOW, and the folder whose entry was
+  // skipped is left on disk and no longer linked from it. The skip item cannot say so,
+  // because the operation it would have to name is not in the item: it ran. Without
+  // this note the DM was told the folder was "left exactly where it is" and nothing
+  // else, so the one property the single-entry case guarantees (the parent index still
+  // links the folder that survived) silently did not hold for two.
+  const partiallySkipped = [];
+  for (const record of raw) {
+    if (record.outcome === "skipped") continue;
+    const skippedToo = groupsOf(record.op).filter((g) => skippedGroups.has(g));
+    if (skippedToo.length === 0) continue;
+    partiallySkipped.push(
+      `${record.op.op} ${record.op.to || record.op.from || "(unnamed)"} (also from skipped scope entry ${skippedToo.join(", ")})`
+    );
+  }
+  if (partiallySkipped.length > 0) {
+    result.messages.push(
+      `Note: ${partiallySkipped.length} operation(s) ran even though a scope entry they belong to was skipped, because ` +
+        `another entry sharing them did run: ${partiallySkipped.join("; ")}. Dropping one of these would leave the entry ` +
+        "that DID run holding a dead wikilink, which fails the link-integrity rail and blocks the whole commit, so " +
+        "running it is the lesser evil." +
+        (partiallySkipped.some((p) => p.startsWith("rebuild-index"))
+          ? " The cost lands on the rebuild: an index is rebuilt from what its folder holds NOW, so a folder whose own " +
+            "entry was skipped is still on disk and is no longer linked from that index. Re-run the skipped entry once " +
+            "its git-ignored file is dealt with, or add the link back by hand."
+          : "")
+    );
+  }
+
   // Dropped-worker accounting, the shape validation-sweep.mjs's fix phase uses:
   // a worker that failed or returned nothing is NOT counted as done, because a
   // half-applied run reported as complete is the worst outcome available here.
@@ -3705,14 +3899,38 @@ export function applyPlan(plan, options = {}) {
   //
   // Filtered on the SKIP DECISION rather than on the ignored-source set, so that
   // the sentence above stays true for an operation skipped because its scope entry
-  // was. Identical for every kind today, verified rather than assumed: an operation
-  // skipped for its own ignored source has that source as its `from`, which is the
-  // key both lists carry, so the old test matched exactly the same rows.
-  const skippedKeys = new Set(
-    raw.filter((r) => r.outcome === "skipped").map((r) => `${r.op.op}::${toPosix(r.op.from || "")}`)
-  );
-  result.ignoredEdits = list(prechecks.ignoredReferrers).filter((r) => !skippedKeys.has(`${r.op}::${r.source}`));
-  result.ignoredMoved = list(prechecks.ignoredBeneath).filter((r) => !skippedKeys.has(`${r.op}::${r.from}`));
+  // was.
+  //
+  // Matched on EVERY path an operation names as a source, not on `from` alone. `from`
+  // is not the key both lists carry, and merge-index is the counterexample: it has no
+  // `from` at all. Its sources live in `sources`, which is where the skip pass finds
+  // an ignored one, so such a merge is correctly skipped, while findIgnoredReferrers
+  // keys its rows by the `sourceLinks` key and findIgnoredWithinSources by `from`.
+  // Keyed on `from` alone a skipped merge produced the degenerate key
+  // "merge-index::", which no row can equal, so its referrer rows survived the filter
+  // and the run told the DM that a git-ignored file's wikilinks had been rewritten
+  // unrecoverably by a merge that never opened it. merge-index is in OPERATION_ORDER,
+  // so that false claim landed in setup's unattended after-action report.
+  //
+  // A row is dropped only when EVERY operation naming that path was skipped, which
+  // is why `ran` is collected beside `skipped`. If one operation naming a path ran
+  // and another was skipped, the rewrite DID happen and the disclosure is real. A row
+  // no operation matches at all is kept rather than dropped, on the same asymmetry
+  // the rest of this module runs on: a missing disclosure hides an unrecoverable edit,
+  // while a spurious one is only misleading.
+  const sourcePathsOf = (o) =>
+    [o.from, ...list(o.sources), ...articleMovesOf(o).map((a) => a.from)]
+      .map((p) => toPosix(p || ""))
+      .filter(Boolean);
+  const skippedKeys = new Set();
+  const ranKeys = new Set();
+  for (const record of raw) {
+    const into = record.outcome === "skipped" ? skippedKeys : ranKeys;
+    for (const p of sourcePathsOf(record.op)) into.add(`${record.op.op}::${p}`);
+  }
+  const runOf = (key) => !skippedKeys.has(key) || ranKeys.has(key);
+  result.ignoredEdits = list(prechecks.ignoredReferrers).filter((r) => runOf(`${r.op}::${r.source}`));
+  result.ignoredMoved = list(prechecks.ignoredBeneath).filter((r) => runOf(`${r.op}::${r.from}`));
   if (result.ignoredEdits.length > 0) {
     result.messages.push(
       `Note: ${result.ignoredEdits.length} git-ignored referring file(s) were named by the plan and had their wikilinks ` +

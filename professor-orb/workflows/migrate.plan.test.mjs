@@ -988,15 +988,32 @@ console.log("\n=== scoped plans: rebuild-index ===");
 }
 
 {
-  const r = scoped({
-    rebuildIndexes: [{ index: "settings/rolara/items/Items-INDEX.md" }],
-    pathMoves: [{ from: "settings/rolara/misc/A.md", to: "settings/rolara/items/A.md", reason: "x" }],
-  });
   // The move has to land before the rebuild reads the folder, or the rebuild
   // lists yesterday's membership. This is APPLY_ORDER doing its job, asserted
   // here because a planner added to SCOPED_PLANNERS in the wrong slot is the
   // easy mistake and applyPlan would refuse the whole run rather than explain it.
+  //
+  // Driven against a REAL project root, and against a rebuild whose index the move
+  // itself puts there. With no root the plan-time existence checks are inert, so
+  // this case read as coverage of the cross-key sequencing while proving nothing
+  // about it. Measured with those checks asking existsSync about the pre-migration
+  // tree: this scope was declined with "No index exists at
+  // settings/rolara/notes/Misc-INDEX.md ... Check that path for a typo", for an
+  // index the relocate-path above creates eight ranks earlier.
+  const root = absorbFixture();
+  const r = scoped(
+    {
+      rebuildIndexes: [{ index: "settings/rolara/notes/Misc-INDEX.md" }],
+      pathMoves: [{ from: "settings/rolara/misc", to: "settings/rolara/notes", reason: "x" }],
+    },
+    root
+  );
   check("moves are ordered before rebuilds", kindsOf(r.operations), ["relocate-path", "rebuild-index"]);
+  check("and a path an earlier operation in the same plan creates is not called a typo",
+    r.declined, []);
+  check("the rebuild still reads the folder at its post-move path",
+    find(r.operations, "rebuild-index").folder, "settings/rolara/notes");
+  rmSync(root, { recursive: true, force: true });
 }
 
 console.log("\n=== scoped plans: absorb-folder ===");
@@ -1518,6 +1535,120 @@ console.log("\n=== scoped plans: every path a scope names is checked at plan tim
   });
   check("with no project root nothing is declined for not existing",
     [kindsOf(r.operations), r.declined.length], [["relocate-path"], 0]);
+}
+
+// The check has to reason about the tree the operation will MEET, not the one on
+// disk when the plan is built. APPLY_ORDER is a dependency order, so a scope whose
+// later entry names a path an EARLIER entry creates is legitimate, and declining it
+// with "Check that path for a typo" is both a false refusal and the wrong
+// diagnosis: the remedy it implies is editing the scope, when nothing is wrong with
+// it. Every case below combines two scope keys against a real root, which is the
+// combination the suite had no case for.
+{
+  const root = absorbFixture();
+  const r = scoped(
+    {
+      rebuildIndexes: [{ index: "settings/rolara/notes/Msic-INDEX.md" }],
+      pathMoves: [{ from: "settings/rolara/misc", to: "settings/rolara/notes", reason: "x" }],
+    },
+    root
+  );
+  // The widening must not swallow what the check is for. Nothing puts this index at
+  // that path, before or after the move, so the typo is still declined by name.
+  check("a typo UNDER a folder the plan moves is still declined at plan time",
+    [kindsOf(r.operations), r.declined.length], [["relocate-path"], 1]);
+  check("and the decline still names the path the DM typed",
+    String(obj(r.declined[0]).reason).includes("settings/rolara/notes/Msic-INDEX.md"), true);
+  rmSync(root, { recursive: true, force: true });
+}
+
+{
+  const root = absorbFixture();
+  const r = scoped(
+    {
+      pathMoves: [{ from: "settings/rolara/misc", to: "settings/rolara/notes", reason: "x" }],
+      splitFolders: [
+        { folder: "settings/rolara/notes", buckets: [{ name: "odds", articles: ["Odds.md"] }] },
+      ],
+    },
+    root
+  );
+  // Three checks at once: the split's folder, its bucket article, and the bucket
+  // folder that must NOT exist. The first two are satisfied by the move; the third
+  // is not, and reading the move as creating it would decline the whole entry.
+  check("a split of a folder the same plan moves into place plans rather than declines",
+    [kindsOf(r.operations), r.declined.length],
+    [["relocate-path", "split-folder", "create-index"], 0]);
+  check("and the bucket article is read at its post-move source",
+    obj(list(find(r.operations, "split-folder").buckets)[0]).articles,
+    [{ from: "settings/rolara/notes/Odds.md", to: "settings/rolara/notes/odds/Odds.md" }]);
+  rmSync(root, { recursive: true, force: true });
+}
+
+{
+  const root = absorbFixture();
+  const r = scoped(
+    {
+      pathMoves: [
+        { from: "settings/rolara/misc", to: "settings/rolara/notes", reason: "x" },
+        { from: "settings/rolara/notes/Odds.md", to: "settings/rolara/Odds.md", reason: "x" },
+      ],
+    },
+    root
+  );
+  check("a second move whose source the first move creates plans too",
+    [kindsOf(r.operations), r.declined.length], [["relocate-path", "relocate-path"], 0]);
+  rmSync(root, { recursive: true, force: true });
+}
+
+{
+  const root = absorbFixture();
+  const r = scoped(
+    {
+      pathMoves: [
+        { from: "settings/rolara/notes/Odds.md", to: "settings/rolara/Odds.md", reason: "x" },
+        { from: "settings/rolara/misc", to: "settings/rolara/notes", reason: "x" },
+      ],
+    },
+    root
+  );
+  // The credit is for what runs EARLIER, not for anything the plan happens to
+  // mention. Same-kind operations keep the order the planner emitted them in, so
+  // the move below this one runs second and the source is still absent at rank 1.
+  // Crediting it would plan a move that fails after the snapshot, which is the
+  // failure this whole check exists to move to plan time.
+  check("but a source only a LATER operation creates is still declined",
+    [kindsOf(r.operations), r.declined.length], [["relocate-path"], 1]);
+  rmSync(root, { recursive: true, force: true });
+}
+
+{
+  // existsSync answers a weaker question than this planner is asking. rebuild-index
+  // edits an existing index FILE's link list in place, so a directory sitting at
+  // that path passed the check and reached applyRebuildIndex after the snapshot.
+  const root = absorbFixture();
+  mkdirSync(path.join(root, "settings", "rolara", "misc", "Odd-INDEX.md"), { recursive: true });
+  const r = scoped({ rebuildIndexes: [{ index: "settings/rolara/misc/Odd-INDEX.md" }] }, root);
+  check("a directory sitting at an index path is declined rather than planned",
+    [r.operations.length, r.declined.length], [0, 1]);
+  rmSync(root, { recursive: true, force: true });
+}
+
+{
+  // The same weakness on the other path the rebuild names: applyRebuildIndex lists
+  // the folder's contents, and a FILE there is not a folder to list.
+  const root = absorbFixture();
+  const r = scoped(
+    {
+      rebuildIndexes: [
+        { index: "settings/rolara/misc/Misc-INDEX.md", folder: "settings/rolara/misc/Odds.md" },
+      ],
+    },
+    root
+  );
+  check("a file named as the folder to rebuild from is declined too",
+    [r.operations.length, r.declined.length], [0, 1]);
+  rmSync(root, { recursive: true, force: true });
 }
 
 console.log("\n=== scoped plans: one folder, two scope entries ===");

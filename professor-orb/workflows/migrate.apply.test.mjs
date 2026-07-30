@@ -1441,6 +1441,44 @@ withRepo(
   }
 );
 
+// The mirror of that disclosure: an operation that was SKIPPED rewrote nothing, so
+// its git-ignored referrers must not be reported as edited. merge-index is the shape
+// that breaks a filter keyed on `from`, because it HAS no from: its sources live in
+// `sources`, which is where the skip pass finds the ignored one, while
+// findIgnoredReferrers keys its rows by the sourceLinks key. Measured with the
+// filter keyed on from: the run told the DM that one git-ignored referring file had
+// its wikilinks "rewritten in place" and that restoring the snapshot would NOT undo
+// the edit, for a merge that never opened the file. merge-index is in
+// OPERATION_ORDER, so that false claim of unrecoverable damage is in the
+// after-action report of setup's unattended migration.
+withRepo(
+  {
+    ".gitignore": "settings/rolara/items/Old-INDEX.md\ndrafts/\n",
+    "settings/rolara/items/Sword.md": article("type: Item", "A blade."),
+    "settings/rolara/items/Items-INDEX.md": article("type: Index", "- [[Sword]]"),
+    "settings/rolara/items/Old-INDEX.md": article("type: Index", "- [[Sword]]"),
+    "drafts/Notes.md": "See [[Old-INDEX]].\n",
+  },
+  (root) => {
+    const before = snapshotTree(root);
+    const r = apply(root, [
+      {
+        op: "merge-index",
+        to: "settings/rolara/items/Items-INDEX.md",
+        sources: ["settings/rolara/items/Old-INDEX.md"],
+        sourceLinks: { "settings/rolara/items/Old-INDEX.md": ["drafts/Notes.md"] },
+        reason: "two indexes in one folder",
+      },
+    ]);
+    check("a merge whose source is git-ignored is skipped",
+      [r.skipped.length, r.applied.length], [1, 0]);
+    check("and no unrecoverable edit is claimed for a merge that rewrote nothing",
+      [r.ignoredEdits.length, r.messages.some((m) => /rewritten in place/.test(m))], [0, false]);
+    check("which is what the referring file itself says", read(root, "drafts/Notes.md"), "See [[Old-INDEX]].\n");
+    check("and the whole project is byte-identical", snapshotTree(root), before);
+  }
+);
+
 console.log("\nThe snapshot precedes every mutation");
 
 withRepo(
@@ -2542,6 +2580,72 @@ withRepo(
     check("so the parent index still links the folder that survived",
       read(root, "settings/rolara/Rolara-INDEX.md").includes("[[Misc-INDEX]]"), true);
     check("and the whole project is byte-identical", snapshotTree(root), before);
+  }
+);
+
+// TWO sibling absorbs into one parent, one of them skipped. They share the deduped
+// parent rebuild, so it carries both ids and runs when EITHER entry does. That trade
+// is deliberate and argued at groupsOf: dropping it would leave the absorb that ran
+// with a parent index linking the index it just removed, which is a dead wikilink
+// that blocks the whole commit. Its cost is that a rebuild lists what the folder
+// holds NOW, so the folder whose own entry was skipped is still on disk and is no
+// longer linked from the parent index. The property the single-entry case above pins
+// therefore does NOT hold here, and before this note nothing said so: the skip item
+// reported the folder "left exactly where it is" and never mentioned its link.
+withRepo(
+  {
+    ".gitignore": "settings/rolara/misc/Hidden.md\n",
+    "settings/rolara/Rolara-INDEX.md": article("type: Index", "- [[Misc-INDEX]]\n- [[Notes-INDEX]]"),
+    "settings/rolara/misc/Misc-INDEX.md": article("type: Index", "- [[Odds]]"),
+    "settings/rolara/misc/Odds.md": article("type: Concept", "Body."),
+    "settings/rolara/misc/Hidden.md": article("type: Concept", "A draft the DM keeps out of git."),
+    "settings/rolara/notes/Notes-INDEX.md": article("type: Index", "- [[Jot]]"),
+    "settings/rolara/notes/Jot.md": article("type: Concept", "Body."),
+  },
+  (root) => {
+    const r = apply(root, [
+      {
+        op: "absorb-folder",
+        from: "settings/rolara/misc",
+        to: "settings/rolara",
+        articles: [
+          { from: "settings/rolara/misc/Odds.md", to: "settings/rolara/Odds.md" },
+          { from: "settings/rolara/misc/Hidden.md", to: "settings/rolara/Hidden.md" },
+        ],
+        index: "settings/rolara/misc/Misc-INDEX.md",
+        groups: ["absorbFolders[0]"],
+        reason: "scope",
+      },
+      {
+        op: "absorb-folder",
+        from: "settings/rolara/notes",
+        to: "settings/rolara",
+        articles: [{ from: "settings/rolara/notes/Jot.md", to: "settings/rolara/Jot.md" }],
+        index: "settings/rolara/notes/Notes-INDEX.md",
+        groups: ["absorbFolders[1]"],
+        reason: "scope",
+      },
+      {
+        op: "rebuild-index",
+        to: "settings/rolara/Rolara-INDEX.md",
+        folder: "settings/rolara",
+        groups: ["absorbFolders[0]", "absorbFolders[1]"],
+        reason: "scope",
+      },
+    ]);
+    check("the entry holding the ignored file is skipped and the sibling still runs",
+      [r.skipped.length, r.applied.length, r.failed.length], [1, 2, 0]);
+    check("the shared rebuild runs, and drops the link to the folder that stayed",
+      [has(root, "settings/rolara/misc/Misc-INDEX.md"),
+       read(root, "settings/rolara/Rolara-INDEX.md").includes("[[Misc-INDEX]]")],
+      [true, false]);
+    check("so the run discloses it rather than leaving the DM to find it in their index",
+      r.messages.some(
+        (m) => /rebuild-index settings\/rolara\/Rolara-INDEX\.md/.test(m) && /no longer linked/.test(m)
+      ),
+      true);
+    check("and the disclosure names the scope entry that was skipped",
+      r.messages.some((m) => /absorbFolders\[0\]/.test(m)), true);
   }
 );
 
