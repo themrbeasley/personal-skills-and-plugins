@@ -149,7 +149,7 @@ Violations where the DM must decide. State the exact question.
 (or "None found")
 
 ### Summary
-[One paragraph: overall KB health, violation counts by bucket, and the recommended next step, such as approving the fixable bucket or reviewing the judgment items.]
+[One paragraph: overall KB health, violation counts by bucket, and the recommended next step, such as approving the fixable bucket or reviewing the judgment items. A needs-judgment item that is a structural change, such as an index-ownership conflict or a multi-index folder, can be handed to /migrate as a scope in the DM's own words.]
 ```
 
 ## Rules
