@@ -92,6 +92,8 @@ This is the one confirmation the migration asks for. Enumerate the candidate loc
 
 It is the one input the plugin cannot derive reliably, and getting it wrong is the one error the after-action report cannot help with, because the DM would not know to look. Any move whose destination lies inside its own source is staged through a temporary sibling path.
 
+**This applies only to a setting that is not retired or merged.** A setting carrying `retired`, `mergedInto`, or `retiredCampaigns` already had its prong roots relocated by `/migrate`: after a retirement they point into the archive, and after a merge they still point at the folders the material was moved out of. Step 6 already read those roots into memory and Step 12 carries them forward unchanged, so neither is this step's to recompute. Do not enumerate candidate locations or ask the DM to confirm a mapping for a retired or merged setting; discovery and confirmation apply only to a setting the file does not mark either way.
+
 ## Step 8: copy the workflows
 
 Copy every workflow the plugin ships (resolved from the plugin root) into `.claude/workflows/` in the consumer project, creating the destination directory if needed. This includes `migrate.mjs`, which Step 10 needs, and `validation-sweep.mjs`. Copy each file as-is; do not read its contents into the conversation and retype them, and do not reproduce or summarize them anywhere in this skill's own instructions. Plugins cannot ship workflow files directly into a consumer project's `.claude/workflows/`, which is why this copy step exists.
