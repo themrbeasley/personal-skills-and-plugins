@@ -148,12 +148,19 @@ export function runPrechecks({ operations, projectRoot }) {
 // Operation kinds whose destination is SUPPOSED to be there already, so finding
 // it on disk is not a collision. merge-index targets the surviving index it
 // folds the others into, tag-registry regenerates a registry an earlier run
-// wrote, and rebuild-index edits an existing index's link list in place rather
-// than creating one; existsSync(to) is already its own precondition check, not
-// this one's job. Every other kind is checked, including one added later: a new
-// kind that aborts on a destination it meant to create is a louder failure than
-// one that silently overwrites the DM's file.
-const DESTINATION_MAY_EXIST = new Set(["merge-index", "tag-registry", "rebuild-index"]);
+// wrote, rebuild-index edits an existing index's link list in place rather than
+// creating one, and absorb-folder's `to` is the PARENT FOLDER the dissolved
+// folder's articles move into, which by definition already exists; existsSync(to)
+// is already its own precondition check, not this one's job. Every other kind is
+// checked, including one added later: a new kind that aborts on a destination it
+// meant to create is a louder failure than one that silently overwrites the DM's
+// file.
+//
+// absorb-folder's real collision hazard is one level down, in `op.articles`: one
+// article's destination basename already occupied in the parent. That is not
+// this set's job either; findDestinationCollisions checks it separately, because
+// the collision is per ARTICLE, not per the folder-level `to` this set exempts.
+const DESTINATION_MAY_EXIST = new Set(["merge-index", "tag-registry", "rebuild-index", "absorb-folder"]);
 
 // vault joins them for the CREATE shape ONLY, which is why this is a predicate
 // rather than a third entry in the set above.
@@ -202,8 +209,30 @@ function destinationMayExist(op) {
 // folded because the filesystem is case-insensitive; settings/Rolara/items and
 // settings/rolara/items are one directory on that same filesystem, so folding
 // half the key let through a pair that is one file.
+//
+// A "destination entry" is one from/to pair this check considers. Most
+// operations contribute exactly one: their own from and to. An operation that
+// also carries `articles` (currently only absorb-folder) contributes one more
+// PER ARTICLE, because articles is the field the DM's approved proposal names,
+// and each article's own destination is what can actually collide with a file
+// already sitting in the parent. The operation's own `to` stays governed by
+// destinationMayExist as before (for absorb-folder that is the parent folder,
+// which is supposed to be there already); an article's `to` is never exempt,
+// because a basename collision there is exactly the hazard this check exists to
+// catch before anything moves, on the same "refuse before mutation" terms every
+// other kind gets.
+function destinationEntriesOf(o) {
+  const entries = [{ op: o.op, from: o.from, to: o.to, mayExist: destinationMayExist(o) }];
+  for (const a of list(o.articles)) {
+    if (!a || !a.to) continue;
+    entries.push({ op: o.op, from: a.from, to: a.to, mayExist: false });
+  }
+  return entries;
+}
+
 function findDestinationCollisions(operations, projectRoot, ignored) {
   const ops = list(operations).filter((o) => o && typeof o === "object");
+  const entries = ops.flatMap(destinationEntriesOf);
   const foldKey = (p) => `${path.dirname(p)}::${path.basename(p)}`.toLowerCase();
   const rootUsable = Boolean(projectRoot) && existsSync(projectRoot);
 
@@ -238,17 +267,17 @@ function findDestinationCollisions(operations, projectRoot, ignored) {
   const ignoredFroms =
     ignored === null ? null : new Set(list(ignored).map((i) => i.from).filter(Boolean));
   const vacated = new Set();
-  for (const o of ops) {
-    if (!o.from || !o.to) continue;
-    if (ignoredFroms === null || ignoredFroms.has(o.from)) continue;
-    vacated.add(foldKey(toPosix(o.from)));
+  for (const e of entries) {
+    if (!e.from || !e.to) continue;
+    if (ignoredFroms === null || ignoredFroms.has(e.from)) continue;
+    vacated.add(foldKey(toPosix(e.from)));
   }
 
   const byDir = new Map();
   const hits = [];
-  for (const o of ops) {
-    if (!o.to) continue;
-    const to = toPosix(o.to);
+  for (const e of entries) {
+    if (!e.to) continue;
+    const to = toPosix(e.to);
     const key = foldKey(to);
 
     if (byDir.has(key)) {
@@ -262,13 +291,13 @@ function findDestinationCollisions(operations, projectRoot, ignored) {
       byDir.set(key, to);
     }
 
-    if (!rootUsable || destinationMayExist(o)) continue;
+    if (!rootUsable || e.mayExist) continue;
     if (vacated.has(key)) continue;
     if (!existsSync(path.resolve(projectRoot, to))) continue;
     hits.push({
       kind: "on-disk",
-      op: o.op,
-      from: o.from,
+      op: e.op,
+      from: e.from,
       to,
       reason:
         "Destination already exists and no operation in this plan moves it away, so applying this one would overwrite it.",
@@ -722,6 +751,7 @@ function frontmatterHasPublish(file) {
 // negotiated scope carries and the planner that turns it into operations.
 const SCOPED_PLANNERS = [
   ["pathMoves", planPathMoves],
+  ["absorbFolders", planAbsorbFolders],
   ["rebuildIndexes", planRebuildIndexes],
 ];
 
@@ -804,6 +834,148 @@ function planRebuildIndexes(items, ctx) {
     });
   }
   return { operations, declined };
+}
+
+// Every prong root of every setting, plus every campaign folder, as a Set of
+// posix paths. These are the folders absorb and split may never touch: a prong
+// root holds a whole knowledge base, and a campaign folder is a lane boundary
+// /log commits against.
+function protectedFolders(settings) {
+  const out = new Set();
+  for (const setting of list(settings)) {
+    for (const root of prongRootsOf(setting)) {
+      if (root) out.add(toPosix(root));
+    }
+    for (const campaign of list(setting && setting.campaigns)) {
+      const name = typeof campaign === "string" ? campaign : campaign && campaign.name;
+      const reports = toPosix(setting && setting.sessionReportsRoot);
+      if (name && reports) out.add(`${reports}/${name}`);
+    }
+  }
+  return out;
+}
+
+function planAbsorbFolders(items, ctx) {
+  const operations = [];
+  const declined = [];
+  const protectedSet = protectedFolders(ctx.settings);
+
+  for (const item of items) {
+    const folder = toPosix(item && item.folder);
+    if (!folder) {
+      declined.push({ op: "absorb-folder", target: "(unnamed)", reason: "The scope entry names no folder." });
+      continue;
+    }
+    if (protectedSet.has(folder)) {
+      declined.push({
+        op: "absorb-folder",
+        target: folder,
+        reason:
+          "This is a prong root or a campaign folder. Dissolving it would move a whole knowledge base, homebrew catalog, or campaign into whatever sits above it, so it is permanently exempt rather than a judgment call.",
+      });
+      continue;
+    }
+
+    const abs = path.resolve(ctx.projectRoot, folder);
+    let names;
+    try {
+      names = readdirSync(abs).sort();
+    } catch (err) {
+      declined.push({ op: "absorb-folder", target: folder, reason: `Could not read the folder: ${err.message}` });
+      continue;
+    }
+
+    const suffix = indexSuffixFor(settingForFolder(ctx.settings, folder), ctx.baseRules);
+    const articles = [];
+    let index = null;
+    let hasSubfolder = false;
+    for (const name of names) {
+      let st;
+      try {
+        st = statSync(path.join(abs, name));
+      } catch {
+        continue;
+      }
+      if (st.isDirectory()) {
+        hasSubfolder = true;
+        continue;
+      }
+      if (!name.toLowerCase().endsWith(".md")) continue;
+      const stem = name.slice(0, -3);
+      if (suffix && stem.endsWith(suffix)) {
+        index = `${folder}/${name}`;
+        continue;
+      }
+      articles.push({ from: `${folder}/${name}`, to: `${path.posix.dirname(folder)}/${name}` });
+    }
+
+    if (hasSubfolder) {
+      declined.push({
+        op: "absorb-folder",
+        target: folder,
+        reason:
+          "Only a leaf folder is absorbed. This one holds a subfolder, and where that subfolder's contents belong is a separate judgment rather than something dissolving the parent answers.",
+      });
+      continue;
+    }
+
+    const parent = path.posix.dirname(folder);
+    operations.push({
+      op: "absorb-folder",
+      from: folder,
+      to: parent,
+      articles,
+      index,
+      reason: String((item && item.reason) || "Absorbed by a DM-approved /migrate scope."),
+    });
+
+    // The parent index still lists the dissolved folder's index. rebuild-index
+    // lists articles only, so rebuilding the parent is what clears that link.
+    const parentIndex = existingIndexIn(ctx, parent, suffix);
+    if (parentIndex) {
+      operations.push({
+        op: "rebuild-index",
+        to: parentIndex,
+        folder: parent,
+        reason: `Rebuilt because ${folder} was absorbed into it.`,
+      });
+    }
+  }
+  return { operations, declined };
+}
+
+// The setting whose kbRoot, homebrewRoot, or sessionReportsRoot contains this
+// folder, or null. Longest matching root wins, so a nested prong resolves to
+// the setting that actually owns it rather than to whichever came first.
+function settingForFolder(settings, folder) {
+  let best = null;
+  let bestLen = -1;
+  for (const setting of list(settings)) {
+    for (const root of prongRootsOf(setting)) {
+      const r = toPosix(root);
+      if (!r) continue;
+      if ((folder === r || folder.startsWith(`${r}/`)) && r.length > bestLen) {
+        best = setting;
+        bestLen = r.length;
+      }
+    }
+  }
+  return best;
+}
+
+function existingIndexIn(ctx, folder, suffix) {
+  if (!suffix) return null;
+  let names;
+  try {
+    names = readdirSync(path.resolve(ctx.projectRoot, folder)).sort();
+  } catch {
+    return null;
+  }
+  for (const name of names) {
+    if (!name.toLowerCase().endsWith(".md")) continue;
+    if (name.slice(0, -3).endsWith(suffix)) return `${folder}/${name}`;
+  }
+  return null;
 }
 
 // ---------------------------------------------------------------------------
@@ -1255,6 +1427,21 @@ export function gitMove(ctx, from, to) {
     };
   }
   return { ok: true, mode: "two-step" };
+}
+
+// git rm takes a PATHSPEC, not a path. Measured: `git rm -q -- "Weapons [OS]-INDEX.md"`
+// also removed an unrelated `Weapons O-INDEX.md`. :(literal) disables wildcard
+// interpretation; `--` stops option parsing. They fix different halves of the
+// same line and neither substitutes for the other.
+//
+// ctx.git never throws (see makeGit); it reports failure through `.ok`. Checked
+// that way here too, on the same terms as gitMove and the inline `git rm` call
+// in applyMergeIndex, rather than a try/catch that a non-throwing call would
+// never trip.
+export function gitRemove(ctx, target) {
+  const removed = ctx.git(["rm", "-q", "--", `:(literal)${target}`]);
+  if (!removed.ok) return { ok: false, error: firstLine(removed.stderr) };
+  return { ok: true };
 }
 
 // ---------------------------------------------------------------------------
@@ -1775,6 +1962,37 @@ function applyRelocateProng(op, ctx) {
   entry.applied = true;
   entry.mode = out.mode;
   entry.detail = `Relocated with git mv (${out.mode}).`;
+  return entry;
+}
+
+// Dissolve a leaf folder into its parent. One accounting entry for the whole
+// dissolution, on the same principle a rename carries its link rewrite: a folder
+// reported as absorbed while one of its articles was left behind is the failure
+// the accounting exists to prevent.
+function applyAbsorbFolder(op, ctx) {
+  const entry = entryFor(op);
+  entry.moved = 0;
+  const articles = list(op.articles);
+
+  for (const a of articles) {
+    const out = gitMove(ctx, toPosix(a.from), toPosix(a.to));
+    if (!out.ok) {
+      entry.detail = `git mv failed for ${a.from}: ${out.error}. ${entry.moved} of ${articles.length} article(s) had already moved; the snapshot is the undo.`;
+      return entry;
+    }
+    entry.moved++;
+  }
+
+  if (op.index) {
+    const removed = gitRemove(ctx, toPosix(op.index));
+    if (!removed.ok) {
+      entry.detail = `Articles moved but the folder's index could not be removed: ${removed.error}`;
+      return entry;
+    }
+  }
+
+  entry.applied = true;
+  entry.detail = `Absorbed ${entry.moved} article(s) into ${op.to}${op.index ? " and removed the folder's own index" : ""}.`;
   return entry;
 }
 
@@ -2434,6 +2652,7 @@ const EXECUTORS = {
   // The accounting and the DM-facing report have to be able to tell those apart,
   // and a shared kind would flatten them into one line.
   "relocate-path": applyRelocateProng,
+  "absorb-folder": applyAbsorbFolder,
   "normalize-type": applyNormalizeType,
   "rename-with-link-rewrite": applyRenameWithLinkRewrite,
   "create-index": applyCreateIndex,

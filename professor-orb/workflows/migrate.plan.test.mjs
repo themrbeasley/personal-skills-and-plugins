@@ -999,6 +999,62 @@ console.log("\n=== scoped plans: rebuild-index ===");
   check("moves are ordered before rebuilds", kindsOf(r.operations), ["relocate-path", "rebuild-index"]);
 }
 
+console.log("\n=== scoped plans: absorb-folder ===");
+
+function absorbFixture() {
+  const root = mkdtempSync(path.join(os.tmpdir(), "orb-absorb-"));
+  const w = (rel, body) => {
+    const abs = path.join(root, rel);
+    mkdirSync(path.dirname(abs), { recursive: true });
+    writeFileSync(abs, body);
+  };
+  w("settings/rolara/Rolara-INDEX.md", "---\ntype: Index\n---\n\n- [[Misc-INDEX]]\n");
+  w("settings/rolara/misc/Misc-INDEX.md", "---\ntype: Index\n---\n\n- [[Odds]]\n");
+  w("settings/rolara/misc/Odds.md", "---\ntype: Concept\n---\n\nBody.\n");
+  w("settings/rolara/misc/Ends.md", "---\ntype: Concept\n---\n\nBody.\n");
+  return root;
+}
+
+{
+  const root = absorbFixture();
+  const r = scoped({ absorbFolders: [{ folder: "settings/rolara/misc" }] }, root);
+  check("an absorb scope plans absorb then a parent rebuild",
+    kindsOf(r.operations), ["absorb-folder", "rebuild-index"]);
+  const op = r.operations[0];
+  check("the destination is the parent folder", op.to, "settings/rolara");
+  check("every article is enumerated by name, not left implicit",
+    op.articles.map((a) => a.from).sort(),
+    ["settings/rolara/misc/Ends.md", "settings/rolara/misc/Odds.md"]);
+  check("the folder's own index is named for removal", op.index, "settings/rolara/misc/Misc-INDEX.md");
+  // The parent index still carries [[Misc-INDEX]], which dies with the folder.
+  // rebuild-index lists only articles, so running it on the parent is what
+  // clears that link. Absorbing without it leaves a dead wikilink behind.
+  check("the rebuild targets the parent index",
+    r.operations[1].to, "settings/rolara/Rolara-INDEX.md");
+  rmSync(root, { recursive: true, force: true });
+}
+
+{
+  const root = absorbFixture();
+  mkdirSync(path.join(root, "settings", "rolara", "misc", "deeper"), { recursive: true });
+  const r = scoped({ absorbFolders: [{ folder: "settings/rolara/misc" }] }, root);
+  check("a folder holding a subfolder is declined, not dissolved",
+    [r.operations.length, r.declined.length], [0, 1]);
+  check("and the reason says why", /leaf/i.test(r.declined[0].reason), true);
+  rmSync(root, { recursive: true, force: true });
+}
+
+{
+  const root = absorbFixture();
+  const r = scoped({ absorbFolders: [{ folder: "settings/rolara" }] }, root);
+  // Dissolving a prong root would move a whole knowledge base into whatever
+  // happens to sit above it. Permanently exempt, per the spec's operation
+  // catalog, and not a judgment the DM can override in a scope.
+  check("a prong root is permanently exempt",
+    [r.operations.length, r.declined.length], [0, 1]);
+  rmSync(root, { recursive: true, force: true });
+}
+
 console.log(`\n${passed} passed, ${failures.length} failed`);
 if (failures.length > 0) {
   for (const f of failures) console.log(`  FAILED: ${f}`);

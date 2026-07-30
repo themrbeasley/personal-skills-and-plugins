@@ -2009,6 +2009,80 @@ withRepo({ "settings/rolara/items/Sword.md": article("type: Item", "Body.") }, (
     [false, false]);
 });
 
+console.log("\n=== absorb-folder ===");
+
+withRepo(
+  {
+    "settings/rolara/Rolara-INDEX.md": article("type: Index", "- [[Misc-INDEX]]"),
+    "settings/rolara/misc/Misc-INDEX.md": article("type: Index", "- [[Odds]]"),
+    "settings/rolara/misc/Odds.md": article("type: Concept", "Body."),
+  },
+  (root) => {
+    // The fixture's parent index carries a real inbound [[Misc-INDEX]] link, the
+    // same shape the Step 1 plan fixture uses, and planAbsorbFolders always pairs
+    // an absorb-folder with a rebuild-index on the parent for exactly that link.
+    // Applying the absorb alone leaves it dangling and the link-integrity rail
+    // correctly blocks the commit on it, so the paired op rides along here too:
+    // this is what a real plan for this folder actually contains.
+    const r = apply(root, [
+      {
+        op: "absorb-folder",
+        from: "settings/rolara/misc",
+        to: "settings/rolara",
+        articles: [{ from: "settings/rolara/misc/Odds.md", to: "settings/rolara/Odds.md" }],
+        index: "settings/rolara/misc/Misc-INDEX.md",
+        reason: "scope",
+      },
+      { op: "rebuild-index", to: "settings/rolara/Rolara-INDEX.md", folder: "settings/rolara", reason: "scope" },
+    ]);
+    check("absorb-folder applies", [r.ok, first(r.applied).applied], [true, true]);
+    check("the article is in the parent", has(root, "settings/rolara/Odds.md"), true);
+    check("the folder's index is gone", has(root, "settings/rolara/misc/Misc-INDEX.md"), false);
+    check("the article moved by git mv, not copy plus delete",
+      porcelain(root).some((l) => l.startsWith("R")), true);
+    check("the folder itself is gone", has(root, "settings/rolara/misc"), false);
+  }
+);
+
+withRepo(
+  {
+    // A second, non-colliding article rides along so this case can actually
+    // tell a precheck-time refusal apart from git mv's own destination-exists
+    // refusal on Odds.md alone: with only one article, both mechanisms leave
+    // the project identically untouched and the test cannot distinguish them.
+    // Measured: with the precheck bypassed, applyAbsorbFolder moves Ends.md
+    // (no collision) before it reaches Odds.md and fails, so "nothing moved"
+    // catches that partial mutation while a single-article case would not.
+    "settings/rolara/misc/Odds.md": article("type: Concept", "Body."),
+    "settings/rolara/misc/Ends.md": article("type: Concept", "Body."),
+    "settings/rolara/Odds.md": article("type: Concept", "A different article that already lives here."),
+  },
+  (root) => {
+    const r = apply(root, [
+      {
+        op: "absorb-folder",
+        from: "settings/rolara/misc",
+        to: "settings/rolara",
+        articles: [
+          { from: "settings/rolara/misc/Ends.md", to: "settings/rolara/Ends.md" },
+          { from: "settings/rolara/misc/Odds.md", to: "settings/rolara/Odds.md" },
+        ],
+        index: null,
+        reason: "scope",
+      },
+    ]);
+    // runPrechecks catches this before anything moves. Asserting the refusal
+    // here as well as in the plan suite is deliberate: a hand-edited proposal
+    // reaches applyPlan without ever passing through the planner.
+    check("a basename collision in the parent refuses the whole run", r.ok, false);
+    check("and nothing moved",
+      [has(root, "settings/rolara/misc/Odds.md"),
+       has(root, "settings/rolara/misc/Ends.md"),
+       read(root, "settings/rolara/Odds.md").includes("A different article")],
+      [true, true, true]);
+  }
+);
+
 console.log(`\n${passed} passed, ${failures.length} failed`);
 if (failures.length > 0) {
   for (const f of failures) console.log(`  FAILED: ${f}`);
