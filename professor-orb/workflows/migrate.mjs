@@ -2887,12 +2887,39 @@ export function renderProposal({ scope, plan, projectRoot, settings }) {
   return lines.join("\n");
 }
 
+// A fence marker only opens or closes a fence when it starts a line: that is
+// how markdown fences work, and it is what tells a real fence apart from
+// prose that merely quotes the marker mid-sentence (something the DM is
+// explicitly invited to do when leaving a note about an edit). Returns the
+// index of the true start of index's line (walking back over indentation),
+// or -1 if something other than whitespace sits between the previous newline
+// and index.
+function lineStart(src, index) {
+  let i = index;
+  while (i > 0 && (src[i - 1] === " " || src[i - 1] === "\t")) i--;
+  if (i === 0 || src[i - 1] === "\n") return i;
+  return -1;
+}
+
+// A closing fence carries no info string: nothing but whitespace may follow
+// the fence characters on that line. This is what tells a genuine close apart
+// from the same three backticks turning up inside a JSON string value later
+// in the block, which would otherwise truncate the block early.
+function isBareFenceLine(src, index, markerLength) {
+  let i = index + markerLength;
+  while (i < src.length && src[i] !== "\n") {
+    if (src[i] !== " " && src[i] !== "\t" && src[i] !== "\r") return false;
+    i++;
+  }
+  return true;
+}
+
 export function parseProposal(text) {
   const src = String(text == null ? "" : text);
   const starts = [];
   let at = src.indexOf(PLAN_FENCE_OPEN);
   while (at !== -1) {
-    starts.push(at);
+    if (lineStart(src, at) !== -1) starts.push(at);
     at = src.indexOf(PLAN_FENCE_OPEN, at + PLAN_FENCE_OPEN.length);
   }
   if (starts.length === 0) {
@@ -2909,7 +2936,18 @@ export function parseProposal(text) {
   }
 
   const bodyStart = starts[0] + PLAN_FENCE_OPEN.length;
-  const end = src.indexOf(`\n${PLAN_FENCE_CLOSE}`, bodyStart);
+  let end = -1;
+  let closeAt = src.indexOf(PLAN_FENCE_CLOSE, bodyStart);
+  while (closeAt !== -1) {
+    const ls = lineStart(src, closeAt);
+    if (ls !== -1 && isBareFenceLine(src, closeAt, PLAN_FENCE_CLOSE.length)) {
+      // ls is the start of the closing fence's own line; the body stops one
+      // character earlier, at the newline that precedes it.
+      end = ls > 0 ? ls - 1 : bodyStart;
+      break;
+    }
+    closeAt = src.indexOf(PLAN_FENCE_CLOSE, closeAt + PLAN_FENCE_CLOSE.length);
+  }
   if (end === -1) {
     return { ok: false, reason: "The professor-orb:plan block is never closed." };
   }

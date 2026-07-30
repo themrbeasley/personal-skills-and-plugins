@@ -282,6 +282,76 @@ function tableRows(text) {
   check("rebuild-index's From cell names its source folder rather than sitting blank", rebuildRow[2], "settings/rolara/archive-notes");
 }
 
+console.log("\n=== fences are lines, not substrings ===");
+
+// The DM is explicitly invited to "edit this file freely" and leave notes
+// about what they changed. A note that quotes the fence marker mid-sentence
+// is not a second block: markdown fences open at the start of a line, and a
+// marker sitting inside a sentence never does.
+{
+  const text = renderProposal({ scope: {}, plan: PLAN, projectRoot: "C:/proj", settings: [] });
+  const withNote = text.replace(
+    "## Approval",
+    "Note: this replaces an earlier draft that had two ```json professor-orb:plan blocks in it by mistake.\n\n## Approval"
+  );
+  const parsed = parseProposal(withNote);
+  check("a proposal whose prose quotes the fence marker mid-sentence still parses", parsed.ok, true);
+  check("...and returns the operations untouched", parsed.ok && parsed.plan.operations, PLAN.operations);
+}
+
+// The other direction still has to hold: a genuine second block, fully
+// fenced, is still two answers to "what did the DM approve" and still
+// refuses. Included even though it likely already passed, so the prose-note
+// fix above cannot have over-corrected into accepting two real blocks.
+{
+  const text = renderProposal({ scope: {}, plan: PLAN, projectRoot: "C:/proj", settings: [] });
+  const twoReal = `${text}\n${text}`;
+  const parsed = parseProposal(twoReal);
+  check("two genuine plan blocks still refuse", parsed.ok, false);
+  check("...with the two-block reason, not a parse failure", /2 professor-orb:plan blocks/.test(parsed.reason), true);
+}
+
+// The closing scan used to look for a bare newline-plus-backticks substring
+// anywhere past the open, so a string value whose own raw text happened to
+// contain that sequence would truncate the block early: JSON.parse would then
+// see an unterminated string and blame the wrong thing. A hand-typed value
+// spanning a raw line break (invalid JSON either way, since JSON strings
+// cannot carry a literal control character) still has to refuse, but it
+// should refuse because of the real problem, not because the scan gave up
+// early on an unterminated fragment.
+{
+  const raw =
+    "```json professor-orb:plan\n" +
+    '{"operations": [{"op": "relocate-path", "from": "a.md", "to": "b.md", ' +
+    '"reason": "line one\n``` still inside the string, not a real fence"}], "declined": []}\n' +
+    "```\n";
+  const parsed = parseProposal(raw);
+  check("a string value's own line break still refuses", parsed.ok, false);
+  check(
+    "...but for the actual control-character problem, not a truncated-slice artifact",
+    /control character/i.test(parsed.reason),
+    true
+  );
+}
+
+// The shape the DM is actually invited to produce: a note above the block
+// explaining an edit, quoting the marker, with the block itself struck and a
+// destination changed. Both fixes have to hold at once for this to parse.
+{
+  const text = renderProposal({ scope: {}, plan: PLAN, projectRoot: "C:/proj", settings: [] });
+  const edited = text
+    .replace(
+      "## Approval",
+      "Note: I struck the rebuild-index entry from the ```json professor-orb:plan block below; the index already looked right.\n\n## Approval"
+    )
+    .replace('"to": "settings/rolara/notes/A.md"', '"to": "settings/rolara/archive/A.md"')
+    .replace(/,\s*\{[^{}]*"op": "rebuild-index"[\s\S]*?\}/, "");
+  const parsed = parseProposal(edited);
+  check("a note-plus-edit proposal, quoting the marker and striking an operation, parses", parsed.ok, true);
+  check("...with the edited destination", parsed.ok && parsed.plan.operations[0].to, "settings/rolara/archive/A.md");
+  check("...and the struck operation gone", parsed.ok && parsed.plan.operations.length, 1);
+}
+
 console.log(`\n${passed} passed, ${failures.length} failed`);
 if (failures.length > 0) {
   for (const f of failures) console.log(`  FAILED: ${f}`);
