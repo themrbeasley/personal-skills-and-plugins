@@ -3244,7 +3244,7 @@ function splitSettingFixture() {
   const links = crossBoundaryLinks({
     projectRoot: root,
     movingFiles: ["settings/rolara/Ashfall.md"],
-    stayingRoot: "settings/rolara",
+    stayingRoots: ["settings/rolara"],
   });
   const outgoing = links.filter((l) => l.direction === "outgoing").map((l) => l.target).sort();
   const incoming = links.filter((l) => l.direction === "incoming").map((l) => l.file).sort();
@@ -3259,7 +3259,7 @@ function splitSettingFixture() {
   const links = crossBoundaryLinks({
     projectRoot: root,
     movingFiles: ["settings/rolara/Ashfall.md", "settings/rolara/Karsk.md"],
-    stayingRoot: "settings/rolara",
+    stayingRoots: ["settings/rolara"],
   });
   // Ashfall and Karsk link to each other and both move, so that link does not
   // cross anything. Counting it would inflate the cost the DM is shown and make
@@ -3296,7 +3296,7 @@ function splitSettingFixture() {
   const links = crossBoundaryLinks({
     projectRoot: root,
     movingFiles: ["settings/rolara/Ashfall.md"],
-    stayingRoot: "settings/rolara",
+    stayingRoots: ["settings/rolara"],
   });
   check("every written form of a link to a moving article counts, and nothing else does",
     links.map((l) => [l.direction, l.target]),
@@ -3318,7 +3318,7 @@ function splitSettingFixture() {
   crossBoundaryLinks({
     projectRoot: root,
     movingFiles: ["settings/rolara/Ashfall.md"],
-    stayingRoot: "settings/rolara",
+    stayingRoots: ["settings/rolara"],
   });
   check("crossBoundaryLinks mutates nothing", snapshotTree(root), before);
   rmSync(root, { recursive: true, force: true, maxRetries: 5 });
@@ -3356,6 +3356,95 @@ const splitScope = (over) => ({
   // structural approval would be chronicler's work done without chronicler's gate.
   check("and the row says the link is reported rather than repaired",
     /the DM's to change/.test(String(obj(r.declined[0]).reason)), true);
+  rmSync(root, { recursive: true, force: true, maxRetries: 5 });
+}
+
+// THE SAME SETTING, WITH ALL THREE OF ITS PRONGS ON DISK. rolara's knowledge base
+// is not the whole of rolara: prongRootsOf has said so since the settings array was
+// written, and assertLinkIntegrity, the rail that decides whether a finished run may
+// commit, resolves against all three roots. A session report or a homebrew entry that
+// names a moving article loses that link on exactly the terms an article in the
+// knowledge base does, so it is the same crossing and costs the DM the same thing.
+function splitProngFixture() {
+  const root = mkdtempSync(path.join(os.tmpdir(), "orb-setsplit-prongs-"));
+  const w = (rel, body) => writeAt(root, rel, body);
+  w("settings/rolara/Ashfall.md", "---\ntype: Location\n---\n\nNorth of [[Karsk]].\n");
+  w("settings/rolara/Karsk.md", "---\ntype: Location\n---\n\nSouth of [[Ashfall]].\n");
+  w("homebrew/rolara/Blade.md", "---\ntype: Item\n---\n\nForged in [[Ashfall]].\n");
+  w(
+    "session-reports/rolara/karsk/2026-01-01-One-REPORT.md",
+    "---\ntype: Session Report\n---\n\nThe party reached [[Ashfall]] at dusk.\n"
+  );
+  return root;
+}
+
+{
+  // THE EXPORTED SIGNATURE TAKES THE ROOT LIST, not one root, so that a caller
+  // hands it prongRootsOf and cannot accidentally measure a third of a setting.
+  // A root repeated, which is what a setting whose prongs nest inside one another
+  // produces, is walked once: assertLinkIntegrity deduplicates its file list for
+  // the same reason, and a file counted twice would double a row in the proposal.
+  const root = splitProngFixture();
+  const links = crossBoundaryLinks({
+    projectRoot: root,
+    movingFiles: ["settings/rolara/Ashfall.md"],
+    stayingRoots: ["settings/rolara", "homebrew/rolara", "session-reports/rolara", "settings/rolara"],
+  });
+  check("crossBoundaryLinks enumerates every root it is handed, reading each file once",
+    links.map((l) => [l.direction, l.file]),
+    [
+      ["outgoing", "settings/rolara/Ashfall.md"],
+      ["incoming", "settings/rolara/Karsk.md"],
+      ["incoming", "homebrew/rolara/Blade.md"],
+      ["incoming", "session-reports/rolara/karsk/2026-01-01-One-REPORT.md"],
+    ]);
+  check("and no roots at all is no crossings, rather than a walk of the whole project",
+    crossBoundaryLinks({ projectRoot: root, movingFiles: ["settings/rolara/Ashfall.md"], stayingRoots: [] }),
+    []);
+  rmSync(root, { recursive: true, force: true, maxRetries: 5 });
+}
+
+{
+  // debrief tells session reports to cross-reference aggressively, and reports
+  // accumulate one per session against the locations and people a campaign
+  // touches. Enumerating the knowledge base alone would leave every one of those
+  // references out of the number the DM approves the split on, and understating
+  // that number is the one direction of error this operation exists to avoid.
+  const root = splitProngFixture();
+  const r = lifecycle(splitScope({ files: ["settings/rolara/Ashfall.md"] }), root);
+  check("a session report and a homebrew entry linking a moving article are crossings too",
+    r.declined.map((d) => [d.op, d.target]),
+    [
+      ["cross-boundary-link", "settings/rolara/Ashfall.md -> [[Karsk]]"],
+      ["cross-boundary-link", "settings/rolara/Karsk.md -> [[Ashfall]]"],
+      ["cross-boundary-link", "homebrew/rolara/Blade.md -> [[Ashfall]]"],
+      ["cross-boundary-link", "session-reports/rolara/karsk/2026-01-01-One-REPORT.md -> [[Ashfall]]"],
+    ]);
+  check("and each of those reads as an article that stays losing a link that moves",
+    r.declined
+      .filter((d) => /Blade\.md|REPORT\.md/.test(String(d.target)))
+      .map((d) => /stays in rolara and links to \[\[Ashfall\]\], which/.test(String(d.reason))),
+    [true, true]);
+  rmSync(root, { recursive: true, force: true, maxRetries: 5 });
+}
+
+{
+  // A LINK THAT WAS ALREADY DEAD. A crossing is a link that resolves today and
+  // will not resolve after; [[NoSuchArticle]] resolves nowhere either side of the
+  // split, so the split costs nothing there. Counting it would inflate the cost
+  // and make a clean split look expensive, which is the same harm the both-move
+  // exclusion exists to prevent, and the row would tell the DM that an article
+  // they do not have "stays in rolara".
+  const root = mkdtempSync(path.join(os.tmpdir(), "orb-setsplit-dead-"));
+  writeAt(root, "settings/rolara/Ashfall.md",
+    "---\ntype: Location\n---\n\nSee [[NoSuchArticle]] and [[Karsk]].\n");
+  writeAt(root, "settings/rolara/Karsk.md", "---\ntype: Location\n---\n\nBody.\n");
+  const r = lifecycle(splitScope({ files: ["settings/rolara/Ashfall.md"] }), root);
+  check("a link that resolves nowhere today is not a boundary crossing",
+    r.declined.map((d) => [d.op, d.target]),
+    [["cross-boundary-link", "settings/rolara/Ashfall.md -> [[Karsk]]"]]);
+  check("and no row claims the already-dead target stays behind",
+    r.declined.some((d) => /NoSuchArticle/.test(`${d.target} ${d.reason}`)), false);
   rmSync(root, { recursive: true, force: true, maxRetries: 5 });
 }
 
@@ -3399,11 +3488,18 @@ const splitScope = (over) => ({
 }
 
 {
-  // A file outside the world being divided. crossBoundaryLinks walks the SOURCE
-  // setting's kbRoot, so a file from anywhere else would move with its own
-  // outgoing links uncounted, understating the cost in the proposal the DM
-  // approves on. Understating it is the one direction of error this whole
-  // operation exists to avoid.
+  // A file outside the knowledge base being divided. A split's destination is the
+  // new kbRoot, so a homebrew entry sent there would be filed under the wrong
+  // prong of the world it arrived in; it is refused as a MOVE and stays exactly
+  // where it is.
+  //
+  // THE ASSERTION USED TO FILTER TO relocate-path AND STOP THERE, and that is why
+  // it passed while the cost was wrong: this fixture's Blade.md carries
+  // `Forged in [[Ashfall]]`, so once the move is refused Blade stays behind and
+  // loses a link to an article that moves, which is an incoming crossing on the
+  // same terms as any other. The old expectation was silent about it, and the
+  // walk, reading kbRoot alone, never produced it. Both rows are asserted now, so
+  // narrowing the walk again fails here as well as in the prong case above.
   const root = splitSettingFixture();
   writeAt(root, "homebrew/rolara/Blade.md", "---\ntype: Item\n---\n\nForged in [[Ashfall]].\n");
   const r = lifecycle(
@@ -3411,11 +3507,18 @@ const splitScope = (over) => ({
     root
   );
   check("a file outside the source setting's knowledge base is declined, and the rest still move",
+    [r.operations.map((o) => o.from), r.declined.map((d) => [d.op, d.target])],
     [
-      r.operations.map((o) => o.from),
-      r.declined.filter((d) => d.op === "relocate-path").map((d) => d.target),
-    ],
-    [["settings/rolara/Ashfall.md"], ["homebrew/rolara/Blade.md"]]);
+      ["settings/rolara/Ashfall.md"],
+      [
+        ["relocate-path", "homebrew/rolara/Blade.md"],
+        ["cross-boundary-link", "settings/rolara/Ashfall.md -> [[Karsk]]"],
+        ["cross-boundary-link", "settings/rolara/Ashfall.md -> [[Thoric]]"],
+        ["cross-boundary-link", "settings/rolara/Karsk.md -> [[Ashfall]]"],
+        ["cross-boundary-link", "settings/rolara/Thoric.md -> [[Ashfall]]"],
+        ["cross-boundary-link", "homebrew/rolara/Blade.md -> [[Ashfall]]"],
+      ],
+    ]);
   rmSync(root, { recursive: true, force: true, maxRetries: 5 });
 }
 

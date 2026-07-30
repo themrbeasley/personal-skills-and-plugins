@@ -2685,9 +2685,9 @@ function planSettingSplits(items, ctx, key) {
         op: "relocate-path",
         target: from,
         reason:
-          `${from} records no kbRoot, so there is no knowledge base to divide and no root to enumerate the boundary ` +
-          "crossings from. The cost of a split is the links it breaks, and a split whose cost cannot be measured is " +
-          "not one to approve.",
+          `${from} records no kbRoot, so there is no knowledge base to divide and no root the files named here could ` +
+          "be checked against. The cost of a split is the links it breaks, and a split whose material cannot be " +
+          "located is not one to approve.",
       });
       continue;
     }
@@ -2706,19 +2706,21 @@ function planSettingSplits(items, ctx, key) {
     const group = groupIdFor(key, i);
     const moving = [];
     for (const file of list(item.files).map(toPosix).filter(Boolean)) {
-      // Outside the world being divided. crossBoundaryLinks walks the SOURCE
-      // setting's kbRoot, so a file from anywhere else would move with its own
-      // outgoing links uncounted, which understates the cost in the proposal the
-      // DM approves on. Understating it is the one direction of error this whole
-      // operation exists to avoid.
+      // Outside the knowledge base being divided. A split divides ONE prong: the
+      // destination it computes is the new kbRoot, so a homebrew entry or a
+      // session report named here would be flattened into a knowledge base and
+      // filed under the wrong prong of the world it landed in, and a path outside
+      // the setting altogether belongs to whichever setting owns it. Their links
+      // are enumerated either way, since the walk below covers all three prongs;
+      // what this refuses is moving them, not counting them.
       if (!file.startsWith(`${stay}/`)) {
         declined.push({
           op: "relocate-path",
           target: file,
           reason:
-            `${file} is not a path inside ${from}'s knowledge base at ${stay}. A split divides one setting's own ` +
-            "material, and the links a file outside that root carries are not enumerated by the walk below, so moving " +
-            "it would cost the DM crossings the proposal never showed them.",
+            `${file} is not a path inside ${from}'s knowledge base at ${stay}. A split divides a knowledge base in ` +
+            "two, and the destination it moves to is the new setting's kbRoot, so a homebrew entry or a session " +
+            "report sent there would be filed under the wrong prong of the world it arrived in.",
         });
         continue;
       }
@@ -2757,28 +2759,33 @@ function planSettingSplits(items, ctx, key) {
     // Computed from the files that will ACTUALLY move rather than from the ones
     // the scope named. A file declined above stays exactly where it is, and
     // counting its links would report a crossing that never happens.
+    //
+    // ALL THREE PRONGS, which is what a setting is everywhere else in this module
+    // and what assertLinkIntegrity resolves over. The knowledge base by itself
+    // would leave every session report and every homebrew entry that names a
+    // moving article out of the cost the DM approves the split on.
     for (const link of crossBoundaryLinks({
       projectRoot: ctx.projectRoot,
       movingFiles: moving,
-      stayingRoot: stay,
+      stayingRoots: prongRootsOf(source),
     })) {
       declined.push({
         op: "cross-boundary-link",
         target: `${link.file} -> [[${link.target}]]`,
         reason:
           link.direction === "outgoing"
-            ? `This article is moving to ${name} and links to [[${link.target}]], which stays in ${from}. Wikilinks ` +
-              "resolve per setting, so the link stops resolving once the boundary is between them. Nothing here fixes " +
-              "it: the article's text is the DM's to change if they want it changed."
-            : `This article stays in ${from} and links to [[${link.target}]], which is moving to ${name}. The link ` +
-              "stops resolving for the same reason, and is likewise left exactly as it is.",
+            ? `This article is moving to ${name} and links to [[${link.target}]], which resolves in ${from} today and ` +
+              "stays there. Wikilinks resolve per setting, so the link stops resolving once the boundary is between " +
+              "them. Nothing here fixes it: the article's text is the DM's to change if they want it changed."
+            : `This article stays in ${from} and links to [[${link.target}]], which resolves there today and is moving ` +
+              `to ${name}. The link stops resolving for the same reason, and is likewise left exactly as it is.`,
       });
     }
   }
   return { operations, declined };
 }
 
-// Every wikilink that will stop resolving when movingFiles leave stayingRoot.
+// Every wikilink that will stop resolving when movingFiles leave stayingRoots.
 //
 // Wikilink resolution is per setting, which is what makes this the whole cost of
 // a split rather than a detail of it. TWO DIRECTIONS, both of which break and
@@ -2787,39 +2794,69 @@ function planSettingSplits(items, ctx, key) {
 //   outgoing  a moving article links to one that stays.
 //   incoming  an article that stays links to one that moves.
 //
-// A link between two articles that BOTH move crosses nothing and is excluded.
-// Counting it would inflate the cost and make a clean split look expensive, which
-// is the direction that talks a DM out of a migration that was fine.
+// A SETTING IS ALL THREE OF ITS PRONGS, which is why this takes a LIST of roots
+// rather than the knowledge base alone. prongRootsOf is the module's definition of
+// what a setting contains and assertLinkIntegrity, the rail that decides whether a
+// finished run may commit, resolves over exactly that list. Handed the knowledge
+// base by itself, this walk would report a session report's or a homebrew entry's
+// link to a moving article as no cost at all, and debrief instructs reports to
+// cross-reference aggressively: a campaign accumulates one per session against the
+// same locations and people a split moves. Understating the number the DM approves
+// an irreversible split on is the one direction of error this operation exists to
+// avoid. Roots are deduplicated and a nested prong is walked once, the way
+// assertLinkIntegrity deduplicates its own file list.
 //
-// RESOLVED THE WAY assertLinkIntegrity RESOLVES, through dissectTarget, because
-// this is that function's question asked one phase earlier: which links will be
-// dead. wikilinkTargetsIn returns the target as WRITTEN rather than a bare stem,
-// so [[Karsk]], [[Karsk.md]], [[notes/Karsk]] and [[Karsk#Trade]] all arrive
-// different and all name one article; splitWikilink has already dropped the
-// display half. A target dissecting to an EMPTY stem is a link into the file's own
-// headings and a target carrying a non-.md extension is an attachment, and neither
-// is a link to an article. Fenced blocks and code spans are not link-bearing text
-// at all, which wikilinkTargetsIn already handles, on the same terms the rewriter
-// and the rail leave a quoted example alone.
+// A CROSSING IS A LINK THAT RESOLVES TODAY AND WILL NOT RESOLVE AFTER. Both halves
+// are checked. A target that resolves to nothing in this setting was dead before
+// the split and is equally dead after it, so the split costs nothing there; the
+// same goes for one that already pointed into another setting. Counting either
+// would inflate the cost and make a clean split look expensive, which is the
+// direction that talks a DM out of a migration that was fine, and is the same harm
+// the both-move exclusion below prevents. A link between two articles that BOTH
+// move likewise crosses nothing: it resolves today and still resolves in the world
+// they land in together.
+//
+// RESOLVED THE WAY assertLinkIntegrity RESOLVES, through dissectTarget and against
+// a set of basenames the walk itself collected, because this is that function's
+// question asked one phase earlier: which links will be dead. wikilinkTargetsIn
+// returns the target as WRITTEN rather than a bare stem, so [[Karsk]], [[Karsk.md]],
+// [[notes/Karsk]] and [[Karsk#Trade]] all arrive different and all name one article;
+// splitWikilink has already dropped the display half. A target dissecting to an
+// EMPTY stem is a link into the file's own headings and a target carrying a non-.md
+// extension is an attachment, and neither is a link to an article. Fenced blocks and
+// code spans are not link-bearing text at all, which wikilinkTargetsIn already
+// handles, on the same terms the rewriter and the rail leave a quoted example alone.
+// The three folder names walkMarkdown steps around are stepped around here too, so
+// this half and the rail cannot disagree about which files a setting resolves from.
 //
 // `target` is reported AS WRITTEN rather than as the stem it resolved to, because
 // the declined row is what the DM will search their own file for.
 //
-// UNDETERMINED READS AS EMPTY. An unreadable or unnamed stayingRoot finds nothing
-// and returns nothing, the same posture namedPathMissing takes when it cannot
-// answer; every /migrate run has a project root on disk. Stated so that a caller
-// reading zero crossings knows what else that can mean.
+// UNDETERMINED READS AS EMPTY. Unreadable or unnamed roots find nothing and return
+// nothing, the same posture namedPathMissing takes when it cannot answer; every
+// /migrate run has a project root on disk. Stated so that a caller reading zero
+// crossings knows what else that can mean.
 //
 // Read-only: readdirSync, readFileSync, statSync only.
-export function crossBoundaryLinks({ projectRoot, movingFiles, stayingRoot }) {
-  const root = toPosix(stayingRoot);
-  // Not the whole project. path.resolve(projectRoot, "") is projectRoot itself,
-  // so an empty root would walk every setting the DM has.
-  if (!root) return [];
+export function crossBoundaryLinks({ projectRoot, movingFiles, stayingRoots }) {
+  // Empty entries are dropped and an empty list returns rather than walking:
+  // path.resolve(projectRoot, "") is projectRoot itself, so one blank root would
+  // enumerate every setting the DM has and report another world's links as this
+  // split's cost. A setting missing a prong is the ordinary way a blank arrives.
+  const roots = [];
+  for (const root of list(stayingRoots).map(toPosix).filter(Boolean)) {
+    if (!roots.includes(root)) roots.push(root);
+  }
+  if (roots.length === 0) return [];
   const moving = new Set(list(movingFiles).map(toPosix).filter(Boolean));
   const movingStems = new Set([...moving].map((f) => stemOf(f).toLowerCase()));
-  const out = [];
 
+  // WALKED ONCE, in prong order, names sorted within each folder. The file list and
+  // the set of basenames links resolve against both come out of this same pass, so
+  // the scope being enumerated and the scope being resolved against cannot drift
+  // apart, which is the property assertLinkIntegrity states about its own walk.
+  const files = [];
+  const seen = new Set();
   const walk = (rel) => {
     let names;
     try {
@@ -2828,6 +2865,7 @@ export function crossBoundaryLinks({ projectRoot, movingFiles, stayingRoot }) {
       return;
     }
     for (const name of names) {
+      if (name === ".git" || name === ".obsidian" || name === "node_modules") continue;
       const childRel = `${rel}/${name}`;
       let st;
       try {
@@ -2840,27 +2878,38 @@ export function crossBoundaryLinks({ projectRoot, movingFiles, stayingRoot }) {
         continue;
       }
       if (!name.toLowerCase().endsWith(".md")) continue;
-      let text;
-      try {
-        text = readFileSync(path.resolve(projectRoot, childRel), "utf8");
-      } catch {
-        continue;
-      }
-      const isMoving = moving.has(childRel);
-      for (const target of wikilinkTargetsIn(text)) {
-        const { stem, ext } = dissectTarget(target);
-        const trimmed = stem.trim();
-        if (trimmed === "") continue;
-        if (ext !== "" && ext.toLowerCase() !== ".md") continue;
-        const targetMoves = movingStems.has(trimmed.toLowerCase());
-        if (isMoving && !targetMoves) out.push({ file: childRel, target, direction: "outgoing" });
-        else if (!isMoving && targetMoves) out.push({ file: childRel, target, direction: "incoming" });
-        // Both moving, or neither moving: nothing crosses.
-      }
+      if (seen.has(childRel)) continue;
+      seen.add(childRel);
+      files.push(childRel);
     }
   };
+  for (const root of roots) walk(root);
 
-  walk(root);
+  const known = new Set(files.map((f) => stemOf(f).toLowerCase()));
+  const out = [];
+  for (const rel of files) {
+    let text;
+    try {
+      text = readFileSync(path.resolve(projectRoot, rel), "utf8");
+    } catch {
+      continue;
+    }
+    const isMoving = moving.has(rel);
+    for (const target of wikilinkTargetsIn(text)) {
+      const { stem, ext } = dissectTarget(target);
+      const trimmed = stem.trim();
+      if (trimmed === "") continue;
+      if (ext !== "" && ext.toLowerCase() !== ".md") continue;
+      const key = trimmed.toLowerCase();
+      // Dead already, in this setting's own terms. The split neither breaks it
+      // nor fixes it, so it is not part of the cost.
+      if (!known.has(key)) continue;
+      const targetMoves = movingStems.has(key);
+      if (isMoving && !targetMoves) out.push({ file: rel, target, direction: "outgoing" });
+      else if (!isMoving && targetMoves) out.push({ file: rel, target, direction: "incoming" });
+      // Both moving, or neither moving: nothing crosses.
+    }
+  }
   return out;
 }
 
@@ -3618,8 +3667,26 @@ export function conventionsAfterScope(conventions, scope, applied) {
     const name = String((item && item.name) || "");
     const kbRoot = toPosix(item && item.kbRoot);
     // The same conditions planSettingSplits declines on, so this half cannot
-    // record a split the plan half refused to plan.
+    // record a split the plan half refused to plan. The two per-file declines are
+    // not mirrored, because they drop one move rather than the entry; the four
+    // that drop the whole entry are all here.
     if (!source || !name || !kbRoot) continue;
+    // A source with no kbRoot, and a new kbRoot equal to or nested with the
+    // source's. planSettingSplits declines both unconditionally, so no such split
+    // can produce an operation and the three-argument gate below never lets one
+    // through. What these two lines are for is the TWO-ARGUMENT call, which has no
+    // applied list to consult and therefore records the world the scope asked for:
+    // without them it would write down a second knowledge base nested inside the
+    // first, leaving every article under the inner root claimed by both settings.
+    // Silent, unlike the duplicate-name case below, because these two sit BEFORE
+    // the gate and so are reached mostly by scopes where nothing moved, where a
+    // changes line would report on work that never happened; the plan half's own
+    // declined row is what tells the DM.
+    const sourceRoot = toPosix(source.kbRoot);
+    if (!sourceRoot) continue;
+    if (kbRoot === sourceRoot || kbRoot.startsWith(`${sourceRoot}/`) || sourceRoot.startsWith(`${kbRoot}/`)) {
+      continue;
+    }
     // NOTHING LANDED IN THE FOLDER THIS ENTRY WOULD RECORD, so nothing about it
     // is recorded. repointProngs is no help here: it repoints roots a setting
     // ALREADY records, and this case has no such root to key on. What backs the

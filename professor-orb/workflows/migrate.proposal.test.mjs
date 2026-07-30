@@ -763,6 +763,29 @@ const splitOp = (to, group = "settingSplits[0]") => ({
     conventionsAfterScope(CONVENTIONS, SPLIT, [splitOp("settings/ashlands/Ashfall.md")]));
 }
 
+{
+  // A SPLIT planSettingSplits DECLINES UNCONDITIONALLY, asked without the third
+  // argument. "The whole scope ran" is the right default for a scope that could
+  // run, and neither of these could: a kbRoot nested with the source's leaves
+  // every article under the inner root claimed by both settings, and a source
+  // recording no kbRoot has no knowledge base to divide. The plan half emits no
+  // operation for either, so recording the world anyway would write down a
+  // conventions file describing a split that cannot happen.
+  const nested = conventionsAfterScope(CONVENTIONS, {
+    settingSplits: [
+      { from: "rolara", name: "ashlands", kbRoot: "settings/rolara/ashlands", files: [] },
+    ],
+  });
+  check("a two-argument call records no entry for a kbRoot nested in the source's",
+    [nested.conventions.settings.map((s) => s.name), nested.changes], [["rolara"], []]);
+  const rootless = conventionsAfterScope(
+    { ...CONVENTIONS, settings: [{ ...CONVENTIONS.settings[0], kbRoot: "" }] },
+    { settingSplits: [{ from: "rolara", name: "ashlands", kbRoot: "settings/ashlands", files: [] }] }
+  );
+  check("and none for a source setting that records no kbRoot",
+    [rootless.conventions.settings.map((s) => s.name), rootless.changes], [["rolara"], []]);
+}
+
 console.log(`\n${passed} passed, ${failures.length} failed`);
 if (failures.length > 0) {
   for (const f of failures) console.log(`  FAILED: ${f}`);
