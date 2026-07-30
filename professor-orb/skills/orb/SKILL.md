@@ -15,7 +15,7 @@ This skill does not need `.professor-orb/conventions.json`. Conventions govern K
 
 ## What professor-orb is
 
-Professor Orb is a post-session workflow plugin for D&D DMs. Every skill drafts its output and waits for your approval before writing files. `debrief`, `prep`, `content`, `chronicler`, `timeline`, and `/catalog` write to the knowledge base; each does so only after explicit approval. `/scribe` and `/log` are not on that list: they commit knowledge base content to version control without authoring any of it.
+Professor Orb is a post-session workflow plugin for D&D DMs. Every skill drafts its output and waits for your approval before writing files. `debrief`, `prep`, `content`, `chronicler`, `timeline`, and `/catalog` write to the knowledge base; each does so only after explicit approval. `/scribe`, `/log`, and `/migrate` are not on that list: the first two commit knowledge base content to version control without authoring any of it, and `/migrate` moves and renames what the others wrote rather than writing anything itself.
 
 **Session pipeline:** debrief > prep > content / chronicler > kb-validator (agent)
 
