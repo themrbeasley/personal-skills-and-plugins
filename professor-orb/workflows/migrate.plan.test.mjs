@@ -988,6 +988,9 @@ const PLANNER_PROBES = {
   ],
   frontmatterRepairs: [{ file: "settings/rolara/misc/Odds.md" }],
   suffixRenames: [{ file: "settings/rolara/misc/Ends.md", to: "settings/rolara/misc/Ends-RENAMED.md" }],
+  prosePathUpdates: [
+    { file: "settings/rolara/Rolara-INDEX.md", replacements: [{ from: "misc/", to: "notes/" }] },
+  ],
 };
 
 {
@@ -1023,19 +1026,20 @@ const PLANNER_PROBES = {
   // The exact shape the plan document's append instructions actually produced:
   // `retypes`, `frontmatterRepairs`, `suffixRenames` appended after
   // `rebuildIndexes` in SCOPED_PLANNERS's own source order, ranking 4, 10, and 5
-  // against the five already there. This used to be rehearsed here against a
-  // simulated registry, before those three planners existed; now that they are
-  // registered for real, the rehearsal and the reality are the same array, and
-  // this case pins that shape directly rather than reconstructing it.
+  // against the five already there, then `prosePathUpdates` at 11 after those.
+  // This used to be rehearsed here against a simulated registry, before those
+  // planners existed; now that they are registered for real, the rehearsal and
+  // the reality are the same array, and this case pins that shape directly rather
+  // than reconstructing it.
   check("the append landed in source order, out of rank order as written",
-    SCOPED_PLANNERS.map(([, , kind]) => APPLY_ORDER.indexOf(kind)), [1, 2, 3, 6, 9, 4, 10, 5]);
+    SCOPED_PLANNERS.map(([, , kind]) => APPLY_ORDER.indexOf(kind)), [1, 2, 3, 6, 9, 4, 10, 5, 11]);
   check("and the order those planners RUN in is ascending rank anyway",
     scopedPlannerSequence().map(([, , kind]) => APPLY_ORDER.indexOf(kind)),
-    [1, 2, 3, 4, 5, 6, 9, 10]);
+    [1, 2, 3, 4, 5, 6, 9, 10, 11]);
   check("which puts each scope key where its planner's rank belongs",
     scopedPlannerSequence().map(([key]) => key),
     ["pathMoves", "absorbFolders", "splitFolders", "retypes", "suffixRenames",
-     "entityRenames", "rebuildIndexes", "frontmatterRepairs"]);
+     "entityRenames", "rebuildIndexes", "frontmatterRepairs", "prosePathUpdates"]);
 }
 
 {
@@ -1050,11 +1054,11 @@ const PLANNER_PROBES = {
   const orders = permutations(SCOPED_PLANNERS).map((p) => scopedPlannerSequence(p).map(([key]) => key));
   check("every permutation of the registry runs the planners in one order",
     [orders.length, orders.every((o) => JSON.stringify(o) === JSON.stringify(expected))],
-    [40320, true]);
+    [362880, true]);
   check("and that order is the declared ranks ascending",
     expected,
     ["pathMoves", "absorbFolders", "splitFolders", "retypes", "suffixRenames",
-     "entityRenames", "rebuildIndexes", "frontmatterRepairs"]);
+     "entityRenames", "rebuildIndexes", "frontmatterRepairs", "prosePathUpdates"]);
 }
 
 {
@@ -1103,10 +1107,10 @@ const PLANNER_PROBES = {
   check("a planner emitting an operation ranked below its declaration fails loudly",
     [/orderingProbe/.test(message), /relocate-path/.test(message), /rebuild-index/.test(message)],
     [true, true, true]);
-  check("and the registry is back to its eight entries",
+  check("and the registry is back to its nine entries",
     SCOPED_PLANNERS.map(([key]) => key),
     ["pathMoves", "absorbFolders", "splitFolders", "entityRenames", "rebuildIndexes",
-     "retypes", "frontmatterRepairs", "suffixRenames"]);
+     "retypes", "frontmatterRepairs", "suffixRenames", "prosePathUpdates"]);
 }
 
 {
@@ -1166,7 +1170,7 @@ const PLANNER_PROBES = {
   check("with the registry restored afterward",
     SCOPED_PLANNERS.map(([key]) => key),
     ["pathMoves", "absorbFolders", "splitFolders", "entityRenames", "rebuildIndexes",
-     "retypes", "frontmatterRepairs", "suffixRenames"]);
+     "retypes", "frontmatterRepairs", "suffixRenames", "prosePathUpdates"]);
   rmSync(root, { recursive: true, force: true });
 }
 
@@ -1430,21 +1434,27 @@ function commitFixture(root) {
   );
   // An absorb moves each file it names one git mv at a time, so the file that
   // can be git-ignored is one of those files rather than the folder. Reaching
-  // the ignored precheck is what makes it skippable AND what withholds vacate
+  // the ignored precheck is what makes it declinable AND what withholds vacate
   // credit from it: `git mv` on an ignored file hard-fails with "not under
   // version control", so it never leaves the path a later operation is aiming
   // at, and a git-ignored file has no snapshot to restore either.
-  check("a git-ignored file inside an absorbed folder reaches the ignored precheck",
-    list(r.prechecks.ignored).map((i) => [i.op, i.source, i.from, i.to]),
-    [["absorb-folder", "settings/rolara/misc/Hidden.md",
-      "settings/rolara/misc/Hidden.md", "settings/rolara/Hidden.md"]]);
+  //
+  // The DISCLOSURE now lands in `declined` rather than in prechecks.ignored,
+  // because a scoped plan declines an ignored source outright so it reaches the
+  // DM's proposal instead of a skipped list after the run. That the absorb was
+  // declined at all is the proof that findIgnoredSources reached inside the
+  // folder: nothing else in this scope names Hidden.md.
+  check("a git-ignored file inside an absorbed folder declines the absorb, by name",
+    list(r.declined).map((d) => [d.op, d.target, /Hidden\.md/.test(String(d.reason))]),
+    [["absorb-folder", "settings/rolara/misc", true],
+     ["rebuild-index", "settings/rolara/Rolara-INDEX.md", true]]);
   check("so nothing is credited with vacating a path it will never leave",
     [r.prechecks.ok, list(r.prechecks.collisions).map((c) => [c.kind, c.op, c.to])],
     [false, [["on-disk", "relocate-path", "settings/rolara/misc/Hidden.md"]]]);
   // ignoredBeneath's reason says `git mv` carries the ignored paths to the new
   // path, which is true of a directory move and false of this kind. The
-  // accurate disclosure is the ignored SOURCE above, which says the operation
-  // is skipped.
+  // accurate disclosure is the decline above, which says the operation will not
+  // run at all.
   check("and the folder is not disclosed as a directory move that carries them along",
     list(r.prechecks.ignoredBeneath).map((b) => b.op), []);
   rmSync(root, { recursive: true, force: true, maxRetries: 5 });
@@ -1688,15 +1698,21 @@ function splitFixture() {
   );
   // A split never moves its own `from`; it moves each article named inside a
   // bucket, one git mv at a time, so the source that can be git-ignored is one of
-  // those articles. Reaching this precheck is what makes the split skippable AND
+  // those articles. Reaching this precheck is what makes the split declinable AND
   // what withholds vacate credit from the ignored article: `git mv` on it
   // hard-fails with "not under version control", so it never leaves the path the
   // relocate-path below is aiming at, and it has no snapshot to be restored from
   // either.
-  check("a git-ignored article inside a bucket reaches the ignored precheck",
-    list(r.prechecks.ignored).map((i) => [i.op, i.source, i.from, i.to]),
-    [["split-folder", "settings/rolara/locations/Karsk.md",
-      "settings/rolara/locations/Karsk.md", "settings/rolara/locations/south/Karsk.md"]]);
+  //
+  // The whole entry goes, not the split alone: a split emits one create-index per
+  // bucket and a rebuild of the folder's own index, and those bucket folders would
+  // otherwise be created and committed empty by a partition that never happened.
+  check("a git-ignored article inside a bucket declines the whole split entry, by name",
+    list(r.declined).map((d) => [d.op, d.target, /Karsk\.md/.test(String(d.reason))]),
+    [["split-folder", "settings/rolara/locations", true],
+     ["create-index", "settings/rolara/locations/north/North-INDEX.md", true],
+     ["create-index", "settings/rolara/locations/south/South-INDEX.md", true],
+     ["rebuild-index", "settings/rolara/locations/Locations-INDEX.md", true]]);
   check("so nothing is credited with vacating a path the split will never empty",
     [r.prechecks.ok, list(r.prechecks.collisions).map((c) => [c.kind, c.op, c.to])],
     [false, [["on-disk", "relocate-path", "settings/rolara/locations/Karsk.md"]]]);
@@ -2575,6 +2591,181 @@ console.log("\n=== scoped plans: retype, repair, suffix rename path checks and g
     [kindsOf(r.operations), r.operations.map((o) => list(o.groups))],
     [["rename-with-link-rewrite"], [["suffixRenames[0]"]]]);
   rmSync(root, { recursive: true, force: true });
+}
+
+console.log("\n=== scoped plans: prose paths ===");
+
+{
+  const r = scoped({
+    prosePathUpdates: [
+      {
+        file: "CLAUDE.md",
+        replacements: [
+          { from: "rolara-kb/", to: "settings/rolara/" },
+          { from: "rolara-kb/sessions/", to: "session-reports/rolara/karsk/" },
+        ],
+      },
+    ],
+  });
+  check("a prose scope plans one update-prose-paths", kindsOf(r.operations), ["update-prose-paths"]);
+  // Longest first, regardless of the order the DM listed them. A shorter path
+  // that is a prefix of a longer one would otherwise consume it.
+  check("replacements are sorted longest source first",
+    list(obj(r.operations[0]).replacements).map((x) => obj(x).from),
+    ["rolara-kb/sessions/", "rolara-kb/"]);
+  check("and the entry's group id is stamped, because the entry is the skip unit",
+    r.operations.map((o) => list(o.groups)), [["prosePathUpdates[0]"]]);
+  check("the file being edited is carried as from, with no to, because nothing moves",
+    [obj(r.operations[0]).from, obj(r.operations[0]).to], ["CLAUDE.md", undefined]);
+}
+
+{
+  const r = scoped({ prosePathUpdates: [{ file: "CLAUDE.md", replacements: [{ from: "", to: "x" }] }] });
+  check("an entry with no usable replacement is declined rather than planned as a no-op",
+    [r.operations.length, r.declined.map((d) => d.op)], [0, ["update-prose-paths"]]);
+}
+
+{
+  const root = splitFixture();
+  const r = scoped({ prosePathUpdates: [{ file: "CLAUDE.md", replacements: [{ from: "a/", to: "b/" }] }] }, root);
+  check("a prose entry naming a file that is not on disk is declined at plan time",
+    [r.operations.length, r.declined.length], [0, 1]);
+  check("and the reason names the path", String(obj(r.declined[0]).reason).includes("CLAUDE.md"), true);
+  rmSync(root, { recursive: true, force: true });
+}
+
+{
+  // A FILE rather than merely a path, which is why the check is the file-ness
+  // variant. This operation edits its target in place through readFileSync and
+  // writeFileSync, so a directory sitting at that path cannot execute either, and
+  // a bare existence check answers yes for it.
+  const root = splitFixture();
+  const r = scoped(
+    { prosePathUpdates: [{ file: "settings/rolara/locations", replacements: [{ from: "a/", to: "b/" }] }] },
+    root
+  );
+  check("a prose entry naming a directory is declined too, not planned as an edit",
+    [r.operations.length, r.declined.length], [0, 1]);
+  rmSync(root, { recursive: true, force: true });
+}
+
+{
+  // Plan-aware, the same way every other named-path check in this file is: the
+  // document a prose entry names can be one an earlier-ranked operation in the
+  // SAME scope puts there. update-prose-paths ranks last of the content kinds,
+  // so every operation a scoped plan can hold runs before it. A bare existsSync
+  // here would decline this as a typo for a file the relocate-path creates.
+  const root = splitFixture();
+  const r = scoped(
+    {
+      pathMoves: [
+        { from: "settings/rolara/locations/Ashfall.md", to: "docs/Conventions.md", reason: "x" },
+      ],
+      prosePathUpdates: [
+        { file: "docs/Conventions.md", replacements: [{ from: "rolara-kb/", to: "settings/rolara/" }] },
+      ],
+    },
+    root
+  );
+  check("a prose entry naming a file the same plan moves into place plans rather than declines",
+    [kindsOf(r.operations), r.declined.length], [["relocate-path", "update-prose-paths"], 0]);
+  rmSync(root, { recursive: true, force: true });
+}
+
+console.log("\n=== scoped plans: ignored sources reach the proposal ===");
+
+{
+  const root = mkdtempSync(path.join(os.tmpdir(), "orb-scoped-ign-"));
+  writeAt(root, ".gitignore", "settings/rolara/drafts/\n");
+  writeAt(root, "settings/rolara/drafts/Sketch.md", "---\ntype: Concept\n---\n\nBody.\n");
+  commitFixture(root);
+
+  const r = scoped(
+    {
+      pathMoves: [
+        { from: "settings/rolara/drafts/Sketch.md", to: "settings/rolara/Sketch.md", reason: "DM scope" },
+      ],
+    },
+    root
+  );
+  // An ignored file is outside the snapshot, so moving it is unrecoverable.
+  // The apply half already skips it. Surfacing it as a declined item is what
+  // puts it in front of the DM in the proposal, with the one action that makes
+  // it movable: un-ignore it, so it lands in the snapshot.
+  check("an ignored source is declined in the plan, not left to be skipped later",
+    r.declined.some((d) => d.target === "settings/rolara/drafts/Sketch.md"), true);
+  check("and the reason names un-ignoring as the way forward",
+    /gitignore|un-ignore|ignored/i.test(
+      String(obj(r.declined.find((d) => d.target === "settings/rolara/drafts/Sketch.md")).reason)),
+    true);
+  check("the operation itself is not planned", r.operations.length, 0);
+  // The prechecks that ship with the plan describe the operations that SURVIVED
+  // the pass. A row naming an operation the plan no longer carries would be an
+  // ignored verdict about work nobody can approve, and findDestinationCollisions
+  // would go on ranking a destination against an operation that will never run.
+  check("and the prechecks shipped with the plan describe what is left, not what was declined",
+    [list(r.prechecks.ignored).length, r.prechecks.ok], [0, true]);
+  rmSync(root, { recursive: true, force: true, maxRetries: 5 });
+}
+
+{
+  // THE UNIT. One scope entry emits several operations, and the apply half skips
+  // every one of them when any one names a git-ignored source; see groupsOf for
+  // the two measured defects that rule exists to prevent. The plan-side decline
+  // has to use the same unit, or it moves that defect from the apply half into
+  // the plan half: an absorb declined for its ignored file while its paired parent
+  // rebuild stays in the plan would run that rebuild, dropping [[Misc-INDEX]] out
+  // of the parent index while the folder holding that very index is still on disk.
+  //
+  // The rebuild names no ignored source of its own. Nothing but the shared group
+  // id connects it to the one that does.
+  const root = absorbFixture();
+  writeAt(root, "settings/rolara/misc/Hidden.md", "---\ntype: Concept\n---\n\nA draft kept out of git.\n");
+  writeAt(root, ".gitignore", "settings/rolara/misc/Hidden.md\n");
+  commitFixture(root);
+  const r = scoped({ absorbFolders: [{ folder: "settings/rolara/misc" }] }, root);
+
+  check("an entry emitting several operations is declined whole, not just the one naming the ignored file",
+    kindsOf(r.operations), []);
+  check("and every operation that entry emitted reaches the DM as a declined item",
+    r.declined.map((d) => [d.op, d.target]),
+    [["absorb-folder", "settings/rolara/misc"],
+     ["rebuild-index", "settings/rolara/Rolara-INDEX.md"]]);
+  check("the sibling that names no ignored source of its own says which entry took it",
+    [/absorbFolders\[0\]/.test(String(obj(r.declined[1]).reason)),
+     /Hidden\.md/.test(String(obj(r.declined[1]).reason))],
+    [true, true]);
+  rmSync(root, { recursive: true, force: true, maxRetries: 5 });
+}
+
+{
+  // The other half of the same unit, and the harder one. An operation belonging to
+  // BOTH a declined entry and one that survives is KEPT, because dropping it would
+  // leave the entry that DID go ahead holding a dead wikilink; that asymmetry is
+  // argued at groupsOf and applyPlan carries a note disclosing what it costs. That
+  // note can no longer fire for a scoped plan, because the declined operations never
+  // reach the apply half to be compared against, so the disclosure has to be here or
+  // nowhere. Two sibling absorbs into one parent share one deduped parent rebuild,
+  // which is exactly that shape.
+  const root = absorbFixture();
+  writeAt(root, "settings/rolara/misc/Hidden.md", "---\ntype: Concept\n---\n\nA draft kept out of git.\n");
+  writeAt(root, "settings/rolara/lore/Lore-INDEX.md", "---\ntype: Index\n---\n\n- [[Tale]]\n");
+  writeAt(root, "settings/rolara/lore/Tale.md", "---\ntype: Concept\n---\n\nBody.\n");
+  writeAt(root, ".gitignore", "settings/rolara/misc/Hidden.md\n");
+  commitFixture(root);
+  const r = scoped(
+    { absorbFolders: [{ folder: "settings/rolara/misc" }, { folder: "settings/rolara/lore" }] },
+    root
+  );
+
+  check("an operation two entries share survives one of them being declined",
+    [kindsOf(r.operations), r.declined.map((d) => [d.op, d.target])],
+    [["absorb-folder", "rebuild-index"], [["absorb-folder", "settings/rolara/misc"]]]);
+  check("and the decline discloses the shared operation that still runs, and what it costs",
+    [/rebuild-index settings\/rolara\/Rolara-INDEX\.md/.test(String(obj(r.declined[0]).reason)),
+     /no longer linked from that index/.test(String(obj(r.declined[0]).reason))],
+    [true, true]);
+  rmSync(root, { recursive: true, force: true, maxRetries: 5 });
 }
 
 console.log(`\n${passed} passed, ${failures.length} failed`);

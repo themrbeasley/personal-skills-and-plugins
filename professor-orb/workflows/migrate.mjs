@@ -287,6 +287,76 @@ function groupsOf(o) {
   return out;
 }
 
+// Every path an operation names as a SOURCE, which is a wider set than `from`.
+//
+// merge-index has no `from` at all and carries its sources in `sources`; absorb
+// and split never move their own `from` and carry theirs as the per-file moves
+// articleMovesOf reaches. Keyed on `from` alone, a skipped merge produced the
+// degenerate key "merge-index::" that no disclosure row can equal, and a
+// git-ignored file inside an absorbed folder was invisible to the skip pass.
+function sourcePathsOf(o) {
+  if (!o || typeof o !== "object") return [];
+  return [o.from, ...list(o.sources), ...articleMovesOf(o).map((a) => a.from)]
+    .map((p) => toPosix(p || ""))
+    .filter(Boolean);
+}
+
+// THE UNIT A GIT-IGNORED SOURCE TAKES WITH IT, decided once for a whole operation
+// list. BOTH halves of this module read it from here, and that is the point rather
+// than a tidying: the plan phase declines an ignored source so it reaches the DM's
+// proposal, the apply phase skips one so it is never moved, and the two have to
+// agree on WHICH operations go with it or the plan half reintroduces, one phase
+// earlier, the defect the apply half spent a fix round closing. A split declined
+// for its ignored article while its paired create-index stayed in the plan would
+// create and commit the empty bucket folders the split never populated, which then
+// makes the planner decline the documented "un-ignore it and run again" retry.
+//
+// The rule, in one place:
+//
+//   An operation whose OWN source is ignored is always taken.
+//   An operation carrying groups is taken when EVERY group it belongs to is,
+//   which is the multi-group asymmetry argued at groupsOf: a rebuild two entries
+//   share and only one of which was taken still runs, because dropping it would
+//   leave the entry that DID run holding a dead wikilink.
+//   An operation carrying no group at all is taken ALONE, exactly as it was
+//   before grouping existed.
+//
+// `ignored` is the prechecks' own `ignored` array. It is never null here: both
+// callers decide what an undetermined verdict means before asking, because
+// "the question could not be answered" is not "nothing is ignored" and this
+// function has no way to say the difference.
+//
+// Returns the group ids that were taken, each operation's own ignored sources,
+// and a per-operation verdict carrying the report key the apply half groups its
+// skip items under.
+function ignoredSkipDecision(operations, ignored) {
+  const ignoredSources = new Set(list(ignored).map((i) => toPosix(i && i.source)).filter(Boolean));
+  const ignoredByOp = new Map();
+  const skippedGroups = new Set();
+  for (const op of list(operations)) {
+    const here = sourcePathsOf(op).filter((s) => ignoredSources.has(s));
+    ignoredByOp.set(op, here);
+    if (here.length === 0) continue;
+    for (const g of groupsOf(op)) skippedGroups.add(g);
+  }
+  return {
+    skippedGroups,
+    ignoredOf: (op) => ignoredByOp.get(op) || [],
+    // null when the operation is not taken. Otherwise the group it is reported
+    // under, keyed by the FIRST of its taken groups so every operation one entry
+    // emitted lands in ONE item, and by the operation object itself when it
+    // carries no group, which reproduces the ungrouped one-item-per-operation
+    // shape exactly.
+    skipOf: (op) => {
+      const groups = groupsOf(op);
+      const own = (ignoredByOp.get(op) || []).length > 0;
+      if (!own && !(groups.length > 0 && groups.every((g) => skippedGroups.has(g)))) return null;
+      const group = groups.find((g) => skippedGroups.has(g));
+      return group === undefined ? { group: null, key: op } : { group, key: group };
+    },
+  };
+}
+
 // Collisions are scoped to each DESTINATION DIRECTORY, which is what a move can
 // actually overwrite. Two settings legitimately holding a Tavern.md is not a
 // collision, and aborting on it would abort for the exact duplication the
@@ -935,6 +1005,11 @@ export const SCOPED_PLANNERS = [
   ["retypes", planRetypes, "normalize-type"],
   ["frontmatterRepairs", planScopedRepairs, "repair-frontmatter"],
   ["suffixRenames", planSuffixRenames, "rename-with-link-rewrite"],
+  // prosePathUpdates emits update-prose-paths and nothing else, so that kind
+  // governs. It ranks 11, last of the content kinds, which is where the append
+  // lands it anyway; scopedPlannerSequence is still what decides that, not this
+  // position.
+  ["prosePathUpdates", planProsePathUpdates, "update-prose-paths"],
 ];
 
 const applyRank = (kind) => APPLY_ORDER.indexOf(kind);
@@ -1314,7 +1389,106 @@ export function buildScopedPlan({ projectRoot, settings, baseRules, scope }) {
   // dependency order that would read as a bug in the DM's scope.
   operations.sort((a, b) => APPLY_ORDER.indexOf(a.op) - APPLY_ORDER.indexOf(b.op));
 
-  return { operations, declined, prechecks: runPrechecks({ operations, projectRoot }) };
+  // An ignored source is outside the snapshot, so moving it is unrecoverable, and
+  // the apply half skips it by contract. Declining it HERE is what puts it in the
+  // proposal the DM reads and approves, rather than in a skipped list they see only
+  // after the run, and the decline carries the one action that makes the file
+  // movable: un-ignore it and commit, which puts it in the snapshot.
+  //
+  // The prechecks that SHIP with the plan are computed against what survived. A
+  // plan whose prechecks name an operation it no longer carries is describing work
+  // nobody can approve, and findDestinationCollisions would go on ranking
+  // destinations against an operation that will never run.
+  const prechecks = runPrechecks({ operations, projectRoot });
+  const ignoredDeclines = declineIgnoredSources(operations, prechecks.ignored);
+  if (ignoredDeclines.declined.length === 0) return { operations, declined, prechecks };
+  declined.push(...ignoredDeclines.declined);
+  const kept = ignoredDeclines.kept;
+  return { operations: kept, declined, prechecks: runPrechecks({ operations: kept, projectRoot }) };
+}
+
+// The operations a scoped plan drops for a git-ignored source, and the declined
+// items that put them in front of the DM.
+//
+// ON THE SAME UNIT THE APPLY HALF SKIPS ON, through the same ignoredSkipDecision,
+// which is where that unit is defined and argued. Dropping only the operation that
+// names the ignored file and leaving its group siblings in the plan would move the
+// measured defect recorded at groupsOf from the apply half into this one, one phase
+// earlier and with the siblings still running.
+//
+// ONE DECLINED ITEM PER OPERATION, sharing one reason per scope entry. `declined`
+// is a flat list of {op, target, reason} that the proposal renders row by row, so a
+// grouped item would need a shape it does not have; the shared reason is what keeps
+// a sibling naming no ignored source of its own from reading as an unexplained
+// refusal.
+//
+// `ignored` is Array OR null, and null means the question could not be answered,
+// which is not the same as nothing being ignored. On null NOTHING is declined: the
+// conservative move here is to leave the plan whole and let applyPlan's own
+// ignored-undetermined refusal stop the run, because declining every operation on
+// an unanswered question would refuse the whole scope for a missing repository.
+function declineIgnoredSources(operations, ignored) {
+  const ops = list(operations);
+  if (!Array.isArray(ignored) || ignored.length === 0) return { kept: ops, declined: [] };
+  const skips = ignoredSkipDecision(ops, ignored);
+
+  const items = new Map();
+  const dropped = new Set();
+  for (const op of ops) {
+    const skip = skips.skipOf(op);
+    if (!skip) continue;
+    dropped.add(op);
+    if (!items.has(skip.key)) items.set(skip.key, { group: skip.group, ops: [], ignored: [] });
+    const item = items.get(skip.key);
+    item.ops.push(op);
+    for (const s of skips.ignoredOf(op)) if (!item.ignored.includes(s)) item.ignored.push(s);
+  }
+  if (dropped.size === 0) return { kept: ops, declined: [] };
+
+  // The multi-group cost, disclosed HERE because this is now the only place it can
+  // be. An operation belonging to both a declined entry and one that survives is
+  // KEPT, on the asymmetry argued at groupsOf, and applyPlan carries a note saying
+  // so. That note can no longer fire for a scoped plan: the operations it would
+  // name against are declined here and never reach the apply half at all, so the
+  // ONLY operation left carrying the group is the one that ran, and the run has
+  // nothing to compare it with. Without this the DM is told the folder was left
+  // where it is and nothing else, while the shared rebuild quietly unlinks it.
+  const survivingShared = ops.filter(
+    (o) => !dropped.has(o) && groupsOf(o).some((g) => skips.skippedGroups.has(g))
+  );
+
+  const declined = [];
+  for (const item of items.values()) {
+    const named = item.ops.map((o) => `${o.op} ${o.from || o.to || "(unnamed)"}`).join(", ");
+    let reason =
+      `${item.ignored.join(", ")} is git-ignored, so the pre-migration snapshot does not contain it and moving it ` +
+      "could not be undone. Un-ignore it in .gitignore and commit, which puts it in the snapshot, then re-run " +
+      "/migrate with the same scope.";
+    if (item.ops.length > 1) {
+      reason +=
+        ` All ${item.ops.length} operations from scope entry ${item.group === null ? "(no group id)" : item.group} are ` +
+        "declined together, because applying the rest would leave the project matching neither its old shape nor the " +
+        `one that was approved: ${named}.`;
+    }
+    const shared =
+      item.group === null ? [] : survivingShared.filter((o) => groupsOf(o).includes(item.group));
+    if (shared.length > 0) {
+      reason +=
+        ` ${shared.length} operation(s) this entry shares with another entry still run rather than being declined with ` +
+        "it, because the entry sharing them is going ahead and dropping them would leave THAT entry holding a dead " +
+        `wikilink: ${shared.map((o) => `${o.op} ${o.to || o.from || "(unnamed)"}`).join(", ")}.`;
+      if (shared.some((o) => o.op === "rebuild-index")) {
+        reason +=
+          " An index is rebuilt from what its folder holds at the time, so the folder this entry names stays on disk" +
+          " and is no longer linked from that index. Re-run this entry once its git-ignored file is dealt with, or add" +
+          " the link back by hand.";
+      }
+    }
+    for (const op of item.ops) {
+      declined.push({ op: op.op, target: op.from || op.to || "(unnamed)", reason });
+    }
+  }
+  return { kept: ops.filter((o) => !dropped.has(o)), declined };
 }
 
 function planPathMoves(items, ctx, key) {
@@ -2068,6 +2242,72 @@ function planSuffixRenames(items, ctx, key) {
       links,
       groups: [group],
       reason: String((item && item.reason) || "Renamed by a DM-approved /migrate scope."),
+    });
+  }
+  return { operations, declined };
+}
+
+// Rewrite stale path references in a document the DM named: the consumer's own
+// CLAUDE.md, its conventions document, and the DM's separate wiki-website project.
+// None of them is a knowledge base article the migration would otherwise touch,
+// and every one of them went stale the moment the prongs moved.
+//
+// The file is checked with the FILE-NESS variant rather than the bare existence
+// one. This operation edits its target in place through readFileSync and
+// writeFileSync, so a directory sitting at that path cannot execute either, and a
+// bare existence check answers yes for it. It is plan-aware for the same reason
+// every other named-path check here is: the document can be one an earlier-ranked
+// operation in the same scope puts there, and update-prose-paths ranks last of the
+// content kinds precisely because it rewrites references TO paths, so every path it
+// names has to have reached its destination first.
+//
+// The file is NOT a destination this operation could overwrite, so it is carried as
+// `from` with no `to`, on the same terms as normalize-type and repair-frontmatter:
+// giving an in-place edit a `to` equal to its own path would make it read as a
+// collision with itself and with the file already on disk.
+function planProsePathUpdates(items, ctx, key) {
+  const operations = [];
+  const declined = [];
+  for (const [i, item] of items.entries()) {
+    const file = toPosix(item && item.file);
+    if (!file) {
+      declined.push({ op: "update-prose-paths", target: "(unnamed)", reason: "The scope entry names no file." });
+      continue;
+    }
+    const replacements = list(item && item.replacements)
+      .filter((r) => r && typeof r.from === "string" && r.from !== "" && typeof r.to === "string")
+      .map((r) => ({ from: r.from, to: r.to }))
+      // Longest source first. A shorter path that is a prefix of a longer one
+      // would otherwise consume it, leaving the longer replacement matching
+      // nothing: replace "rolara-kb/" first and "rolara-kb/sessions/" has become
+      // "settings/rolara/sessions/", which the second replacement no longer names.
+      // Sorted HERE rather than in the executor so the proposal the DM reads shows
+      // the order that will actually be applied, and so a hand-edited proposal that
+      // reorders them gets what it asked for rather than a silent re-sort.
+      .sort((a, b) => b.from.length - a.from.length);
+    if (replacements.length === 0) {
+      declined.push({
+        op: "update-prose-paths",
+        target: file,
+        reason:
+          "The scope entry carries no usable replacements, so there is nothing to rewrite. Each replacement needs a non-empty `from` string and a `to` string.",
+      });
+      continue;
+    }
+    if (namedPathNotAFile(ctx, file, "update-prose-paths", operations)) {
+      declined.push({
+        op: "update-prose-paths",
+        target: file,
+        reason: `No file exists at ${file}, so there is no prose to update. Check that path for a typo: a scope naming a file that is not there plans cleanly and then fails after the snapshot.`,
+      });
+      continue;
+    }
+    operations.push({
+      op: "update-prose-paths",
+      from: file,
+      replacements,
+      groups: [groupIdFor(key, i)],
+      reason: String((item && item.reason) || "Stale path references updated by a DM-approved /migrate scope."),
     });
   }
   return { operations, declined };
@@ -4004,6 +4244,70 @@ function applyRepairFrontmatter(op, ctx) {
   return entry;
 }
 
+// Rewrite stale path references in a file the DM named. This is the last of
+// setup's five deferrals: the consumer's CLAUDE.md, its conventions document,
+// and the DM's separate wiki-website project all name paths that went stale the
+// moment the prongs moved, and none of them are knowledge base articles the
+// migration would otherwise touch.
+//
+// It EDITS IN PLACE, so it carries `from` and no `to`, on the same terms as
+// normalize-type and repair-frontmatter: a `to` means a destination a move could
+// overwrite, and this operation moves nothing.
+//
+// Replacements are applied IN THE ORDER THE PLAN GIVES, as literal strings.
+// Order is the planner's responsibility and it matters: "rolara-kb/" is a prefix
+// of "rolara-kb/sessions/", so applying the short one first turns the long one
+// into a path the second replacement can no longer match. planProsePathUpdates
+// sorts longest first for exactly this reason, and a hand-edited proposal that
+// reorders them gets what it asked for rather than a silent re-sort.
+//
+// Literal, not regex: a path carries "." and may carry "[" or "(", and treating
+// a DM-supplied path as a pattern would match text it does not name. String.split
+// takes its argument as a literal when it is a string, which is why the pass below
+// is split/join rather than replaceAll with a constructed pattern.
+function applyUpdateProsePaths(op, ctx) {
+  const entry = entryFor(op);
+  const target = toPosix(op.from);
+  entry.replacements = 0;
+
+  if (!existsSync(path.resolve(ctx.cwd, target))) {
+    entry.detail =
+      "No file at that path. A prose reference is only ever updated in a file that exists; creating one would invent a document the DM never named.";
+    return entry;
+  }
+  const loaded = readText(ctx, target);
+  if (!loaded.ok) {
+    entry.detail = `Could not read the file: ${loaded.error}`;
+    return entry;
+  }
+
+  let text = loaded.text;
+  for (const r of list(op.replacements)) {
+    const from = r && r.from;
+    const to = r && r.to;
+    if (typeof from !== "string" || from === "" || typeof to !== "string") continue;
+    const parts = text.split(from);
+    entry.replacements += parts.length - 1;
+    text = parts.join(to);
+  }
+
+  if (text === loaded.text) {
+    // Not a failure. A DM who already fixed a reference by hand should be able
+    // to re-run an approved proposal without it reporting an error.
+    entry.applied = true;
+    entry.detail = "No stale reference found; the file was left byte for byte as it was.";
+    return entry;
+  }
+  const written = writeText(ctx, target, text);
+  if (!written.ok) {
+    entry.detail = `Could not write the file: ${written.error}`;
+    return entry;
+  }
+  entry.applied = true;
+  entry.detail = `Replaced ${entry.replacements} stale path reference(s).`;
+  return entry;
+}
+
 // 7. Create or move the per-setting Obsidian vault. Wikilink resolution is
 //    basename-only, so one vault per setting is what keeps two worlds apart.
 function applyVault(op, ctx) {
@@ -4129,6 +4433,7 @@ const EXECUTORS = {
   "merge-index": applyMergeIndex,
   "rebuild-index": applyRebuildIndex,
   "repair-frontmatter": applyRepairFrontmatter,
+  "update-prose-paths": applyUpdateProsePaths,
   vault: applyVault,
   "tag-registry": applyTagRegistry,
 };
@@ -4443,7 +4748,6 @@ export function applyPlan(plan, options = {}) {
   }
   result.snapshot = headOut.stdout.trim();
 
-  const ignoredSources = new Set(prechecks.ignored.map((i) => i.source));
   const ruleSources = [baseRules].filter(Boolean);
   const ctx = {
     cwd,
@@ -4492,32 +4796,15 @@ export function applyPlan(plan, options = {}) {
   // The cost is that one git-ignored draft declines the whole scope entry the DM
   // asked for. That is a reported refusal the DM can act on by moving the draft or
   // unignoring it, and it is recoverable; the alternative is not.
-  const ignoredByOp = new Map();
-  const skippedGroups = new Set();
-  for (const op of operations) {
-    const sources = [op.from, ...list(op.sources), ...articleMovesOf(op).map((a) => a.from)]
-      .filter(Boolean)
-      .map(toPosix);
-    const ignoredHere = sources.filter((s) => ignoredSources.has(s));
-    ignoredByOp.set(op, ignoredHere);
-    if (ignoredHere.length === 0) continue;
-    for (const g of groupsOf(op)) skippedGroups.add(g);
-  }
-
-  // The report item an operation is skipped UNDER, or null when it is not skipped.
-  // An operation carrying an ignored source of its own is always skipped. One
-  // carrying groups is skipped when EVERY group it belongs to is, which is the
-  // multi-group rule groupsOf explains. The item is keyed by the first of its
-  // skipped groups so that every operation one entry emitted lands in ONE item,
-  // and by the operation object itself when it carries no group at all, which
-  // reproduces the ungrouped one-item-per-operation shape exactly.
-  const skipItemKeyOf = (op) => {
-    const groups = groupsOf(op);
-    const own = (ignoredByOp.get(op) || []).length > 0;
-    if (!own && !(groups.length > 0 && groups.every((g) => skippedGroups.has(g)))) return null;
-    const group = groups.find((g) => skippedGroups.has(g));
-    return group === undefined ? { group: null, key: op } : { group, key: group };
-  };
+  //
+  // The decision itself lives in ignoredSkipDecision, shared with buildScopedPlan's
+  // plan-side decline rather than written out twice. A scoped plan already declines
+  // the operations this pass would skip, so on a /migrate run this normally finds
+  // nothing left to do; it still runs, because a hand-edited plan and setup's own
+  // unattended migration both arrive here without ever having been through that
+  // decline. Two skip rules that could drift apart is exactly what the shared
+  // function exists to prevent.
+  const skips = ignoredSkipDecision(operations, prechecks.ignored);
 
   // ------------------------------------------------------------------
   // Apply, in plan order
@@ -4525,7 +4812,7 @@ export function applyPlan(plan, options = {}) {
   const raw = [];
   const skipItems = new Map();
   for (const op of operations) {
-    const skip = skipItemKeyOf(op);
+    const skip = skips.skipOf(op);
     if (skip) {
       let item = skipItems.get(skip.key);
       if (!item) {
@@ -4536,7 +4823,7 @@ export function applyPlan(plan, options = {}) {
         result.skipped.push(item);
       }
       item.ops.push({ op: op.op, from: op.from, to: op.to });
-      for (const s of ignoredByOp.get(op) || []) if (!item.ignored.includes(s)) item.ignored.push(s);
+      for (const s of skips.ignoredOf(op)) if (!item.ignored.includes(s)) item.ignored.push(s);
       raw.push({ op, outcome: "skipped" });
       continue;
     }
@@ -4578,7 +4865,7 @@ export function applyPlan(plan, options = {}) {
   const partiallySkipped = [];
   for (const record of raw) {
     if (record.outcome === "skipped") continue;
-    const skippedToo = groupsOf(record.op).filter((g) => skippedGroups.has(g));
+    const skippedToo = groupsOf(record.op).filter((g) => skips.skippedGroups.has(g));
     if (skippedToo.length === 0) continue;
     partiallySkipped.push(
       `${record.op.op} ${record.op.to || record.op.from || "(unnamed)"} (also from skipped scope entry ${skippedToo.join(", ")})`
@@ -4653,10 +4940,6 @@ export function applyPlan(plan, options = {}) {
   // no operation matches at all is kept rather than dropped, on the same asymmetry
   // the rest of this module runs on: a missing disclosure hides an unrecoverable edit,
   // while a spurious one is only misleading.
-  const sourcePathsOf = (o) =>
-    [o.from, ...list(o.sources), ...articleMovesOf(o).map((a) => a.from)]
-      .map((p) => toPosix(p || ""))
-      .filter(Boolean);
   const skippedKeys = new Set();
   const ranKeys = new Set();
   for (const record of raw) {

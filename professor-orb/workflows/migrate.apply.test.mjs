@@ -3373,6 +3373,86 @@ withRepo(
   }
 );
 
+console.log("\n=== update-prose-paths ===");
+
+withRepo(
+  {
+    "CLAUDE.md":
+      "The knowledge base lives at `rolara-kb/`. Session reports go in rolara-kb/sessions/.\nSee rolara-kb/ for details.\n",
+    "settings/rolara/A.md": article("type: Person", "Body."),
+  },
+  (root) => {
+    const r = apply(root, [
+      {
+        op: "update-prose-paths",
+        from: "CLAUDE.md",
+        replacements: [
+          { from: "rolara-kb/sessions/", to: "session-reports/rolara/karsk/" },
+          { from: "rolara-kb/", to: "settings/rolara/" },
+        ],
+        reason: "scope",
+      },
+    ]);
+    const text = read(root, "CLAUDE.md");
+    check("update-prose-paths applies", [r.ok, first(r.applied).applied], [true, true]);
+    check("the longer path is replaced with its own destination",
+      text.includes("session-reports/rolara/karsk/"), true);
+    // Order matters and is the plan's, not this executor's: rolara-kb/ is a
+    // prefix of rolara-kb/sessions/, so replacing the short one first would
+    // turn the long one into settings/rolara/sessions/ and the second
+    // replacement would then match nothing. The plan lists them longest first
+    // and the executor applies them in the order given.
+    check("the prefix replacement did not eat the longer one",
+      text.includes("settings/rolara/sessions/"), false);
+    check("the bare path is still replaced elsewhere",
+      text.includes("See settings/rolara/ for details."), true);
+    check("the replacement count is reported", first(r.applied).replacements, 3);
+  }
+);
+
+withRepo({ "CLAUDE.md": "Nothing to see here.\n" }, (root) => {
+  const r = apply(root, [
+    { op: "update-prose-paths", from: "CLAUDE.md", replacements: [{ from: "rolara-kb/", to: "settings/rolara/" }], reason: "scope" },
+  ]);
+  // A stale reference the DM already fixed by hand is not a failure. Reporting
+  // zero rather than failing keeps a re-run of an approved proposal harmless.
+  check("a file with no match applies with a count of zero",
+    [first(r.applied).applied, first(r.applied).replacements], [true, 0]);
+});
+
+withRepo({ "settings/rolara/A.md": article("type: Person", "Body.") }, (root) => {
+  const r = apply(root, [
+    { op: "update-prose-paths", from: "docs/Missing.md", replacements: [{ from: "a", to: "b" }], reason: "scope" },
+  ]);
+  check("a file that is not there is reported, not created",
+    [first(r.applied.concat(r.failed)).applied, has(root, "docs/Missing.md")], [false, false]);
+});
+
+withRepo(
+  {
+    "CLAUDE.md": "Reports live in rolara-kb/sessions (see rolara-kb/sessions).\n",
+    "settings/rolara/A.md": article("type: Person", "Body."),
+  },
+  (root) => {
+    // A path is not a pattern. "rolara-kb/sessions" as a regular expression would
+    // still match this text, so the case that separates the two implementations is
+    // a source carrying a metacharacter that changes what a pattern matches: the
+    // literal below names a path that is not in the file at all, and only a regex
+    // reading of it would find one.
+    const r = apply(root, [
+      {
+        op: "update-prose-paths",
+        from: "CLAUDE.md",
+        replacements: [{ from: "rolara-kb/session(s)", to: "session-reports/rolara/" }],
+        reason: "scope",
+      },
+    ]);
+    check("a replacement source is a literal string, never a pattern",
+      [first(r.applied).replacements, read(root, "CLAUDE.md")],
+      [0, "Reports live in rolara-kb/sessions (see rolara-kb/sessions).\n"]);
+  }
+);
+
 console.log(`\n${passed} passed, ${failures.length} failed`);
 if (failures.length > 0) {
   for (const f of failures) console.log(`  FAILED: ${f}`);
