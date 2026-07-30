@@ -1280,20 +1280,32 @@ const PROBE_SETTINGS = [
   // registry in the reverse of rank order, so the mis-ordered array is harmless rather
   // than merely detected. Mutated in place and restored, because buildScopedPlan reads
   // the module's own array. Non-vacuous by construction: read off source position, the
-  // reversed registry runs planRebuildIndexes first against an empty plan, which
-  // declines this scope's rebuild as a typo for an index the relocate creates.
+  // reversed registry runs planEntityRenames first against an empty plan, which
+  // declines this scope's rename as a typo for a file the relocate puts there five
+  // ranks earlier.
+  //
+  // The third planner is entityRenames (rank 6) rather than rebuildIndexes (rank 9),
+  // and the swap is forced by a correctness fix rather than a preference: the split
+  // now emits the rebuild of its own folder's index itself, which it silently did not
+  // when that folder was moved into place by the same plan, so a rebuildIndexes entry
+  // naming that index makes two operations share one destination, and a
+  // rebuildIndexes entry naming the BUCKET's index shares one with the create-index
+  // that makes it. Either is an in-plan collision by the generic rule, which would
+  // leave this case pinning a plan that cannot execute. A rename of the OTHER article
+  // the move carries keeps three planners in the scope, every one of them reasoning
+  // about a path the rank-1 move puts there, and every destination distinct.
   const root = absorbFixture();
   const scope = {
     pathMoves: [{ from: "settings/rolara/misc", to: "settings/rolara/notes", reason: "x" }],
-    rebuildIndexes: [{ index: "settings/rolara/notes/Misc-INDEX.md" }],
+    entityRenames: [{ file: "settings/rolara/notes/Ends.md", to: "settings/rolara/notes/Ends-CONCEPT.md" }],
     splitFolders: [
       { folder: "settings/rolara/notes", buckets: [{ name: "odds", articles: ["Odds.md"] }] },
     ],
   };
   const inOrder = scoped(scope, root);
   check("the scope exercises three planners, each depending on an earlier one",
-    [kindsOf(inOrder.operations), inOrder.declined.length],
-    [["relocate-path", "split-folder", "create-index", "rebuild-index"], 0]);
+    [kindsOf(inOrder.operations), inOrder.declined.length, inOrder.prechecks.ok],
+    [["relocate-path", "split-folder", "rename-entity", "create-index", "rebuild-index"], 0, true]);
   const original = [...SCOPED_PLANNERS];
   SCOPED_PLANNERS.reverse();
   let reversed = null;
@@ -2056,12 +2068,22 @@ console.log("\n=== scoped plans: every path a scope names is checked at plan tim
     },
     root
   );
-  // Three checks at once: the split's folder, its bucket article, and the bucket
-  // folder that must NOT exist. The first two are satisfied by the move; the third
-  // is not, and reading the move as creating it would decline the whole entry.
+  // Four checks at once: the split's folder, its bucket article, the bucket folder
+  // that must NOT exist, and the folder's own index. The first two are satisfied by
+  // the move; the third is not, and reading the move as creating it would decline
+  // the whole entry.
+  //
+  // The rebuild is the fourth, and it used to be silently absent: existingIndexIn
+  // read the raw disk, found nothing at settings/rolara/notes because the move has
+  // not run yet, and dropped the rebuild that the identical split of a folder
+  // already in place emits. The index travels with the folder, so it is there by
+  // rank 3 and the rebuild is planned on the same terms.
   check("a split of a folder the same plan moves into place plans rather than declines",
     [kindsOf(r.operations), r.declined.length],
-    [["relocate-path", "split-folder", "create-index"], 0]);
+    [["relocate-path", "split-folder", "create-index", "rebuild-index"], 0]);
+  check("and the moved folder's own index is rebuilt at its post-move path",
+    [find(r.operations, "rebuild-index").to, r.prechecks.ok],
+    ["settings/rolara/notes/Misc-INDEX.md", true]);
   check("and the bucket article is read at its post-move source",
     obj(list(find(r.operations, "split-folder").buckets)[0]).articles,
     [{ from: "settings/rolara/notes/Odds.md", to: "settings/rolara/notes/odds/Odds.md" }]);
@@ -2152,7 +2174,7 @@ console.log("\n=== scoped plans: every path a scope names is checked at plan tim
   );
   check("a bucket name freed by a chain of earlier moves is not refused either",
     [kindsOf(r.operations), r.declined.length],
-    [["relocate-path", "relocate-path", "split-folder", "create-index"], 0]);
+    [["relocate-path", "relocate-path", "split-folder", "create-index", "rebuild-index"], 0]);
   rmSync(root, { recursive: true, force: true });
 }
 
@@ -4021,6 +4043,89 @@ const MERGE_KARSK = { settingMerges: [{ from: "karsk", into: "rolara" }] };
     ]);
   check("and the chain can execute as written", r.prechecks.ok, true);
   rmSync(root, { recursive: true, force: true, maxRetries: 5 });
+}
+
+// INVARIANT 4, GLOBALLY: every plan-time path check reasons about the tree as the
+// plan will leave it. planAbsorbFolders was the last holdout, enumerating its
+// folder with a bare readdirSync while every other scoped planner routes its named
+// paths through planResolve. absorb-folder ranks 2 and pathMoves ranks 1, so a
+// pathMoves entry in the same scope runs first and both directions went wrong.
+{
+  const root = absorbFixture();
+  const r = scoped(
+    {
+      pathMoves: [{ from: "settings/rolara/misc", to: "settings/rolara/notes/misc", reason: "x" }],
+      absorbFolders: [{ folder: "settings/rolara/notes/misc" }],
+    },
+    root
+  );
+  // RED before the fix: one operation and one decline reading "Could not read the
+  // folder: ENOENT: no such file or directory, scandir ...", for a folder the same
+  // plan puts there eight ranks earlier. The remedy that message implies is editing
+  // a scope that was already correct.
+  // No rebuild here, and that is right rather than a leftover: the parent the
+  // absorb dissolves into is settings/rolara/notes, which nothing puts an index
+  // in. The third case below is the one that pins the rebuild.
+  check("an absorb of a folder the same plan moves into place plans rather than declines",
+    [kindsOf(r.operations), r.declined.length],
+    [["relocate-path", "absorb-folder"], 0]);
+  check("and its files are enumerated at the pre-move path but named at the post-move one",
+    find(r.operations, "absorb-folder").articles,
+    [
+      { from: "settings/rolara/notes/misc/Ends.md", to: "settings/rolara/notes/Ends.md" },
+      { from: "settings/rolara/notes/misc/Odds.md", to: "settings/rolara/notes/Odds.md" },
+    ]);
+  check("with the folder's own index found at the post-move path too",
+    find(r.operations, "absorb-folder").index, "settings/rolara/notes/misc/Misc-INDEX.md");
+  rmSync(root, { recursive: true, force: true });
+}
+
+{
+  const root = absorbFixture();
+  const r = scoped(
+    {
+      pathMoves: [{ from: "settings/rolara/misc", to: "settings/rolara/notes/misc", reason: "x" }],
+      absorbFolders: [{ folder: "settings/rolara/misc" }],
+    },
+    root
+  );
+  // The other direction, and the worse one. RED before the fix: three operations
+  // with prechecks.ok true and no collision, because the move vacates
+  // settings/rolara/misc while the absorb's per-file entries name files INSIDE it,
+  // a different fold key, so findDestinationCollisions cannot see it. The plan
+  // reached the DM clean, was approved, and failed after the snapshot with
+  // "git mv ... fatal: bad source".
+  check("an absorb of a folder the same plan carries away is declined at plan time",
+    [kindsOf(r.operations), r.declined.map((d) => d.op)],
+    [["relocate-path"], ["absorb-folder"]]);
+  check("with a reason naming the move rather than a filesystem error",
+    [
+      String(obj(r.declined[0]).reason).includes("carries settings/rolara/misc away"),
+      /ENOENT/.test(String(obj(r.declined[0]).reason)),
+    ],
+    [true, false]);
+  rmSync(root, { recursive: true, force: true });
+}
+
+{
+  // existingIndexIn had the same raw-disk problem in both its callers, and it is
+  // the half that decides whether the paired rebuild is emitted at all. Here the
+  // PARENT the absorb dissolves into is itself put in place by the move, so its
+  // index is only readable at the pre-move path.
+  const root = absorbFixture();
+  writeAt(root, "settings/rolara/misc/inner/Inner-INDEX.md", "---\ntype: Index\n---\n\n- [[Deep]]\n");
+  writeAt(root, "settings/rolara/misc/inner/Deep.md", "---\ntype: Concept\n---\n\nBody.\n");
+  const r = scoped(
+    {
+      pathMoves: [{ from: "settings/rolara/misc", to: "settings/rolara/notes", reason: "x" }],
+      absorbFolders: [{ folder: "settings/rolara/notes/inner" }],
+    },
+    root
+  );
+  check("the parent index a move puts in place is still found, so the rebuild is emitted",
+    [kindsOf(r.operations), find(r.operations, "rebuild-index").to],
+    [["relocate-path", "absorb-folder", "rebuild-index"], "settings/rolara/notes/Misc-INDEX.md"]);
+  rmSync(root, { recursive: true, force: true });
 }
 
 console.log(`\n${passed} passed, ${failures.length} failed`);

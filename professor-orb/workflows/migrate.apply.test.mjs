@@ -3571,6 +3571,269 @@ withRepo(
   }
 );
 
+console.log("\nThe link rail's roots follow the plan, not relocate-prong alone");
+
+// The rail's root resolution was written when relocate-prong was the only kind
+// that moved a whole path. relocate-path shares the executor and the mechanics,
+// planPathMoves puts no protectedFolders guard on its source, and it is the only
+// way to express a v1-to-v3 relayout of a prong root to a DIFFERENT parent: a
+// setting rename replaces the root's last component and keeps the parent, and a
+// retirement puts it under an archive. So a `pathMoves` entry may name a prong
+// root, and with relocate-prong alone in the rail's list it dropped out of the
+// walk entirely.
+//
+// RED before the fix, both halves from this one fixture: roots came back as
+// ["homebrew/rolara"], the one prong that did not move, with filesChecked 1 and
+// linksChecked 0 (so the zero-coverage rail did not fire either), ok true, and the
+// run committed the relocated knowledge base with its dead [[Nowhere]] never
+// opened. The same input also reported homebrew's perfectly good [[Keep]] as dead.
+withRepo(
+  {
+    "rolara-kb/Ashfall.md": article("publish: false\ntype: Location", "A city. [[Nowhere]]"),
+    "rolara-kb/Keep.md": article("publish: false\ntype: Location", "A keep."),
+    "homebrew/rolara/Sword.md": article("publish: false\ntype: Item", "A blade from the [[Keep]]."),
+  },
+  (root) => {
+    const settings = [
+      { name: "rolara", kbRoot: "rolara-kb", homebrewRoot: "homebrew/rolara", rules: {} },
+    ];
+    const before = head(root);
+    const r = applyPlan(
+      {
+        operations: [
+          {
+            op: "relocate-path",
+            from: "rolara-kb",
+            to: "settings/rolara",
+            groups: ["pathMoves[0]"],
+            reason: "v1 to v3 relayout",
+          },
+        ],
+      },
+      { cwd: root, settings, baseRules: BASE_RULES, commit: true }
+    );
+    check("the relocated prong root is walked at its post-migration path",
+      links(r).roots.slice().sort(), ["homebrew/rolara", "settings/rolara"]);
+    check("the dead wikilink inside it is caught rather than never opened",
+      [links(r).ok, links(r).dead.map((d) => `${d.file} -> ${d.target}`)],
+      [false, ["settings/rolara/Ashfall.md -> Nowhere"]]);
+    check("and the link INTO it from the prong that stayed still resolves",
+      links(r).linksChecked, 2);
+    check("so the run refuses and nothing is committed",
+      [r.committed, head(root)], [false, before]);
+  }
+);
+
+console.log("\nA setting split's approved crossings are not dead links to the rail");
+
+// planSettingSplits moves articles to the kbRoot of a world conventions.json does
+// not record, by construction: it declines outright if the name is already there.
+// So the destination sits under no prong root of any setting applyPlan is handed,
+// and every INCOMING crossing crossBoundaryLinks enumerated as the DM-approved cost
+// of the split read to the rail as a dead link. A conforming folder's index links
+// every article in it, so ANY split of an indexed article hit this.
+//
+// RED before the fix: one applied operation, linkIntegrity.ok false naming both
+// crossings, the restore instruction printed, and the articles left in a folder
+// conventions.json records nothing for, because /migrate writes conventions only
+// after the rail returns.
+withRepo(
+  {
+    "settings/rolara/Ashfall.md": article("publish: false\ntype: Location", "A city."),
+    "settings/rolara/Keep.md": article("publish: false\ntype: Location", "A keep near [[Ashfall]]."),
+    "settings/rolara/Rolara-INDEX.md": article("publish: false\ntype: Index", "- [[Ashfall]]\n- [[Keep]]"),
+  },
+  (root) => {
+    const settings = [
+      {
+        name: "rolara",
+        kbRoot: "settings/rolara",
+        homebrewRoot: "homebrew/rolara",
+        sessionReportsRoot: "session-reports/rolara",
+        rules: {},
+      },
+    ];
+    const plan = buildScopedPlan({
+      projectRoot: root,
+      settings,
+      baseRules: BASE_RULES,
+      scope: {
+        settingSplits: [
+          { from: "rolara", name: "karsk", kbRoot: "settings/karsk", files: ["settings/rolara/Ashfall.md"] },
+        ],
+      },
+    });
+    check("the planner enumerates two incoming crossings as the cost the DM approves",
+      plan.declined.filter((d) => d.op === "cross-boundary-link").map((d) => d.target),
+      ["settings/rolara/Keep.md -> [[Ashfall]]", "settings/rolara/Rolara-INDEX.md -> [[Ashfall]]"]);
+    const r = applyPlan(
+      { operations: plan.operations },
+      { cwd: root, settings, baseRules: BASE_RULES, commit: true }
+    );
+    check("the new world's kbRoot is walked, though no setting records it yet",
+      links(r).roots.slice().sort(), ["settings/karsk", "settings/rolara"]);
+    check("so the approved cost is not counted as dead links",
+      [links(r).ok, links(r).dead], [true, []]);
+    check("and the split can finish its run", [r.ok, r.committed], [true, true]);
+  }
+);
+
+// The other direction, which is what makes the widening a rail rather than an
+// excuse. The same split plus a rename in the same run whose referrer list is
+// empty, so the folder index keeps a [[Keep]] naming a file that is gone. Nobody
+// approved that one, and it must still refuse.
+withRepo(
+  {
+    "settings/rolara/Ashfall.md": article("publish: false\ntype: Location", "A city."),
+    "settings/rolara/Keep.md": article("publish: false\ntype: Location", "A keep near [[Ashfall]]."),
+    "settings/rolara/Rolara-INDEX.md": article("publish: false\ntype: Index", "- [[Ashfall]]\n- [[Keep]]"),
+  },
+  (root) => {
+    const settings = [
+      { name: "rolara", kbRoot: "settings/rolara", homebrewRoot: "homebrew/rolara", rules: {} },
+    ];
+    const before = head(root);
+    const r = applyPlan(
+      {
+        operations: [
+          {
+            op: "relocate-path",
+            from: "settings/rolara/Ashfall.md",
+            to: "settings/karsk/Ashfall.md",
+            groups: ["settingSplits[0]"],
+            reason: "Split out of rolara into karsk.",
+          },
+          {
+            op: "rename-with-link-rewrite",
+            from: "settings/rolara/Keep.md",
+            to: "settings/rolara/Bastion.md",
+            reason: "suffix, with its referrer list lost",
+          },
+        ],
+      },
+      { cwd: root, settings, baseRules: BASE_RULES, commit: true }
+    );
+    check("both operations applied", [r.applied.length, r.failed.length], [2, 0]);
+    check("a split that ALSO broke a link nobody approved still refuses",
+      [links(r).ok, links(r).dead.map((d) => `${d.file} -> ${d.target}`)],
+      [false, ["settings/rolara/Rolara-INDEX.md -> Keep"]]);
+    check("the approved crossing is not in that list, so the refusal names only the real break",
+      links(r).dead.some((d) => d.target === "Ashfall"), false);
+    check("and nothing is committed", [r.committed, head(root)], [false, before]);
+  }
+);
+
+console.log("\nA retired campaign's archive destination is walked too");
+
+// The same root cause, second instance. planCampaignRetirements moves
+// <sessionReportsRoot>/<campaign> under an archive, and scopeCandidates cannot help
+// even with every moving kind in it: it maps a ROOT, and here the moved path is a
+// sub-path of a root that itself stays put. RED before the fix: the knowledge base's
+// link to a report in the retired campaign read dead and refused the commit.
+withRepo(
+  {
+    "settings/rolara/Ashfall.md": article("publish: false\ntype: Location", "Burned in [[2026-01-01-One-REPORT]]."),
+    "session-reports/rolara/ashes/2026-01-01-One-REPORT.md": article("publish: false\ntype: Session Report", "Session one."),
+  },
+  (root) => {
+    const settings = [
+      {
+        name: "rolara",
+        kbRoot: "settings/rolara",
+        sessionReportsRoot: "session-reports/rolara",
+        campaigns: ["ashes"],
+        rules: {},
+      },
+    ];
+    const plan = buildScopedPlan({
+      projectRoot: root,
+      settings,
+      baseRules: BASE_RULES,
+      scope: { campaignRetirements: [{ setting: "rolara", campaign: "ashes" }] },
+    });
+    const r = applyPlan(
+      { operations: plan.operations },
+      { cwd: root, settings, baseRules: BASE_RULES, commit: true }
+    );
+    check("the archive destination is walked, though it is under no declared prong root",
+      links(r).roots.includes("archive/rolara/session-reports/ashes"), true);
+    check("so the link into the retired campaign still resolves",
+      [links(r).ok, links(r).dead, links(r).linksChecked], [true, [], 1]);
+    check("and the retirement can finish its run", [r.ok, r.committed], [true, true]);
+  }
+);
+
+console.log("\nWhat an absorb removes and what a split carries are sources too");
+
+// absorb-folder's `index` is git rm'd, and it reached no precheck: not
+// sourcePathsOf, not findIgnoredSources. So an index that happens to be git-ignored
+// left the absorb unskipped, `git rm` hard-failed on an untracked file, and the
+// entry reported applied false having already moved every article: a half-applied
+// absorb from a plan the prechecks approved.
+withRepo(
+  {
+    ".gitignore": "settings/rolara/misc/Misc-INDEX.md\n",
+    "settings/rolara/misc/Odds.md": article("publish: false\ntype: Concept", "Odds."),
+    "settings/rolara/Rolara-INDEX.md": article("publish: false\ntype: Index", "- [[Odds]]"),
+  },
+  (root) => {
+    writeInto(root, "settings/rolara/misc/Misc-INDEX.md", article("publish: false\ntype: Index", "- [[Odds]]"));
+    const r = apply(root, [
+      {
+        op: "absorb-folder",
+        from: "settings/rolara/misc",
+        to: "settings/rolara",
+        articles: [{ from: "settings/rolara/misc/Odds.md", to: "settings/rolara/Odds.md" }],
+        index: "settings/rolara/misc/Misc-INDEX.md",
+        groups: ["absorbFolders[0]"],
+        reason: "dissolve",
+      },
+    ]);
+    check("an absorb whose own index is git-ignored is skipped whole, not half-applied",
+      [r.applied.length, r.failed.length, r.skipped.length], [0, 0, 1]);
+    check("and the skip names the index rather than an article",
+      first(r.skipped).ignored, ["settings/rolara/misc/Misc-INDEX.md"]);
+    check("with the article still where it was",
+      [has(root, "settings/rolara/misc/Odds.md"), has(root, "settings/rolara/Odds.md")], [true, false]);
+  }
+);
+
+// findIgnoredWithinSources read `from`/`to` off the operation, and split-folder
+// carries no `to` at all, so not one of its per-file moves could reach the report.
+// planSplitFolders deliberately permits a bucket article that is a DIRECTORY, and
+// git mv on one carries its git-ignored contents out of the snapshot's reach.
+withRepo(
+  {
+    ".gitignore": "settings/rolara/locations/atlas/scratch.tmp\n",
+    "settings/rolara/locations/atlas/Map.md": article("publish: false\ntype: Location", "A map."),
+    "settings/rolara/locations/Karsk.md": article("publish: false\ntype: Location", "A city."),
+  },
+  (root) => {
+    writeInto(root, "settings/rolara/locations/atlas/scratch.tmp", "editor state");
+    const r = apply(root, [
+      {
+        op: "split-folder",
+        from: "settings/rolara/locations",
+        buckets: [
+          {
+            folder: "settings/rolara/locations/north",
+            name: "north",
+            articles: [{ from: "settings/rolara/locations/atlas", to: "settings/rolara/locations/north/atlas" }],
+          },
+        ],
+        groups: ["splitFolders[0]"],
+        reason: "partition",
+      },
+    ]);
+    check("the split applies", [r.applied.length, r.failed.length], [1, 0]);
+    check("and the git-ignored file it carried along is disclosed",
+      r.ignoredMoved.map((m) => `${m.from} -> ${m.to}: ${m.entries.join(",")}`),
+      ["settings/rolara/locations/atlas -> settings/rolara/locations/north/atlas: settings/rolara/locations/atlas/scratch.tmp"]);
+    check("with the message saying the snapshot will not put it back",
+      r.messages.some((m) => m.includes("restoring it will not put them back")), true);
+  }
+);
+
 console.log(`\n${passed} passed, ${failures.length} failed`);
 if (failures.length > 0) {
   for (const f of failures) console.log(`  FAILED: ${f}`);

@@ -139,6 +139,14 @@ export function runPrechecks({ operations, projectRoot }) {
   const ignoredBeneath = findIgnoredWithinSources(operations, oracle, projectRoot);
   const ignoredReferrers = findIgnoredReferrers(operations, oracle);
   const collisions = findDestinationCollisions(operations, projectRoot, ignored);
+  // A rename that changes only letter case. NOT a collision and never an abort:
+  // gitMove takes it directly and falls back to a two-step through a temporary
+  // neighbour when the direct move reports an error, so it executes. It is
+  // reported because on the case-insensitive filesystem this module documents it
+  // is the one move whose before and after name the same file, so a DM reading a
+  // proposal row of "Tavern.md to tavern.md" has no way to tell an intended
+  // correction from a typo in their own scope, and the operating system will not
+  // tell them either. renderProposal prints the list; nothing else consumes it.
   const caseRenames = list(operations).filter(
     (o) => o.from && o.to && o.from.toLowerCase() === o.to.toLowerCase() && o.from !== o.to
   );
@@ -294,9 +302,19 @@ function groupsOf(o) {
 // articleMovesOf reaches. Keyed on `from` alone, a skipped merge produced the
 // degenerate key "merge-index::" that no disclosure row can equal, and a
 // git-ignored file inside an absorbed folder was invisible to the skip pass.
+//
+// absorb-folder's `index` is a source too, and the one this list reached last. It
+// is the folder's own index, and the executor does not move it: it `git rm`s it,
+// which is a mutation of a tracked file exactly as a move is. An index the planner
+// picked that happens to be git-ignored was therefore invisible here, the absorb
+// was not skipped, `git rm` hard-failed on an untracked file, and the entry
+// reported applied false having already moved every article: a half-applied absorb
+// from a plan the prechecks approved. findIgnoredSources names it on the same
+// terms, because this list decides the skip UNIT and that one decides what is
+// ignored at all; either alone leaves the hole open.
 function sourcePathsOf(o) {
   if (!o || typeof o !== "object") return [];
-  return [o.from, ...list(o.sources), ...articleMovesOf(o).map((a) => a.from)]
+  return [o.from, o.index, ...list(o.sources), ...articleMovesOf(o).map((a) => a.from)]
     .map((p) => toPosix(p || ""))
     .filter(Boolean);
 }
@@ -974,10 +992,11 @@ function frontmatterHasPublish(file) {
 //               so it may not ask about a rank ABOVE its own position.
 //
 // splitFolders emits split-folder (3), create-index (7), and rebuild-index (9), so
-// split-folder governs, and its three checks all ask with split-folder. absorbFolders
-// emits absorb-folder (2) and rebuild-index (9), so absorb-folder governs; it makes no
-// plan-aware check at all, because every file it names comes out of readdirSync, so
-// the check side is vacuous for it. Neither planner's higher-ranked operations lose
+// split-folder governs, and its four checks all ask with split-folder. absorbFolders
+// emits absorb-folder (2) and rebuild-index (9), so absorb-folder governs, and its two
+// checks (the folder it dissolves and the parent index it rebuilds) both ask with
+// absorb-folder, which is the lower of the two and therefore the one this position
+// answers completely. Neither planner's higher-ranked operations lose
 // anything by being produced early: buildScopedPlan sorts the finished plan, and a
 // later planner reading them at their own rank finds them already in ctx.planned.
 //
@@ -1650,9 +1669,29 @@ function protectedFolders(settings) {
 
 // Every file this planner names comes out of readdirSync plus statSync, so the
 // enumeration itself is the proof that those files exist and namedPathMissing has
-// nothing to add here: a redundant existsSync per file would be noise. The one
-// path the DM supplies is the folder, and the readdirSync below already declines
-// when that is not there.
+// nothing to add per file: a redundant existsSync on each would be noise.
+//
+// THE FOLDER IS A DIFFERENT QUESTION, and the enumeration proves nothing about it.
+// It is the one path the DM supplies, and reading it off the raw disk was the last
+// place in the plan half that reasoned about the tree as it is rather than as the
+// plan will leave it. absorb-folder ranks 2 and pathMoves ranks 1, so a pathMoves
+// entry in the same scope runs first and both directions went wrong. Measured:
+//
+//   FALSE DECLINE. pathMoves misc to notes/misc plus absorbFolders notes/misc was
+//   declined with a raw "Could not read the folder: ENOENT ... scandir", for a
+//   folder the same plan puts there eight ranks earlier, and the remedy that
+//   message implies is editing a scope that was already correct.
+//
+//   A PLAN THAT CANNOT EXECUTE. The same pathMoves plus absorbFolders naming the
+//   PRE-move path planned three operations with prechecks.ok true, which
+//   findDestinationCollisions cannot see (the move vacates the folder while the
+//   absorb's entries name files inside it, a different fold key), and then failed
+//   after the snapshot on "git mv ... fatal: bad source".
+//
+// So the folder goes through planResolve, exactly as every other scoped planner's
+// named paths do, and the readdirSync asks about the path the folder's contents
+// actually sit at TODAY. The operation still names the post-plan path, because that
+// is where the folder will be when rank 2 runs.
 function planAbsorbFolders(items, ctx, key) {
   const operations = [];
   const declined = [];
@@ -1687,12 +1726,37 @@ function planAbsorbFolders(items, ctx, key) {
       continue;
     }
 
-    const abs = path.resolve(ctx.projectRoot, folder);
+    // Where this folder's contents sit at the moment the enumeration runs, which
+    // is not the path the operation will name if an earlier entry moves it there.
+    const at = planResolve(ctx, folder, "absorb-folder", operations);
+    if (at.vacated) {
+      declined.push({
+        op: "absorb-folder",
+        target: folder,
+        reason: `An earlier operation in this same plan carries ${folder} away, so nothing is there to dissolve by the time this one would run. Absorb the folder at the path it ends up at, or drop the move.`,
+      });
+      continue;
+    }
+    if (at.creates) {
+      declined.push({
+        op: "absorb-folder",
+        target: folder,
+        reason: `${folder} is created by this same plan rather than moved into place, so it holds nothing to dissolve and there is no folder on disk to enumerate.`,
+      });
+      continue;
+    }
+    const abs = path.resolve(ctx.projectRoot, at.path);
     let names;
     try {
       names = readdirSync(abs).sort();
     } catch (err) {
-      declined.push({ op: "absorb-folder", target: folder, reason: `Could not read the folder: ${err.message}` });
+      declined.push({
+        op: "absorb-folder",
+        target: folder,
+        reason:
+          `Could not read the folder: ${err.message}` +
+          (at.path === folder ? "" : ` (read at ${at.path}, where an earlier operation in this plan moves it from)`),
+      });
       continue;
     }
 
@@ -1761,7 +1825,7 @@ function planAbsorbFolders(items, ctx, key) {
 
     // The parent index still lists the dissolved folder's index. rebuild-index
     // lists articles only, so rebuilding the parent is what clears that link.
-    const parentIndex = existingIndexIn(ctx, parent, suffix);
+    const parentIndex = existingIndexIn(ctx, parent, suffix, "absorb-folder", operations);
     if (parentIndex) {
       if (!rebuilds.has(parentIndex)) rebuilds.set(parentIndex, { folder: parent, absorbed: [], groups: [] });
       rebuilds.get(parentIndex).absorbed.push(folder);
@@ -1946,7 +2010,7 @@ function planSplitFolders(items, ctx, key) {
       });
     }
 
-    const parentIndex = existingIndexIn(ctx, folder, suffix);
+    const parentIndex = existingIndexIn(ctx, folder, suffix, "split-folder", operations);
     if (parentIndex) {
       if (!rebuilds.has(parentIndex)) rebuilds.set(parentIndex, { folder, bucketCount: 0, groups: [] });
       rebuilds.get(parentIndex).bucketCount += buckets.length;
@@ -3475,11 +3539,28 @@ function settingForFolder(settings, folder) {
   return best;
 }
 
-function existingIndexIn(ctx, folder, suffix) {
+// The index a folder holds, or null. Used by planAbsorbFolders for the PARENT it
+// dissolves into and by planSplitFolders for the folder it divides, in both cases
+// to decide whether there is an index to rebuild.
+//
+// PLAN-AWARE, on the same terms and for the same measured reason as the folder
+// enumeration in planAbsorbFolders: a folder an earlier operation in this plan
+// moves into place holds its index at its pre-move path today, and a raw
+// readdirSync there answered "no index" and silently dropped the rebuild. The kind
+// and the pending list are passed in rather than assumed, because the two callers
+// ask at different ranks and precedingOperations checks that.
+//
+// The path returned is the POST-plan one, under the folder as the scope names it,
+// because rebuild-index ranks 9 and runs after every move that could have carried
+// the file there.
+function existingIndexIn(ctx, folder, suffix, kind, pending) {
   if (!suffix) return null;
+  const at = planResolve(ctx, folder, kind, pending);
+  // Nothing will be there to rebuild from, or nothing is there to read now.
+  if (at.vacated || at.creates || !at.path) return null;
   let names;
   try {
-    names = readdirSync(path.resolve(ctx.projectRoot, folder)).sort();
+    names = readdirSync(path.resolve(ctx.projectRoot, at.path)).sort();
   } catch {
     return null;
   }
@@ -3583,6 +3664,10 @@ function ignoreOracle(projectRoot) {
 const IGNORED_SOURCE_REASON =
   "Source is git-ignored, so the pre-migration snapshot does not contain it. Reported and left where it is; moving it would be unrecoverable.";
 
+// The same verdict for the one source an operation REMOVES rather than moves.
+const IGNORED_INDEX_REASON =
+  "This folder's own index is git-ignored, so the pre-migration snapshot does not contain it. The dissolution removes that index with git rm, which on an untracked file fails outright and would leave the folder's articles already moved. Reported and left where it is.";
+
 // An ignored file is not in the snapshot, so moving it would be unrecoverable.
 // Every operation whose SOURCE is ignored is reported here and skipped by the
 // apply phase. It does not fail the run: see runPrechecks.
@@ -3650,6 +3735,16 @@ function findIgnoredSources(operations, oracle) {
       if (!a.from || !oracle.isIgnored(a.from)) continue;
       out.push({ op: o.op, source: toPosix(a.from), from: toPosix(a.from), to: toPosix(a.to), reason: IGNORED_SOURCE_REASON });
     }
+    // absorb-folder's own index, the one file the kind REMOVES rather than moves.
+    // It is a source on the same terms as the files above: `git rm` on a tracked
+    // file is undone by the snapshot and on an untracked one hard-fails, so an
+    // ignored index left invisible here meant the absorb was not skipped, every
+    // article moved, and only then did the removal fail. Reported with no `to`,
+    // because nothing is its destination, which is also why it grants no vacate
+    // credit in findDestinationCollisions.
+    if (o.index && oracle.isIgnored(o.index)) {
+      out.push({ op: o.op, source: toPosix(o.index), from: toPosix(o.index), to: null, reason: IGNORED_INDEX_REASON });
+    }
   }
   return out;
 }
@@ -3662,37 +3757,52 @@ function findIgnoredSources(operations, oracle) {
 //
 // Array OR null, on the same terms as findIgnoredSources.
 //
-// absorb-folder is excluded, keyed on the kind, because the kind is exactly what
-// decides whether the directory itself is what moves. This one's `from` IS a
-// directory, so it reached this report, but it is never handed to `git mv`: the
-// executor moves each file in `articles` individually. So the reason below,
-// "git mv carries them to the new path", is false for it, and the disclosure the
-// DM most needs is the opposite one. Every file in the folder is enumerated, so
-// a git-ignored file beneath it is an ignored SOURCE, which findIgnoredSources
-// reports and the apply phase skips the whole dissolution over.
+// absorb-folder's FOLDER-LEVEL pair is excluded, keyed on the kind, because the
+// kind is exactly what decides whether the directory itself is what moves. This
+// one's `from` IS a directory, so it reached this report, but it is never handed
+// to `git mv`: the executor moves each file in `articles` individually. So the
+// reason below, "git mv carries them to the new path", is false for it, and the
+// disclosure the DM most needs is the opposite one. Every file in the folder is
+// enumerated, so a git-ignored file beneath it is an ignored SOURCE, which
+// findIgnoredSources reports and the apply phase skips the whole dissolution over.
+//
+// THE PER-FILE MOVES ARE INCLUDED, and reading `from`/`to` alone left them out.
+// Each of them IS handed to `git mv`, one at a time, so the reason below is true
+// of them word for word. It costs nothing for absorb-folder, whose articles are
+// always files (a folder holding a subfolder is declined outright), and it closes
+// the gap for split-folder, which deliberately permits a bucket article that is a
+// DIRECTORY ("a directory named as a bucket article still moves correctly through
+// git mv") and carries no folder-level `to` at all, so not one of its moves could
+// reach this report. A bucket article that is a directory holding a git-ignored
+// draft moved that draft out of the snapshot's reach with no disclosure, which is
+// the one out-of-snapshot shape the apply header claims is always disclosed.
 function findIgnoredWithinSources(operations, oracle, projectRoot) {
   if (oracle === null) return null;
   const out = [];
   for (const o of list(operations)) {
-    if (!o || typeof o !== "object" || !o.from || !o.to) continue;
-    if (o.op === "absorb-folder") continue;
-    let st;
-    try {
-      st = statSync(path.resolve(projectRoot, o.from));
-    } catch {
-      continue;
+    if (!o || typeof o !== "object") continue;
+    const pairs = [];
+    if (o.from && o.to && o.op !== "absorb-folder") pairs.push({ from: o.from, to: o.to });
+    for (const a of articleMovesOf(o)) if (a.from && a.to) pairs.push({ from: a.from, to: a.to });
+    for (const pair of pairs) {
+      let st;
+      try {
+        st = statSync(path.resolve(projectRoot, pair.from));
+      } catch {
+        continue;
+      }
+      if (!st.isDirectory()) continue;
+      const entries = oracle.ignoredBeneath(pair.from);
+      if (entries.length === 0) continue;
+      out.push({
+        op: o.op,
+        from: toPosix(pair.from),
+        to: toPosix(pair.to),
+        entries,
+        reason:
+          "These git-ignored paths live inside a directory this operation moves, so git mv carries them to the new path. They are outside the snapshot, so restoring it does not put them back.",
+      });
     }
-    if (!st.isDirectory()) continue;
-    const entries = oracle.ignoredBeneath(o.from);
-    if (entries.length === 0) continue;
-    out.push({
-      op: o.op,
-      from: toPosix(o.from),
-      to: toPosix(o.to),
-      entries,
-      reason:
-        "These git-ignored paths live inside a directory this operation moves, so git mv carries them to the new path. They are outside the snapshot, so restoring it does not put them back.",
-    });
   }
   return out;
 }
@@ -3963,6 +4073,20 @@ export function renderProposal({ scope, plan, projectRoot, settings }) {
     lines.push(
       "Prechecks passed. Destination collisions, unresolvable link targets, and ignored sources were all checked while this plan was built, not after approval."
     );
+  }
+  // Printed whether or not the prechecks passed, because it is not a precheck
+  // verdict: a case-only rename executes fine. It is the one row in the table
+  // above whose From and To name the same file on a case-insensitive filesystem,
+  // so a DM skimming it cannot tell a deliberate correction from a typo in their
+  // own scope. Named here so the approval is an informed one.
+  const caseRenames = list(prechecks.caseRenames);
+  if (caseRenames.length > 0) {
+    lines.push("");
+    lines.push(
+      `${caseRenames.length} operation(s) change only letter case. On a case-insensitive filesystem the old and ` +
+        "new names are the same file, so check each of these is the correction you meant rather than a typo:"
+    );
+    for (const o of caseRenames) lines.push(`- ${o.op}: ${o.from} to ${o.to}`);
   }
   lines.push("");
   lines.push("## Approval");
@@ -4632,7 +4756,10 @@ function renamePathComponents(rel, from, to) {
 // dropped-worker accounting below is reused from validation-sweep.mjs's fix
 // phase for exactly that case.
 
-export const DEFAULT_MIGRATION_COMMIT_MESSAGE = "Apply the professor-orb schema migration";
+// Module-local. It was exported, and nothing in the plugin ever imported it: a
+// caller that wants a different message passes options.commitMessage, which is
+// the seam, and an export nobody reads is a second one to keep in step with it.
+const DEFAULT_MIGRATION_COMMIT_MESSAGE = "Apply the professor-orb schema migration";
 
 // Canonical frontmatter field order, and the fallback when no rule supplies one.
 const FALLBACK_FIELD_ORDER = ["publish", "type", "tags"];
@@ -4916,6 +5043,35 @@ function wikilinkTargetsIn(text) {
   return out;
 }
 
+// Every from/to pair a plan MOVES, at every granularity, which is the one input
+// the link rail reasons about the plan through: scopeCandidates maps a declared
+// root through it, and arrivalRoots reads the far end of it.
+//
+// THE MODULE'S OWN "moves" RULE decides membership, not a list of kinds. An entry
+// counts when it carries BOTH a `from` and a `to`, which is exactly the test
+// planVacates and findDestinationCollisions' `vacated` already apply and for the
+// same reason: an in-place edit carries a `from` and no `to` precisely to say it
+// leaves the file where it is, and create-index, merge-index, rebuild-index and
+// tag-registry carry a `to` and no `from` because they write a file rather than
+// carry one there. Both are correctly absent, and a kind added later is classified
+// by its own shape rather than by remembering to name it here.
+//
+// Read through destinationEntriesOf so both per-file shapes arrive as well as the
+// folder-level pairs, and so absorb-folder's folder-level pair stays excluded on
+// exactly the terms it is excluded there: the executor never moves that pair as a
+// unit, it moves each enumerated file.
+function planMoves(operations) {
+  const out = [];
+  for (const o of list(operations)) {
+    if (!o || typeof o !== "object") continue;
+    for (const e of destinationEntriesOf(o)) {
+      if (!e.from || !e.to) continue;
+      out.push({ op: e.op, from: toPosix(e.from), to: toPosix(e.to) });
+    }
+  }
+  return out;
+}
+
 // The paths a DECLARED prong root can actually be at once the plan has run.
 //
 // The settings the apply phase is handed are the conventions.json that was on
@@ -4928,14 +5084,31 @@ function wikilinkTargetsIn(text) {
 // prong was enough to shrink the rail to that prong and let a dead wikilink
 // through. Measured: filesChecked 1, linksChecked 0, ok true, committed.
 //
-// So a declared root is resolved THROUGH the plan's own relocate-prong
-// operations, which already carry `from` and `to`. Every intermediate is kept as
-// a candidate and existsSync decides which of them to walk, rather than the
-// mapping deciding: a relocation that was skipped for a git-ignored source, or
-// that failed, leaves the root exactly where it was declared and the walk has to
-// find it there; a chain (A to B, then B to C) leaves it at the end of the
-// chain; a half-applied run can leave content at both. Keeping both ends covers
-// all three without the assertion needing to know each operation's outcome.
+// So a declared root is resolved THROUGH the plan's own moves, which already
+// carry `from` and `to`. Every intermediate is kept as a candidate and existsSync
+// decides which of them to walk, rather than the mapping deciding: a relocation
+// that was skipped for a git-ignored source, or that failed, leaves the root
+// exactly where it was declared and the walk has to find it there; a chain (A to
+// B, then B to C) leaves it at the end of the chain; a half-applied run can leave
+// content at both. Keeping both ends covers all three without the assertion
+// needing to know each operation's outcome.
+//
+// EVERY MOVING KIND, not relocate-prong alone, and that regressed once already.
+// The list was written against relocate-prong when relocate-prong was the only
+// kind that moved a whole path; this release added relocate-path, which shares the
+// executor and the mechanics, and planPathMoves puts no protectedFolders guard on
+// it, so a `pathMoves` entry may name a prong root and is the ONLY way to express
+// a v1-to-v3 relayout such as rolara-kb to settings/rolara (a rename keeps the
+// root's parent, a retirement puts it under an archive). Measured with the narrow
+// list: the whole relocated knowledge base was never opened, roots came back as
+// the one prong that did not move, and the run reported filesChecked 1,
+// linksChecked 0, ok true with a dead wikilink inside the moved base.
+//
+// Widening it costs nothing, because the match below is what filters: a pair whose
+// `from` is neither the root nor an ancestor of it does not touch `current`. That
+// is why the per-file moves of an absorb or a split ride along harmlessly, and why
+// the one shape among them that CAN carry a root (split-folder permits a bucket
+// article that is a directory) is mapped rather than missed.
 function scopeCandidates(root, relocations) {
   const out = [toPosix(root)];
   let current = out[0];
@@ -4953,6 +5126,96 @@ function scopeCandidates(root, relocations) {
   return out;
 }
 
+// The folders a plan carried content OUT of the walked roots and into, as posix
+// project-relative paths, sorted.
+//
+// scopeCandidates answers where a DECLARED root went. This answers the other half:
+// where a plan put material that WAS in a declared root and no longer is. Two
+// planners this release adds produce exactly that, and both made their own
+// operation unable to finish a run:
+//
+//   planSettingSplits moves articles to the kbRoot of a world conventions.json
+//   does not yet record, by construction: it declines outright if the name is
+//   already there. So the destination is under no prong root of any setting the
+//   apply phase is handed, the moved articles are absent from the resolvable set,
+//   and every INCOMING crossing that crossBoundaryLinks enumerated as the approved
+//   cost of the split reads to the rail as a dead link. A conforming folder's index
+//   links every article in it, so any split of an indexed article hit this.
+//   Measured: one applied operation, linkIntegrity.ok false, restore instruction
+//   printed, and the articles sitting in a folder conventions.json records nothing
+//   for, because the caller writes conventions only after the rail returns.
+//
+//   planCampaignRetirements moves <sessionReportsRoot>/<campaign> under an archive.
+//   scopeCandidates cannot help there even with every kind in it: it maps a ROOT,
+//   and here the moved path is a sub-path of a root that itself stays put.
+//
+// THE PLAN'S OWN MOVES ARE THE INPUT, and that is what keeps this from being a
+// whitelist. It does not take an "expected crossings" list from the split planner,
+// so the rail never has to re-derive or trust the DM's intent, and there is no
+// input that can excuse a link: what a move buys is that the folder its content
+// LANDED IN is read, and a target that is not a file in any read folder is still
+// dead. Widening the walk can only add files that genuinely exist to the resolvable
+// set; it can never remove a dead link from the report. A split whose whole cost is
+// N approved crossings therefore commits, and a split that also dropped a rewrite
+// nobody approved still refuses, on the same walk.
+//
+// ONLY A MOVE THAT CROSSES OUT, which `covered` decides: the source has to sit
+// under a root the rail is already walking. That is what keeps the coverage rail
+// from being dissolved by this addition. `expectLinks` exists to catch a run whose
+// walked roots "are not where this run put the content", and a rule that followed
+// EVERY destination would follow the run to wherever it was working and report a
+// tidy pass over a knowledge base conventions.json does not point at. Measured on
+// the suite's own fixture: a rename inside kb/ with the declared root at
+// settings/rolara went from the intended coverage refusal to a clean commit.
+// Following material that WAS in scope is the rail keeping up with the run;
+// following material that never was is the rail losing track of the settings.
+//
+// The limit that leaves, stated: a source whose declared root is no longer on disk
+// at all is not covered, so the move out of it is not followed. That direction is
+// the conservative one. The material is unwalked, so a link into it reads dead and
+// the run REFUSES with the work intact, rather than committing a graph nothing
+// checked.
+//
+// DIRECTORY OR FILE, decided by asking the disk after the run rather than by
+// guessing from the path: relocate-path moves a whole campaign folder in one entry
+// and one article in the next. A destination that is not there at all was skipped,
+// failed, or is hand-edited, and its dirname is asked about instead, which
+// existsSync in the caller then drops if that is not there either. Same posture as
+// scopeCandidates: propose both ends and let the disk decide.
+//
+// THE PROJECT ROOT IS NEVER AN ARRIVAL. assertLinkIntegrity reserves it for the
+// case where no setting resolved at all, and reaching it from one destination would
+// resolve every wikilink in the run against every markdown file in the project,
+// which is the exact widening that function's own comment records as having let a
+// dead link commit clean. A move to the project root is outside every knowledge
+// base and this rail has nothing to say about it.
+//
+// Read-only: statSync only.
+function arrivalRoots(cwd, moves, covered) {
+  const out = [];
+  for (const move of list(moves)) {
+    const from = toPosix(move && move.from);
+    const to = toPosix(move && move.to);
+    if (!from || !to || !covered(path.resolve(cwd, from))) continue;
+    let st = null;
+    try {
+      st = statSync(path.resolve(cwd, to));
+    } catch {
+      st = null;
+    }
+    const folder = st && st.isDirectory() ? to : path.posix.dirname(to);
+    if (!folder || folder === "." || folder === "/" || folder === "..") continue;
+    // The three names walkMarkdown steps around are not article folders anywhere
+    // else in this module and are not arrival roots either. The vault move is what
+    // reaches this: its destination is <kbRoot>/.obsidian.
+    if (PRONG_CHILDREN_SKIPPED.has(path.posix.basename(folder))) continue;
+    if (!out.includes(folder)) out.push(folder);
+  }
+  // Sorted so a parent sorts before anything beneath it, which is what lets the
+  // caller drop a nested arrival in one left-to-right pass.
+  return out.sort();
+}
+
 /**
  * The post-migration link-integrity assertion. It runs after every rename and
  * every link rewrite has been applied and BEFORE the migration commit, because
@@ -4961,7 +5224,16 @@ function scopeCandidates(root, relocations) {
  * not a safety rail.
  *
  * Extraction walks every markdown file under every prong root of every setting,
- * each root resolved through the plan's relocations first; see scopeCandidates.
+ * each root resolved through the plan's moves first (see scopeCandidates), PLUS
+ * every folder those same moves landed content in that no declared root covers
+ * (see arrivalRoots). The second half is not a courtesy: a setting split and a
+ * campaign retirement both put content outside every declared root by
+ * construction, and without it the rail read the split's own approved cost as a
+ * wall of dead links and refused every run that carried one.
+ *
+ * `relocations` is the plan's moves, from planMoves. The name is kept because it
+ * is what the two callers and the suite already say; what changed is that it is
+ * no longer relocate-prong alone.
  *
  * Resolution is FILENAME-based rather than path-based, because Obsidian
  * wikilinks are filename-based. It resolves against the markdown files IN THE
@@ -5007,6 +5279,28 @@ export function assertLinkIntegrity({ cwd, settings, relocations, expectLinks })
         if (existsSync(abs) && !roots.includes(abs)) roots.push(abs);
       }
     }
+  }
+  // Then wherever this plan carried content OUT of those roots. Dropped when a
+  // root already covers the destination, which is the ordinary case and is what
+  // keeps setup's own runs reporting exactly the roots they always did: a
+  // relocate-prong's destination is the declared root's own new path, and a
+  // rename's is the folder the file was already in. `roots` stays the list of
+  // folders this rail actually read, so the refusal message can still name them.
+  //
+  // TO A FIXED POINT, because a scope may carry two splits and the second may take
+  // its material out of the world the first created. `covered` reads the live
+  // array, and each pass that changes anything adds at least one root, so the move
+  // count bounds the loop.
+  const covered = (abs) => roots.some((r) => abs === r || abs.startsWith(r + path.sep));
+  for (let pass = 0; pass < list(relocations).length; pass++) {
+    let grew = false;
+    for (const arrival of arrivalRoots(cwd, relocations, covered)) {
+      const abs = path.resolve(cwd, arrival);
+      if (!existsSync(abs) || covered(abs)) continue;
+      roots.push(abs);
+      grew = true;
+    }
+    if (!grew) break;
   }
   // No settings resolved: assert over the whole project rather than over
   // nothing. An assertion that silently checks zero files is not an assertion.
@@ -6077,10 +6371,18 @@ function applyRepairFrontmatter(op, ctx) {
   const declined = requested.filter((f) => f === "publish");
 
   if (insert.length === 0 && op.reorder !== true) {
+    // NOTHING IS WRITTEN ON EITHER BRANCH, and the detail says so on both. The
+    // publish branch still reports applied, because refusing publish IS the whole
+    // of what this operation had to do and reporting it failed would sink
+    // result.ok over an operation that behaved correctly. What it must not do is
+    // let a DM counting `applied` read a repair that changed a file, which is the
+    // one place in this module where applied true and "no byte changed" coincide.
+    // So the sentence names the outcome the way applyUpdateProsePaths names its
+    // own no-op: the file was left exactly as it was.
     entry.detail =
       declined.length > 0
-        ? "The only field this operation asked to insert was publish, which is never written unattended. Nothing to do."
-        : "Nothing to insert and no reorder requested.";
+        ? "The only field this operation asked to insert was publish, which is never written unattended. Nothing was written and the file is byte for byte as it was; refusing the flag is the whole of what this operation had to do, which is why it counts as applied."
+        : "Nothing to insert and no reorder requested. Nothing was written and the file is byte for byte as it was.";
     entry.applied = declined.length > 0;
     return entry;
   }
@@ -6535,9 +6837,11 @@ function malformedShapeOf(o) {
  * caused it. An ungrouped operation still produces an item of exactly one.
  *
  * `settings` are the conventions that were on disk when the run started, so
- * their prong roots are PRE-migration paths. That is the ordinary shape and it
- * is handled: the link-integrity assertion resolves each declared root through
- * this plan's own relocate-prong operations before walking it.
+ * their prong roots are PRE-migration paths, and a scope can put content
+ * somewhere none of them names at all. Both are the ordinary shape and both are
+ * handled: the link-integrity assertion resolves each declared root through this
+ * plan's own moves before walking it, and walks the folders those moves landed
+ * content in that no declared root covers.
  */
 export function applyPlan(plan, options = {}) {
   const cwd = options.cwd;
@@ -6891,11 +7195,22 @@ export function applyPlan(plan, options = {}) {
   // The link-integrity assertion, BEFORE the commit
   // ------------------------------------------------------------------
   //
-  // The relocations are handed over because the settings above carry
-  // PRE-migration prong roots, and relocate-prong has already moved them; see
-  // scopeCandidates. expectLinks is handed over because an assertion that walks
-  // a knowledge base known to hold wikilinks and finds none is reporting on
-  // nothing.
+  // The plan's moves are handed over because the settings above carry
+  // PRE-migration prong roots, and the run has already moved them; see
+  // scopeCandidates. They are ALSO what tells the rail about the folders this plan
+  // created outside every declared root, which a setting split and a campaign
+  // retirement both do by construction; see arrivalRoots. One input rather than
+  // two, derived by one rule, so the two halves of the root set cannot be built
+  // from different ideas of what this plan moved.
+  //
+  // Derived from the PLAN rather than from result.applied, on the same terms
+  // scopeCandidates already states: propose both ends of every move and let
+  // existsSync decide which are real. A move that was skipped or that failed left
+  // its content at its source, which is where the declared root still points, and
+  // its destination is simply not on disk to be walked.
+  //
+  // expectLinks is handed over because an assertion that walks a knowledge base
+  // known to hold wikilinks and finds none is reporting on nothing.
   //
   // It is armed from what the run actually DID, not from what the plan asked
   // for, and the difference is the difference between a rail and a dead end.
@@ -6928,7 +7243,7 @@ export function applyPlan(plan, options = {}) {
   result.linkIntegrity = assertLinkIntegrity({
     cwd,
     settings,
-    relocations: operations.filter((o) => o.op === "relocate-prong" && o.from && o.to),
+    relocations: planMoves(operations),
     expectLinks: rewroteAWikilink,
   });
   if (!result.linkIntegrity.ok) {
