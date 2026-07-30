@@ -1035,6 +1035,18 @@ export const SCOPED_PLANNERS = [
   // run in the order they were produced, so whichever planner runs first is also
   // the one whose operations run first.
   ["settingSplits", planSettingSplits, "relocate-path"],
+  // settingMerges emits relocate-path (rank 1) and nothing else, so that kind
+  // governs, on the same reading as settingSplits above: the collisions it also
+  // produces are DECLINED items rather than operations, and a declined item carries
+  // no rank because nothing applies it. Every move it emits is a direct child of a
+  // prong root rather than a root itself, which is why it is relocate-path and not
+  // relocate-prong: a whole knowledge base is not moving, its contents are.
+  //
+  // A fourth entry at rank 1, tying with pathMoves, campaignRetirements and
+  // settingSplits, and sound for the same reason those three are: same-rank
+  // operations run in the order they were produced, so whichever planner runs first
+  // is also the one whose operations run first.
+  ["settingMerges", planSettingMerges, "relocate-path"],
 ];
 
 const applyRank = (kind) => APPLY_ORDER.indexOf(kind);
@@ -2427,6 +2439,11 @@ const settingNamed = (settings, name) => {
   );
 };
 
+// A campaigns[] entry's name. The field holds either a bare string or an object
+// with a name, and every reader of it has to cope with both; one helper so the
+// plan half and the conventions half cannot disagree about which shapes count.
+const campaignName = (c) => (typeof c === "string" ? c : c && c.name);
+
 // A prong root with its LAST component replaced by the new setting name.
 //
 // The dirname guard is not decorative. A v1 or v2 project can record a root at
@@ -2575,7 +2592,7 @@ function planCampaignRetirements(items, ctx, key) {
       });
       continue;
     }
-    const campaigns = list(setting.campaigns).map((c) => (typeof c === "string" ? c : c && c.name));
+    const campaigns = list(setting.campaigns).map(campaignName);
     if (!campaign || !campaigns.includes(campaign)) {
       declined.push({
         op: "relocate-path",
@@ -2908,6 +2925,314 @@ export function crossBoundaryLinks({ projectRoot, movingFiles, stayingRoots }) {
       if (isMoving && !targetMoves) out.push({ file: rel, target, direction: "outgoing" });
       else if (!isMoving && targetMoves) out.push({ file: rel, target, direction: "incoming" });
       // Both moving, or neither moving: nothing crosses.
+    }
+  }
+  return out;
+}
+
+// A setting merge: two worlds put in one vault.
+//
+// THE INVERSE OF A SPLIT, and the case where basename collisions stop being a
+// hazard and become a certainty. Two worlds legitimately holding a Tavern.md is
+// not a mistake in either of them; it becomes a collision only when they share a
+// vault. Every one of them appears in the proposal with a proposed rename, which
+// renderProposal prints, so the DM APPROVES the resolution rather than discovering
+// it after the fact.
+//
+// WHAT A MERGE MOVES IS ALL THREE PRONGS, one into its counterpart: kbRoot into
+// kbRoot, homebrewRoot into homebrewRoot, sessionReportsRoot into
+// sessionReportsRoot. prongRootsOf is this module's definition of a setting's
+// extent and assertLinkIntegrity, settingForFolder and crossBoundaryLinks all read
+// it; a merge has to PAIR those roots rather than merely list them, so it walks
+// PRONG_FIELDS, which is the same three roots with the field names that do the
+// pairing kept. Moving the knowledge base alone would file nothing wrong: it would
+// leave the source world's homebrew catalogue and every session report it ever
+// produced exactly where they are, belonging to a setting conventions.json has just
+// marked merged, so unattributed to the validation sweep and unresolvable to
+// /scribe and /log.
+//
+// THE UNIT IS A DIRECT CHILD of a prong root, file or folder alike, and that one
+// rule is what makes the session-reports prong work. A campaign lives at
+// sessionReportsRoot/<campaign>/, so merging session reports is not a flat file
+// move; treated as a direct child, a campaign folder moves whole, with every report
+// inside it, and a campaign name both worlds used collides and is renamed on exactly
+// the terms a colliding article is. The alternative, interleaving two campaigns'
+// reports into one folder, fuses two histories into one lane silently, which is the
+// one thing this operation exists to prevent. A knowledge base's own subfolders move
+// whole for the same reason: the shape of the merged world is the DM's to decide and
+// this operation does not guess at it.
+//
+// ONE group id for every move an entry emits. conventionsAfterScope marks the source
+// world merged off that same entry, so half a world moved while the entry says it was
+// merged would leave the rest belonging to a setting nothing points at any more.
+function planSettingMerges(items, ctx, key) {
+  const operations = [];
+  const declined = [];
+  for (const [i, item] of items.entries()) {
+    const from = String((item && item.from) || "");
+    const into = String((item && item.into) || "");
+    const source = settingNamed(ctx.settings, from);
+    const target = settingNamed(ctx.settings, into);
+    if (!source || !target) {
+      declined.push({
+        op: "relocate-path",
+        target: `${from || "(unnamed)"} into ${into || "(unnamed)"}`,
+        reason:
+          "Both settings must be recorded in conventions.json. Merging into or out of a world the file does not " +
+          "record would move folders it still points elsewhere, which is how a knowledge base ends up " +
+          "half-described.",
+      });
+      continue;
+    }
+    // Merging a setting into itself, which is every file moved onto itself. The
+    // object identity check catches the second way to reach it, two entries
+    // recorded under one name, where settingNamed resolves both to the same world.
+    if (source === target) {
+      declined.push({
+        op: "relocate-path",
+        target: from,
+        reason:
+          "A setting cannot be merged into itself: every path this would move is already where it would be moved " +
+          "to. Name the world the material is meant to end up in.",
+      });
+      continue;
+    }
+
+    const group = groupIdFor(key, i);
+    // PLAN-AWARE occupancy, rather than the raw disk. A destination an earlier
+    // operation in this same plan carries away is free by the time this merge runs,
+    // and one an earlier operation fills is occupied whatever the disk says now.
+    // Getting the second wrong is the expensive direction: the move would be planned
+    // onto an occupied path, findDestinationCollisions would refuse it as an in-plan
+    // collision, and the DM would be unable to apply any part of the plan.
+    const collisions = mergeCollisions({
+      projectRoot: ctx.projectRoot,
+      source,
+      target,
+      suffix: indexSuffixFor(target, ctx.baseRules),
+      occupied: (rel) => namedPathPresent(ctx, rel, "relocate-path", operations),
+    });
+    const collided = new Map(collisions.map((c) => [c.from, c]));
+
+    for (const pair of mergeProngPairs(source, target)) {
+      const children = prongChildren(ctx.projectRoot, pair.from);
+      // A prong with nothing under it, which is the ORDINARY state of a world that
+      // has not written a homebrew entry or run a session yet, and the state
+      // planSettingRenames already declines a prong for rather than treating as an
+      // error. Nothing to move and nothing to say about it.
+      if (children.length === 0) continue;
+      if (pair.refusal) {
+        declined.push({ op: "relocate-path", target: pair.from, reason: pair.refusal });
+        continue;
+      }
+      for (const name of children) {
+        const rel = `${pair.from}/${name}`;
+        const collision = collided.get(rel);
+        if (collision && collision.proposed === null) {
+          declined.push({
+            op: "relocate-path",
+            target: rel,
+            reason:
+              `${into} already holds an index called ${name}, and an index colliding with an index is a merge-index ` +
+              "job rather than a rename: renaming would leave two indexes claiming one folder, which is the " +
+              "multi-index violation the validation sweep reports. This one stays where it is; fold the two " +
+              "together with a mergeIndexes scope and re-run.",
+          });
+          continue;
+        }
+        operations.push({
+          op: "relocate-path",
+          from: rel,
+          // The destination keeps the child's own name unless that name is taken,
+          // in which case it is the rename the DM is shown below. A proposed name
+          // that is ITSELF taken is deliberately not checked here, on the same terms
+          // planSettingSplits leaves its destinations alone: that is
+          // findDestinationCollisions' question, and it answers with a refusal
+          // naming both paths before anything is approved.
+          to: collision ? collision.proposed : `${pair.to}/${name}`,
+          groups: [group],
+          reason: collision
+            ? `Merged from ${from} into ${into}, renamed because ${into} already holds a ${name}.`
+            : `Merged from ${from} into ${into}.`,
+        });
+      }
+    }
+
+    // The collisions themselves, in the proposal, before approval. Each names both
+    // sides and the rename that resolves them, because the DM is being asked to
+    // approve a resolution rather than to notice one.
+    for (const collision of collisions) {
+      if (collision.proposed === null) continue;
+      const targetRoot = path.posix.dirname(collision.proposed);
+      declined.push({
+        op: "merge-collision",
+        target: `${collision.from} collides with ${targetRoot}/${collision.basename}`,
+        reason:
+          `Both worlds hold a ${collision.basename}. The incoming one is renamed to ` +
+          `${path.posix.basename(collision.proposed)}, so the one already at the destination keeps the name every ` +
+          "existing wikilink uses and only the incoming one's links need looking at. Nothing is overwritten and " +
+          "nothing is refused: both are real, and the DM asked for both worlds in one place. Edit this proposal " +
+          "if the other name should move instead, or if neither of these is the name you want.",
+      });
+    }
+  }
+  return { operations, declined };
+}
+
+// The prong pairs a merge moves, in PRONG_FIELDS order, each carrying the reason it
+// cannot be moved when there is one.
+//
+// PAIRED rather than listed, which is why this walks PRONG_FIELDS and not
+// prongRootsOf: prongRootsOf drops the roots a setting does not record, so zipping
+// two of its results would silently pair one world's homebrew against another's
+// session reports the moment either was missing a prong.
+//
+// Pure: no disk, so the planner and mergeCollisions can both ask and cannot disagree.
+function mergeProngPairs(source, target) {
+  const out = [];
+  for (const [field] of PRONG_FIELDS) {
+    const from = toPosix(source && source[field]);
+    // The SOURCE records no such prong, so there is nothing under it to move and
+    // nothing to say. Not a refusal: it is the ordinary shape of a young world.
+    if (!from) continue;
+    const to = toPosix(target && target[field]);
+    if (!to) {
+      out.push({
+        field,
+        from,
+        to: "",
+        refusal:
+          `${target && target.name} records no ${field}, so there is nowhere for ${from} to be merged into. A ` +
+          "canonical sibling path is not guessed at here: that would file a world's material under a folder " +
+          "conventions.json does not name and no lane command would resolve.",
+      });
+      continue;
+    }
+    if (from === to || from.startsWith(`${to}/`) || to.startsWith(`${from}/`)) {
+      out.push({
+        field,
+        from,
+        to,
+        refusal:
+          `${from} and ${to} are ${from === to ? "one folder" : "nested one inside the other"}, so there is no ` +
+          "boundary at this prong for a merge to cross. Identical roots would move every path onto itself, and " +
+          "nested ones leave the material under the inner root already claimed by both settings, with the move " +
+          "carrying a folder into or out of its own subtree. Nothing is moved for this prong; the others in this " +
+          "entry are unaffected.",
+      });
+      continue;
+    }
+    out.push({ field, from, to, refusal: null });
+  }
+  return out;
+}
+
+// The direct children of a prong root, sorted, or [] when the root is not on disk.
+//
+// DIRECT children rather than a recursive walk, because that is the unit a merge
+// moves: a file lands beside the target's own files and a folder lands beside the
+// target's own folders with everything under it intact. See planSettingMerges.
+//
+// The three names walkMarkdown steps around are stepped around here too, and
+// .obsidian is the one that earns its place: the vault lives at <kbRoot>/.obsidian,
+// the target world already has its own, and a world's vault configuration is not
+// part of its lore. It stays behind with the entry that is being marked merged.
+//
+// Read-only: readdirSync and statSync only.
+function prongChildren(projectRoot, rel) {
+  let names;
+  try {
+    names = readdirSync(path.resolve(projectRoot, rel)).sort();
+  } catch {
+    return [];
+  }
+  const out = [];
+  for (const name of names) {
+    if (name === ".git" || name === ".obsidian" || name === "node_modules") continue;
+    try {
+      statSync(path.resolve(projectRoot, `${rel}/${name}`));
+    } catch {
+      continue;
+    }
+    out.push(name);
+  }
+  return out;
+}
+
+// The name an incoming child takes when the destination already holds one of that
+// name. Shared by the plan half and by conventionsAfterScope's two-argument path,
+// so the two cannot disagree about the form of the rename.
+//
+// THE EXTENSION STAYS LAST. Tavern.md becomes Tavern-karsk.md rather than
+// Tavern.md-karsk, because Obsidian resolves a wikilink by basename and a file that
+// does not end in .md is not an article it will resolve at all. A campaign folder
+// has no extension to hold back and simply takes the suffix.
+function disambiguatedName(name, label) {
+  const raw = String(name);
+  const ext = raw.length > 3 && raw.toLowerCase().endsWith(".md") ? raw.slice(-3) : "";
+  const stem = ext ? raw.slice(0, -ext.length) : raw;
+  return `${stem}-${label}${ext}`;
+}
+
+// Every direct child of the source world that the target world already has a path
+// for, each with the name the incoming one is proposed to take.
+//
+// TWO SETTINGS RATHER THAN TWO ROOTS, deliberately, for the reason
+// crossBoundaryLinks takes a list of roots rather than one: a signature that accepts
+// a third of a world lets a caller measure a third of a world and be told there are
+// no collisions in the other two thirds. What comes back is every collision in every
+// prong, tagged with the field it was found under.
+//
+// THE SUFFIX IS THE SOURCE SETTING'S NAME rather than the last component of its
+// kbRoot, because the name is what the DM calls the world and what conventions.json
+// keys it on; a world named karsk whose knowledge base sits at worlds/k2 would
+// otherwise be suffixed -k2.
+//
+// AN INDEX COLLIDING WITH AN INDEX comes back with `proposed: null`. That is a
+// merge-index job, not a rename: two indexes claiming one folder is the multi-index
+// violation the validation sweep reports, and suffixing the stem would push -INDEX
+// off the end of it and turn the file into an article besides. The caller declines
+// the move rather than planning it.
+//
+// `occupied` is how a caller asks the question plan-aware. The default asks the disk
+// directly, which is right for a caller with no plan in hand; planSettingMerges
+// passes namedPathPresent, so a destination an earlier operation carries away is
+// free and one an earlier operation fills is taken.
+//
+// UNDETERMINED READS AS EMPTY, the same posture namedPathMissing takes: a source
+// setting with no name, or roots that are not on disk, finds nothing and returns
+// nothing. Stated so that a caller reading zero collisions knows what else that can
+// mean.
+//
+// Read-only: readdirSync and statSync only.
+export function mergeCollisions({ projectRoot, source, target, suffix, occupied }) {
+  const label = String((source && source.name) || "");
+  if (!label) return [];
+  const taken =
+    typeof occupied === "function"
+      ? occupied
+      : (rel) => {
+          try {
+            statSync(path.resolve(projectRoot, rel));
+            return true;
+          } catch {
+            return false;
+          }
+        };
+
+  const out = [];
+  for (const pair of mergeProngPairs(source, target)) {
+    if (pair.refusal) continue;
+    for (const name of prongChildren(projectRoot, pair.from)) {
+      if (!taken(`${pair.to}/${name}`)) continue;
+      const isIndex =
+        Boolean(suffix) && name.toLowerCase().endsWith(".md") && name.slice(0, -3).endsWith(suffix);
+      out.push({
+        field: pair.field,
+        from: `${pair.from}/${name}`,
+        basename: name,
+        proposed: isIndex ? null : `${pair.to}/${disambiguatedName(name, label)}`,
+      });
     }
   }
   return out;
@@ -3647,13 +3972,12 @@ export function conventionsAfterScope(conventions, scope, applied) {
     if (!setting || !campaign) continue;
     if (gate && !gate.ran(groupIdFor("campaignRetirements", i))) continue;
     const before = list(setting.campaigns);
-    const named = (c) => (typeof c === "string" ? c : c && c.name);
     // Only a campaign the setting ACTUALLY lists, which is the same condition
     // planCampaignRetirements declines on. Without it, a scope naming a campaign
     // that was never there grows a retiredCampaigns entry for a folder nothing
     // moved, and a second run of the same scope would grow a duplicate.
-    if (!before.some((c) => named(c) === campaign)) continue;
-    setting.campaigns = before.filter((c) => named(c) !== campaign);
+    if (!before.some((c) => campaignName(c) === campaign)) continue;
+    setting.campaigns = before.filter((c) => campaignName(c) !== campaign);
     setting.retiredCampaigns = [...list(setting.retiredCampaigns), campaign];
     changes.push(
       `Moved campaign ${campaign} out of ${setting.name}'s campaigns and into retiredCampaigns, so the lane ` +
@@ -3750,12 +4074,100 @@ export function conventionsAfterScope(conventions, scope, applied) {
     );
   }
 
-  // Task 14 adds the setting merge here, which REMOVES an entry. It goes inside
-  // the gate too, and it has the higher stakes of the two, because the settings
-  // entry it removes cannot be recovered from the conventions file afterwards, so
-  // a merge whose moves were declined must remove nothing at all. Retypes stay
-  // OUTSIDE the gate, above, because extending the type enum records the values
-  // the scope introduced rather than a folder that moved.
+  // A merge FOLDS one world's entry into another's and MARKS the source. It does
+  // not remove it, for the reason a retirement does not: deleting the entry destroys
+  // the record that the world existed, and everything that moved would belong to no
+  // setting at all for auditing purposes. Inside the gate, like the two lifecycle
+  // cases above and unlike retypes, because everything it records describes folders
+  // that moved.
+  for (const [i, item] of list(s.settingMerges).entries()) {
+    const source = settingNamed(next.settings, item && item.from);
+    const target = settingNamed(next.settings, item && item.into);
+    // The two conditions planSettingMerges declines on, so this half cannot record a
+    // merge the plan half refused to plan. The per-prong and per-child declines are
+    // not mirrored, because they drop one move rather than the entry, and because
+    // both turn on what is on disk, which this function does not read.
+    if (!source || !target || source === target) continue;
+    const group = groupIdFor("settingMerges", i);
+    // Nothing this entry asked for ran, so nothing about it is recorded. Rule 1 at
+    // appliedGate, and this is the case with the highest stakes for it: a world
+    // marked merged whose material never moved is a world whose articles are still
+    // under roots the file has just stopped treating as live.
+    if (gate && !gate.ran(group)) continue;
+
+    // THE CAMPAIGNS, one at a time, because a campaign is a recorded PATH as much as
+    // a prong root is: settings[].campaigns plus sessionReportsRoot resolves to the
+    // folder /log commits into. So rule 2 governs it. With a gate, a campaign is
+    // folded in only when an applied operation of this entry moved exactly that
+    // folder, and it is recorded under the name that operation actually gave it,
+    // which is what makes a proposal file the DM edited come out right. Without one,
+    // "the whole scope ran" is the contract, and the name is computed the same way
+    // the plan half computes it, through disambiguatedName.
+    //
+    // A NAME BOTH WORLDS USED IS RENAMED, not fused. Two campaigns sharing one lane
+    // would interleave two histories the DM never agreed to join, and the lane
+    // commands would offer one entry for two worlds' worth of sessions. The suffix
+    // goes on the incoming one, exactly as it does for an article.
+    const reports = toPosix(source.sessionReportsRoot);
+    const campaigns = list(target.campaigns);
+    const folded = [];
+    for (const entry of list(source.campaigns)) {
+      const name = campaignName(entry);
+      if (!name) continue;
+      const landed = gate
+        ? gate.movedFrom(group, `${reports}/${name}`)
+        : campaigns.some((c) => campaignName(c) === name)
+          ? `${reports}/${disambiguatedName(name, source.name)}`
+          : `${reports}/${name}`;
+      if (!landed) continue;
+      const under = path.posix.basename(landed);
+      if (campaigns.some((c) => campaignName(c) === under)) continue;
+      campaigns.push(under);
+      folded.push(under);
+    }
+    if (folded.length > 0) target.campaigns = campaigns;
+
+    // THE SOURCE'S TYPE EXTENSIONS. They describe articles that now live in the
+    // target, and frontmatterTypeEnum ships at enforcement block, so dropping them
+    // would make every merged article of an extended type fail the write-time hook
+    // on its next edit, on output this migration itself produced.
+    const targetRule = target.rules && target.rules.frontmatterTypeEnum;
+    const sourceRule = source.rules && source.rules.frontmatterTypeEnum;
+    const extended = [];
+    if (targetRule && sourceRule) {
+      const base = list(targetRule.params && targetRule.params.values).map(String);
+      const existing = list(targetRule.extendedBy).map(String);
+      for (const value of list(sourceRule.extendedBy).map(String)) {
+        // A value the target's own enum already carries needs no extension, on the
+        // same reasoning the retype case above gives.
+        if (base.includes(value) || existing.includes(value)) continue;
+        existing.push(value);
+        extended.push(value);
+      }
+      if (extended.length > 0) targetRule.extendedBy = existing;
+    }
+
+    // MARKED, never deleted, and its own roots left exactly where they are. Pointing
+    // them at the target's would put two entries on one folder, and settingForFolder
+    // resolves an article to the longest matching root: a tie would hand every
+    // article in the merged vault to whichever entry came first, which is how one
+    // world's articles start being checked against another world's rules.
+    source.mergedInto = target.name;
+    source.retired = true;
+    changes.push(
+      `Merged ${source.name} into ${target.name}: ` +
+        (folded.length > 0
+          ? `campaigns ${folded.join(", ")} folded into ${target.name}'s lane list`
+          : `no campaign folder of ${source.name}'s moved, so none was folded into ${target.name}'s lane list`) +
+        ", " +
+        (extended.length > 0
+          ? `type extensions ${extended.join(", ")} folded in`
+          : `no type extension of its own that ${target.name}'s enum did not already carry`) +
+        `. The ${source.name} entry is kept and marked merged rather than deleted, with its own roots left where ` +
+        "they are: deleting it would destroy the record that the world existed, and repointing its roots at " +
+        `${target.name}'s would leave two entries claiming one folder.`
+    );
+  }
 
   return { conventions: next, changes };
 }

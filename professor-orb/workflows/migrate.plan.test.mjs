@@ -27,6 +27,7 @@ import {
   assertScopedPlannerDeclarations,
   retypeExtensions,
   crossBoundaryLinks,
+  mergeCollisions,
 } from "./migrate.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -1002,7 +1003,30 @@ const PLANNER_PROBES = {
   settingSplits: [
     { from: "rolara", name: "ashlands", kbRoot: "settings/ashlands", files: ["settings/rolara/misc/Ends.md"] },
   ],
+  // rolara emptied into karsk, rather than the other way round, because the walk
+  // below runs against absorbFixture and rolara is the world that is actually on
+  // disk there. A merge reads the SOURCE's prongs off the disk and writes into the
+  // TARGET's recorded roots, so a target with nothing on disk yet is exactly the
+  // case that declines nothing: no destination is occupied, so no name has to be
+  // disambiguated.
+  settingMerges: [{ from: "rolara", into: "karsk" }],
 };
+
+// The registry walk's settings, which are SETTINGS plus a second world. A merge is
+// the one planner whose scope names TWO settings, and buildScopedPlan resolves both
+// out of ctx.settings, so against a one-setting array its probe would decline rather
+// than plan and the walk would read that as a planner emitting nothing. Recorded but
+// not on disk, which is all the target side of a merge needs.
+const PROBE_SETTINGS = [
+  ...SETTINGS,
+  {
+    name: "karsk",
+    kbRoot: "settings/karsk",
+    homebrewRoot: "homebrew/karsk",
+    sessionReportsRoot: "session-reports/karsk",
+    campaigns: [],
+  },
+];
 
 {
   check("every registry entry declares a kind APPLY_ORDER can rank",
@@ -1049,17 +1073,17 @@ const PLANNER_PROBES = {
   // the very FRONT while sitting at the very END of the array, so source position
   // would now run the whole rest of the registry before the operation every
   // later planner's checks have to be able to see. settingSplits is the fourth,
-  // ranking 1 at the very end.
+  // ranking 1 at the very end, and settingMerges the fifth, likewise at rank 1.
   check("the append landed in source order, out of rank order as written",
-    SCOPED_PLANNERS.map(([, , kind]) => APPLY_ORDER.indexOf(kind)), [1, 2, 3, 6, 9, 4, 10, 5, 11, 0, 0, 1, 1]);
+    SCOPED_PLANNERS.map(([, , kind]) => APPLY_ORDER.indexOf(kind)), [1, 2, 3, 6, 9, 4, 10, 5, 11, 0, 0, 1, 1, 1]);
   check("and the order those planners RUN in is ascending rank anyway",
     scopedPlannerSequence().map(([, , kind]) => APPLY_ORDER.indexOf(kind)),
-    [0, 0, 1, 1, 1, 2, 3, 4, 5, 6, 9, 10, 11]);
+    [0, 0, 1, 1, 1, 1, 2, 3, 4, 5, 6, 9, 10, 11]);
   check("which puts each scope key where its planner's rank belongs",
     scopedPlannerSequence().map(([key]) => key),
     ["settingRenames", "settingRetirements", "pathMoves", "campaignRetirements", "settingSplits",
-     "absorbFolders", "splitFolders", "retypes", "suffixRenames", "entityRenames", "rebuildIndexes",
-     "frontmatterRepairs", "prosePathUpdates"]);
+     "settingMerges", "absorbFolders", "splitFolders", "retypes", "suffixRenames", "entityRenames",
+     "rebuildIndexes", "frontmatterRepairs", "prosePathUpdates"]);
 }
 
 {
@@ -1165,8 +1189,8 @@ const PLANNER_PROBES = {
   check("and that order is the declared ranks ascending",
     expected,
     ["settingRenames", "settingRetirements", "pathMoves", "campaignRetirements", "settingSplits",
-     "absorbFolders", "splitFolders", "retypes", "suffixRenames", "entityRenames", "rebuildIndexes",
-     "frontmatterRepairs", "prosePathUpdates"]);
+     "settingMerges", "absorbFolders", "splitFolders", "retypes", "suffixRenames", "entityRenames",
+     "rebuildIndexes", "frontmatterRepairs", "prosePathUpdates"]);
 }
 
 {
@@ -1175,7 +1199,12 @@ const PLANNER_PROBES = {
   const rows = [];
   for (const [key, , kind] of SCOPED_PLANNERS) {
     const root = absorbFixture();
-    const r = scoped({ [key]: PLANNER_PROBES[key] }, root);
+    const r = buildScopedPlan({
+      projectRoot: root,
+      settings: PROBE_SETTINGS,
+      baseRules: BASE_RULES,
+      scope: { [key]: PLANNER_PROBES[key] },
+    });
     const ranks = r.operations.map((o) => APPLY_ORDER.indexOf(o.op));
     rows.push([
       key,
@@ -1215,11 +1244,11 @@ const PLANNER_PROBES = {
   check("a planner emitting an operation ranked below its declaration fails loudly",
     [/orderingProbe/.test(message), /relocate-path/.test(message), /rebuild-index/.test(message)],
     [true, true, true]);
-  check("and the registry is back to its thirteen entries",
+  check("and the registry is back to its fourteen entries",
     SCOPED_PLANNERS.map(([key]) => key),
     ["pathMoves", "absorbFolders", "splitFolders", "entityRenames", "rebuildIndexes",
      "retypes", "frontmatterRepairs", "suffixRenames", "prosePathUpdates",
-     "settingRenames", "settingRetirements", "campaignRetirements", "settingSplits"]);
+     "settingRenames", "settingRetirements", "campaignRetirements", "settingSplits", "settingMerges"]);
 }
 
 {
@@ -1280,7 +1309,7 @@ const PLANNER_PROBES = {
     SCOPED_PLANNERS.map(([key]) => key),
     ["pathMoves", "absorbFolders", "splitFolders", "entityRenames", "rebuildIndexes",
      "retypes", "frontmatterRepairs", "suffixRenames", "prosePathUpdates",
-     "settingRenames", "settingRetirements", "campaignRetirements", "settingSplits"]);
+     "settingRenames", "settingRetirements", "campaignRetirements", "settingSplits", "settingMerges"]);
   rmSync(root, { recursive: true, force: true });
 }
 
@@ -3584,6 +3613,230 @@ function splitProngFixture() {
       .filter((d) => d.op === "relocate-path")
       .map((d) => [/settingSplits\[0\]/.test(String(d.reason)), /Thoric\.md/.test(String(d.reason))]),
     [[true, true], [true, true]]);
+  rmSync(root, { recursive: true, force: true, maxRetries: 5 });
+}
+
+console.log("\n=== setting merge: two worlds into one vault ===");
+
+// THE SAME HONEST FRAMING as the two sections above. Nothing in the plugin creates
+// a second setting yet, so every case below runs against a temporary fixture and the
+// literal MERGE_SETTINGS array, never against a project a DM could have today. Read
+// the coverage that way.
+//
+// TWO WHOLE WORLDS, all three prongs of each on disk, with a genuine collision in
+// EVERY one of them. A setting is its knowledge base, its homebrew catalogue, and
+// its session reports; prongRootsOf has said so since the settings array was
+// written. A merge that walked the knowledge base alone would leave the source
+// world's homebrew and every session report it ever produced behind, belonging to a
+// setting conventions.json has just marked merged, and the fixture is built so that
+// narrowing the walk back to one prong fails these cases rather than passing quietly.
+function mergeFixture() {
+  const root = mkdtempSync(path.join(os.tmpdir(), "orb-setmerge-"));
+  const w = (rel, body) => writeAt(root, rel, body);
+  // Knowledge bases. Two worlds legitimately holding a Tavern.md is not a mistake;
+  // it becomes a collision only when they share a vault.
+  w("settings/rolara/Ashfall.md", "---\ntype: Location\n---\n\nBody.\n");
+  w("settings/rolara/Tavern.md", "---\ntype: Location\n---\n\nRolara's tavern.\n");
+  w("settings/karsk/Emberhold.md", "---\ntype: Location\n---\n\nBody.\n");
+  w("settings/karsk/Tavern.md", "---\ntype: Location\n---\n\nKarsk's tavern.\n");
+  // The source world's Obsidian vault, at its canonical place inside kbRoot. The
+  // target has its own, and a world's vault configuration is not part of its lore.
+  w("settings/karsk/.obsidian/app.json", "{}\n");
+  // Homebrew catalogues.
+  w("homebrew/rolara/Blade.md", "---\ntype: Item\n---\n\nRolara's blade.\n");
+  w("homebrew/karsk/Blade.md", "---\ntype: Item\n---\n\nKarsk's blade.\n");
+  w("homebrew/karsk/Censer.md", "---\ntype: Item\n---\n\nBody.\n");
+  // Session reports, which are NOT a flat file move: a campaign is a FOLDER under
+  // sessionReportsRoot, and both of these worlds ran one called deeps.
+  w("session-reports/rolara/deeps/2026-01-02-Two-REPORT.md", "---\ntype: Session Report\n---\n\nBody.\n");
+  w("session-reports/rolara/ember/2026-01-01-One-REPORT.md", "---\ntype: Session Report\n---\n\nBody.\n");
+  w("session-reports/karsk/deeps/2026-02-01-Three-REPORT.md", "---\ntype: Session Report\n---\n\nBody.\n");
+  w("session-reports/karsk/hollow/2026-03-01-Four-REPORT.md", "---\ntype: Session Report\n---\n\nBody.\n");
+  return root;
+}
+
+const MERGE_SETTINGS = [
+  {
+    name: "rolara",
+    kbRoot: "settings/rolara",
+    homebrewRoot: "homebrew/rolara",
+    sessionReportsRoot: "session-reports/rolara",
+    campaigns: ["deeps", "ember"],
+  },
+  {
+    name: "karsk",
+    kbRoot: "settings/karsk",
+    homebrewRoot: "homebrew/karsk",
+    sessionReportsRoot: "session-reports/karsk",
+    campaigns: ["deeps", "hollow"],
+  },
+];
+
+const mergeScoped = (scope, projectRoot) =>
+  buildScopedPlan({ projectRoot, settings: MERGE_SETTINGS, baseRules: BASE_RULES, scope });
+
+const MERGE_KARSK = { settingMerges: [{ from: "karsk", into: "rolara" }] };
+
+{
+  // THE EXPORTED SIGNATURE TAKES THE TWO SETTINGS, not one pair of roots, so that a
+  // caller cannot hand it a third of a world and be told there are no collisions in
+  // the other two thirds. Every row here is named, so narrowing the walk back to
+  // kbRoot fails this case rather than merely reporting a smaller number.
+  const root = mergeFixture();
+  const collisions = mergeCollisions({
+    projectRoot: root,
+    source: MERGE_SETTINGS[1],
+    target: MERGE_SETTINGS[0],
+    suffix: "-INDEX",
+  });
+  check("a collision in every one of the three prongs is reported, and nothing else is",
+    collisions.map((c) => [c.field, c.from, c.proposed]),
+    [
+      ["kbRoot", "settings/karsk/Tavern.md", "settings/rolara/Tavern-karsk.md"],
+      ["homebrewRoot", "homebrew/karsk/Blade.md", "homebrew/rolara/Blade-karsk.md"],
+      ["sessionReportsRoot", "session-reports/karsk/deeps", "session-reports/rolara/deeps-karsk"],
+    ]);
+  // The suffix is the SOURCE setting's name, so the article already at the
+  // destination keeps the name every existing wikilink uses and only the incoming
+  // one needs its links looked at. The extension stays last, because a file that
+  // does not end in .md is not an article Obsidian will resolve at all.
+  check("and each collision names the child that collided",
+    collisions.map((c) => c.basename), ["Tavern.md", "Blade.md", "deeps"]);
+  rmSync(root, { recursive: true, force: true, maxRetries: 5 });
+}
+
+{
+  // The plan phase's read-only contract, on the one function here that reads two
+  // whole worlds off the disk.
+  const root = mergeFixture();
+  execFileSync("git", ["init", "-q"], { cwd: root });
+  const before = snapshotTree(root);
+  mergeCollisions({ projectRoot: root, source: MERGE_SETTINGS[1], target: MERGE_SETTINGS[0], suffix: "-INDEX" });
+  check("mergeCollisions mutates nothing", snapshotTree(root), before);
+  rmSync(root, { recursive: true, force: true, maxRetries: 5 });
+}
+
+{
+  const root = mergeFixture();
+  const r = mergeScoped(MERGE_KARSK, root);
+  // ALL THREE PRONGS EMPTIED INTO THE TARGET'S MATCHING PRONG. kbRoot into kbRoot,
+  // homebrewRoot into homebrewRoot, sessionReportsRoot into sessionReportsRoot:
+  // merging the knowledge base alone would file nothing wrong, it would simply
+  // leave two thirds of a world behind with no setting left to claim it.
+  check("every prong of the source world is emptied into the target's matching prong",
+    r.operations.map((o) => [o.op, o.from, o.to]),
+    [
+      ["relocate-path", "settings/karsk/Emberhold.md", "settings/rolara/Emberhold.md"],
+      ["relocate-path", "settings/karsk/Tavern.md", "settings/rolara/Tavern-karsk.md"],
+      ["relocate-path", "homebrew/karsk/Blade.md", "homebrew/rolara/Blade-karsk.md"],
+      ["relocate-path", "homebrew/karsk/Censer.md", "homebrew/rolara/Censer.md"],
+      // A campaign is a FOLDER, so this one move carries every report inside it.
+      ["relocate-path", "session-reports/karsk/deeps", "session-reports/rolara/deeps-karsk"],
+      ["relocate-path", "session-reports/karsk/hollow", "session-reports/rolara/hollow"],
+    ]);
+  // Every collision in the proposal, with the rename that resolves it, so the DM
+  // APPROVES the resolution rather than discovering it. renderProposal prints
+  // declined items, which is what makes this the thing they read while deciding.
+  check("every collision is surfaced with its proposed rename before approval",
+    r.declined.map((d) => [d.op, d.target]),
+    [
+      ["merge-collision", "settings/karsk/Tavern.md collides with settings/rolara/Tavern.md"],
+      ["merge-collision", "homebrew/karsk/Blade.md collides with homebrew/rolara/Blade.md"],
+      ["merge-collision", "session-reports/karsk/deeps collides with session-reports/rolara/deeps"],
+    ]);
+  check("and the row says the incoming article is the one renamed, and why",
+    [/Tavern-karsk\.md/.test(String(obj(r.declined[0]).reason)),
+     /every existing wikilink uses/.test(String(obj(r.declined[0]).reason))],
+    [true, true]);
+  // ONE group id for every move the entry emits, and here it is load-bearing rather
+  // than tidy: conventionsAfterScope marks the source world merged off this same
+  // entry, and half a world moved while the entry says it was merged leaves the
+  // rest belonging to a setting nothing points at any more.
+  check("every move carries the entry's own group id",
+    dedupeConsecutive(r.operations.map((o) => JSON.stringify(o.groups))), ['["settingMerges[0]"]']);
+  // The vault rides with neither world. rolara has its own configuration and
+  // karsk's is not lore; it stays with the entry that is being marked merged.
+  check("the source world's Obsidian vault is not merged in",
+    JSON.stringify(r.operations).includes(".obsidian"), false);
+  check("and the plan can execute as written", r.prechecks.ok, true);
+  rmSync(root, { recursive: true, force: true, maxRetries: 5 });
+}
+
+{
+  const root = mergeFixture();
+  const r = mergeScoped({ settingMerges: [{ from: "karsk", into: "karsk" }] }, root);
+  check("merging a setting into itself is declined",
+    [r.operations.length, r.declined.map((d) => [d.op, d.target])],
+    [0, [["relocate-path", "karsk"]]]);
+  const unknown = mergeScoped({ settingMerges: [{ from: "nope", into: "rolara" }] }, root);
+  check("and so is a merge naming a setting conventions.json does not record",
+    [unknown.operations.length, unknown.declined.length], [0, 1]);
+  rmSync(root, { recursive: true, force: true, maxRetries: 5 });
+}
+
+{
+  // AN INDEX COLLIDING WITH AN INDEX IS NOT RENAMED. That is a merge-index job:
+  // renaming would leave two indexes claiming one folder, which is exactly the
+  // multi-index violation the validation sweep reports, and the rename would also
+  // strip the -INDEX suffix off the end of the stem and turn the file into an
+  // article. The move is declined and the index stays where it is.
+  const root = mergeFixture();
+  writeAt(root, "settings/rolara/Lore-INDEX.md", "---\ntype: Index\n---\n\n- [[Tavern]]\n");
+  writeAt(root, "settings/karsk/Lore-INDEX.md", "---\ntype: Index\n---\n\n- [[Emberhold]]\n");
+  const r = mergeScoped(MERGE_KARSK, root);
+  check("an index colliding with an index is neither renamed nor moved",
+    [r.operations.filter((o) => /Lore-INDEX/.test(`${o.from} ${o.to}`)).length,
+     r.declined.filter((d) => /Lore-INDEX/.test(String(d.target))).map((d) => [d.op, d.target])],
+    [0, [["relocate-path", "settings/karsk/Lore-INDEX.md"]]]);
+  check("and the decline names the job it actually is",
+    /merge-index/.test(String((r.declined.find((d) => /Lore-INDEX/.test(String(d.target))) || {}).reason)), true);
+  // The articles either side of it still merge. One index left behind is not a
+  // reason to refuse a world.
+  check("the rest of the merge is unaffected",
+    r.operations.map((o) => o.from),
+    ["settings/karsk/Emberhold.md", "settings/karsk/Tavern.md", "homebrew/karsk/Blade.md",
+     "homebrew/karsk/Censer.md", "session-reports/karsk/deeps", "session-reports/karsk/hollow"]);
+  rmSync(root, { recursive: true, force: true, maxRetries: 5 });
+}
+
+{
+  // A prong the TARGET does not record. The source's material has nowhere to go,
+  // and guessing a canonical sibling path here would invent a folder the
+  // conventions file does not name. Declined, with the prong named, and the two
+  // that can be merged still are.
+  const root = mergeFixture();
+  const settings = JSON.parse(JSON.stringify(MERGE_SETTINGS));
+  settings[0].homebrewRoot = "";
+  const r = buildScopedPlan({ projectRoot: root, settings, baseRules: BASE_RULES, scope: MERGE_KARSK });
+  check("a prong the target does not record is declined rather than guessed at",
+    [r.operations.map((o) => o.from),
+     r.declined.filter((d) => d.target === "homebrew/karsk").map((d) => d.op)],
+    [["settings/karsk/Emberhold.md", "settings/karsk/Tavern.md",
+      "session-reports/karsk/deeps", "session-reports/karsk/hollow"],
+     ["relocate-path"]]);
+  rmSync(root, { recursive: true, force: true, maxRetries: 5 });
+}
+
+{
+  // THE GROUP UNIT AS A REGRESSION, against a real repository. One article is
+  // git-ignored, so the pre-migration snapshot does not contain it and moving it
+  // could not be undone. The whole entry goes, every prong of it: a merge that
+  // moved a world's knowledge base and homebrew while leaving one article behind
+  // would still have conventions.json marking that world merged.
+  const root = mergeFixture();
+  writeAt(root, ".gitignore", "settings/karsk/Emberhold.md\n");
+  commitFixture(root);
+  const r = mergeScoped(MERGE_KARSK, root);
+  check("one git-ignored article declines the whole merge, not just its own move",
+    [r.operations.length, r.declined.filter((d) => d.op === "relocate-path").length], [0, 6]);
+  check("and every declined move names the entry that took it and the ignored article",
+    dedupeConsecutive(
+      r.declined
+        .filter((d) => d.op === "relocate-path")
+        .map((d) => [/settingMerges\[0\]/.test(String(d.reason)), /Emberhold\.md/.test(String(d.reason))])
+        .map((pair) => JSON.stringify(pair))
+    ),
+    ["[true,true]"]);
   rmSync(root, { recursive: true, force: true, maxRetries: 5 });
 }
 

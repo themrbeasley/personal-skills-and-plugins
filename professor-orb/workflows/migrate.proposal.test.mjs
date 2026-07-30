@@ -786,6 +786,161 @@ const splitOp = (to, group = "settingSplits[0]") => ({
     [rootless.conventions.settings.map((s) => s.name), rootless.changes], [["rolara"], []]);
 }
 
+console.log("\n=== conventions after a scope: one world merged into another ===");
+
+// TWO WORLDS, which is what a merge needs and what CONVENTIONS alone does not have.
+// karsk carries a type extension of its own, and a campaign called deeps that rolara
+// also ran: the same-name case that decides what a merge does with a campaign folder.
+const MERGE_CONVENTIONS = {
+  schemaVersion: 1,
+  settings: [
+    {
+      ...JSON.parse(JSON.stringify(CONVENTIONS.settings[0])),
+      campaigns: ["ember", "deeps"],
+    },
+    {
+      name: "karsk",
+      kbRoot: "settings/karsk",
+      homebrewRoot: "homebrew/karsk",
+      sessionReportsRoot: "session-reports/karsk",
+      campaigns: ["deeps", "hollow"],
+      tagRegistryPath: ".professor-orb/tag-registry.karsk.json",
+      rules: {
+        frontmatterTypeEnum: {
+          provenance: "professor-orb",
+          category: "frontmatter",
+          check: "enum",
+          enforcement: "block",
+          description: "type must be recognized.",
+          extendedBy: ["Settlement"],
+          params: { field: "type", values: ["Person", "Location"] },
+        },
+      },
+    },
+  ],
+};
+
+const MERGE = { settingMerges: [{ from: "karsk", into: "rolara" }] };
+const mergeOp = (from, to, group = "settingMerges[0]") => ({
+  op: "relocate-path",
+  from,
+  to,
+  applied: true,
+  detail: "Relocated with git mv (direct).",
+  groups: [group],
+});
+// Every prong, because a merge moves every prong. The campaign folders are the two
+// under the source's sessionReportsRoot, and deeps lands under a disambiguated name
+// because rolara already ran one.
+const FULL_MERGE = [
+  mergeOp("settings/karsk/Tavern.md", "settings/rolara/Tavern-karsk.md"),
+  mergeOp("homebrew/karsk/Blade.md", "homebrew/rolara/Blade-karsk.md"),
+  mergeOp("session-reports/karsk/deeps", "session-reports/rolara/deeps-karsk"),
+  mergeOp("session-reports/karsk/hollow", "session-reports/rolara/hollow"),
+];
+
+{
+  const r = conventionsAfterScope(MERGE_CONVENTIONS, MERGE, FULL_MERGE);
+  const rolara = obj(r.conventions.settings[0]);
+  const karsk = obj(r.conventions.settings[1]);
+  // The source's campaigns fold in under the names their folders actually landed at.
+  // A campaign both worlds ran is renamed rather than fused: two campaigns sharing
+  // one lane would interleave two histories the DM never agreed to join.
+  check("the source's campaigns fold into the target under the names their folders landed at",
+    rolara.campaigns, ["ember", "deeps", "deeps-karsk", "hollow"]);
+  // frontmatterTypeEnum ships at enforcement block, so dropping the source's
+  // extensions would make every merged article of an extended type fail the
+  // write-time hook on its next edit.
+  check("and so do the source's type extensions, which describe articles that now live there",
+    obj(obj(rolara.rules).frontmatterTypeEnum).extendedBy, ["Settlement"]);
+  check("the merged entry is MARKED, not deleted",
+    [r.conventions.settings.length, karsk.mergedInto, karsk.retired], [2, "rolara", true]);
+  // Its roots are NOT repointed at the target's. Two entries recording one kbRoot
+  // would leave settingForFolder resolving every article under it to whichever came
+  // first, which is how one world's articles start being checked against another
+  // world's rules.
+  check("and its own roots stay where they are rather than being pointed at the target's",
+    [karsk.kbRoot, karsk.homebrewRoot, karsk.sessionReportsRoot],
+    ["settings/karsk", "homebrew/karsk", "session-reports/karsk"]);
+  check("the change is reported in words", r.changes.length, 1);
+  check("and the file this function was handed is not mutated",
+    [MERGE_CONVENTIONS.settings[1].mergedInto, MERGE_CONVENTIONS.settings[0].campaigns],
+    [undefined, ["ember", "deeps"]]);
+}
+
+{
+  // THE HEADLINE CASE. One git-ignored article declines the whole entry, so nothing
+  // applies. Folding the campaigns in anyway would leave rolara's lane list naming
+  // folders that are still under karsk, and marking karsk merged would say a world
+  // moved that did not.
+  const r = conventionsAfterScope(MERGE_CONVENTIONS, MERGE, []);
+  check("a merge whose every operation was declined or skipped records nothing",
+    [r.conventions, r.changes], [MERGE_CONVENTIONS, []]);
+}
+
+{
+  // Rule 2 of appliedGate, on a campaign folder, which is a recorded path exactly as
+  // a prong root is: settings[].campaigns plus sessionReportsRoot resolves to one.
+  // Only the campaign whose folder actually moved is written into the target's list;
+  // a lane recorded at a folder that is still under the source is one /log cannot
+  // resolve, and settings[].campaigns is a cache rather than the authority on which
+  // folders exist, so a listed campaign with no folder at all is an ordinary way to
+  // reach this.
+  const r = conventionsAfterScope(MERGE_CONVENTIONS, MERGE, [
+    mergeOp("settings/karsk/Tavern.md", "settings/rolara/Tavern-karsk.md"),
+    mergeOp("session-reports/karsk/hollow", "session-reports/rolara/hollow"),
+  ]);
+  check("a campaign whose folder did not move is not written into the target's lane list",
+    obj(r.conventions.settings[0]).campaigns, ["ember", "deeps", "hollow"]);
+  check("...while the entry still records the merge, because something did move",
+    [obj(r.conventions.settings[1]).mergedInto, obj(r.conventions.settings[1]).retired],
+    ["rolara", true]);
+}
+
+{
+  // Recorded from the operation that ran, not from the scope's own arithmetic. A
+  // proposal file the DM edited can send a campaign folder somewhere this function
+  // would never have computed, and the file has to describe the lane that exists.
+  const r = conventionsAfterScope(MERGE_CONVENTIONS, MERGE, [
+    mergeOp("session-reports/karsk/deeps", "session-reports/rolara/karsk-deeps"),
+  ]);
+  check("a campaign is recorded under the name the operation actually gave it",
+    obj(r.conventions.settings[0]).campaigns, ["ember", "deeps", "karsk-deeps"]);
+}
+
+{
+  // The gate is keyed on the entry's OWN group id, the same way the rename's and the
+  // split's are.
+  const r = conventionsAfterScope(MERGE_CONVENTIONS, MERGE, [
+    mergeOp("settings/karsk/Tavern.md", "settings/rolara/Tavern-karsk.md", "settingMerges[1]"),
+  ]);
+  check("an operation belonging to a different entry does not license this one",
+    [r.conventions, r.changes], [MERGE_CONVENTIONS, []]);
+}
+
+{
+  // The same two conditions planSettingMerges declines on, so this half cannot
+  // record a merge the plan half refused to plan.
+  const self = conventionsAfterScope(MERGE_CONVENTIONS, { settingMerges: [{ from: "karsk", into: "karsk" }] });
+  check("merging a setting into itself records nothing",
+    [self.conventions, self.changes], [MERGE_CONVENTIONS, []]);
+  const unknown = conventionsAfterScope(MERGE_CONVENTIONS, { settingMerges: [{ from: "nope", into: "rolara" }] });
+  check("and neither does a merge naming a setting the file does not record",
+    [unknown.conventions, unknown.changes], [MERGE_CONVENTIONS, []]);
+}
+
+{
+  // TWO-ARGUMENT COMPATIBILITY, the same property the rename and the split state: an
+  // omitted third argument means "the whole scope ran", so it must equal the same
+  // call handed every operation the scope emits, changes text and all. The
+  // disambiguation both sides compute is the same function, which is what keeps the
+  // campaign names from drifting between the path that reads the applied list and
+  // the path that reads the two campaign lists.
+  check("omitting the third argument is the same as being told everything applied",
+    conventionsAfterScope(MERGE_CONVENTIONS, MERGE),
+    conventionsAfterScope(MERGE_CONVENTIONS, MERGE, FULL_MERGE));
+}
+
 console.log(`\n${passed} passed, ${failures.length} failed`);
 if (failures.length > 0) {
   for (const f of failures) console.log(`  FAILED: ${f}`);
