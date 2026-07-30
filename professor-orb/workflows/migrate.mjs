@@ -2709,6 +2709,224 @@ function defaultIndexStem(folder) {
 }
 
 // ---------------------------------------------------------------------------
+// The proposal file
+// ---------------------------------------------------------------------------
+//
+// /migrate's plan is a written artifact the DM reads, may edit, and approves,
+// following the proposal-file convention CONTEXT.md establishes for chronicler.
+// It is one file serving two readers: prose and a table for the DM, and one
+// fenced block carrying the operations for the executor.
+//
+// Execution follows the FILE. The DM may strike an operation, change a
+// destination, or reorder the list, and what runs is what the file says, never
+// what the conversation that produced it said. applyPlan re-runs the prechecks
+// against whatever arrives for exactly this reason, so a hand-edited plan is a
+// designed path rather than a tolerated one.
+
+const PLAN_FENCE_OPEN = "```json professor-orb:plan";
+const PLAN_FENCE_CLOSE = "```";
+
+// A scoped plan's operations carry different fields by kind: relocate-path and
+// rename-with-link-rewrite have both `from` and `to`, rebuild-index and
+// create-index have only `to`, and split-folder, normalize-type,
+// repair-frontmatter, and update-prose-paths have only `from`. Every kind is
+// checked against SCOPED_PLANNERS above and against buildScopedPlan's planners
+// directly (planPathMoves, planAbsorbFolders, planSplitFolders,
+// planEntityRenames, planRebuildIndexes, planRetypes, planScopedRepairs,
+// planSuffixRenames, planProsePathUpdates), which is the authority on what a
+// real plan contains. rebuild-index falls back to `folder` for its location so
+// the row is not blank on the from side, and split-folder falls back to its
+// bucket folders so the row is not blank on the to side.
+function proposalFrom(op) {
+  if (typeof op.from === "string" && op.from) return op.from;
+  if (op.op === "rebuild-index" && typeof op.folder === "string" && op.folder) return op.folder;
+  return "";
+}
+
+function proposalTo(op) {
+  if (typeof op.to === "string" && op.to) return op.to;
+  if (op.op === "split-folder") {
+    return list(op.buckets)
+      .map((b) => b && b.folder)
+      .filter(Boolean)
+      .join(", ");
+  }
+  return "";
+}
+
+// A one-line, kind-specific summary of what an operation carries beyond
+// `from`/`to`, so a kind like normalize-type or repair-frontmatter (neither of
+// which has a `to`) still tells the DM something concrete rather than leaving
+// a blank cell. This column never changes what executes: it is read from the
+// SAME operation object the fenced block below serializes whole, so nothing it
+// summarizes can drift from what the executor actually sees.
+function proposalDetail(op) {
+  switch (op.op) {
+    case "absorb-folder": {
+      const n = list(op.articles).length;
+      const removed = op.index ? `, folder index ${op.index} removed` : "";
+      return `${n} file${n === 1 ? "" : "s"} moved${removed}`;
+    }
+    case "split-folder": {
+      const buckets = list(op.buckets);
+      const names = buckets.map((b) => b && b.name).filter(Boolean);
+      return `${buckets.length} bucket${buckets.length === 1 ? "" : "s"}: ${names.join(", ") || "(unnamed)"}`;
+    }
+    case "create-index":
+      return "new index file";
+    case "rebuild-index":
+      return `link list rebuilt from ${op.folder || "(unknown folder)"}`;
+    case "normalize-type":
+      return `type ${op.typeFrom} -> ${op.typeTo}`;
+    case "rename-entity": {
+      const n = list(op.links).length;
+      const nameChange = op.nameTo ? `, frontmatter name -> ${op.nameTo}` : "";
+      return `${n} referring link${n === 1 ? "" : "s"} rewritten${nameChange}`;
+    }
+    case "rename-with-link-rewrite": {
+      const n = list(op.links).length;
+      return `${n} referring link${n === 1 ? "" : "s"} rewritten`;
+    }
+    case "repair-frontmatter": {
+      const fields = list(op.insert);
+      return `insert: ${fields.length ? fields.join(", ") : "(none)"}; reorder: ${op.reorder ? "yes" : "no"}`;
+    }
+    case "update-prose-paths": {
+      const n = list(op.replacements).length;
+      return `${n} path replacement${n === 1 ? "" : "s"}`;
+    }
+    default:
+      return "";
+  }
+}
+
+export function renderProposal({ scope, plan, projectRoot, settings }) {
+  const operations = list(plan && plan.operations);
+  const declined = list(plan && plan.declined);
+  const prechecks = (plan && plan.prechecks) || {};
+  const summary = (scope && scope.summary) || "(no summary recorded)";
+
+  const counts = new Map();
+  for (const op of operations) counts.set(op.op, (counts.get(op.op) || 0) + 1);
+
+  const lines = [];
+  lines.push("# /migrate proposal");
+  lines.push("");
+  lines.push(`**Project:** ${projectRoot || "(unknown)"}`);
+  lines.push(`**Settings:** ${list(settings).map((s) => (s && s.name) || "(unnamed)").join(", ") || "(none)"}`);
+  lines.push("");
+  lines.push("## Scope, as understood");
+  lines.push("");
+  lines.push(summary);
+  lines.push("");
+  lines.push("## What will happen");
+  lines.push("");
+  if (operations.length === 0) {
+    lines.push("Nothing. No operation resolved from this scope.");
+  } else {
+    for (const [kind, n] of counts) lines.push(`- ${kind}: ${n}`);
+    lines.push("");
+    lines.push("| # | Operation | From | To | Detail | Why |");
+    lines.push("| --- | --- | --- | --- | --- | --- |");
+    operations.forEach((op, i) => {
+      const from = proposalFrom(op);
+      const to = proposalTo(op);
+      let detail = proposalDetail(op);
+      // Only reachable for a shape none of the ten scoped kinds produces today
+      // (see the comment above proposalFrom): a future or hand-edited kind with
+      // no from, no to, and no detail this switch recognizes. The row still
+      // names the operation and its reason rather than going blank, and the
+      // fenced block below carries the object whole regardless.
+      if (!from && !to && !detail) detail = "(see the plan block below for full detail)";
+      const cell = (s) => String(s || "").replace(/\|/g, "/");
+      lines.push(`| ${i + 1} | ${op.op} | ${cell(from)} | ${cell(to)} | ${cell(detail)} | ${cell(op.reason)} |`);
+    });
+  }
+  lines.push("");
+  lines.push("## Declined");
+  lines.push("");
+  if (declined.length === 0) {
+    lines.push("Nothing was declined.");
+  } else {
+    for (const d of declined) lines.push(`- **${d.target}** (${d.op}): ${d.reason}`);
+  }
+  lines.push("");
+  lines.push("## Prechecks");
+  lines.push("");
+  if (prechecks.ok === false) {
+    lines.push(
+      "**These prechecks did not pass, so this plan cannot execute as written.** Resolve the items below and re-run /migrate."
+    );
+    const collisions = list(prechecks.collisions);
+    if (collisions.length > 0) {
+      lines.push("");
+      for (const c of collisions) {
+        lines.push(
+          c.kind === "in-plan"
+            ? `- Two operations in this plan both target ${c.b}. ${c.reason}`
+            : `- ${c.op || "(operation)"} would write to ${c.to}, which already exists. ${c.reason}`
+        );
+      }
+    }
+  } else {
+    lines.push(
+      "Prechecks passed. Destination collisions, unresolvable link targets, and ignored sources were all checked while this plan was built, not after approval."
+    );
+  }
+  lines.push("");
+  lines.push("## Approval");
+  lines.push("");
+  lines.push(
+    "Edit this file freely: strike an operation, change a destination, reorder the list. What runs is what this file says. Then tell /migrate to proceed."
+  );
+  lines.push("");
+  lines.push(PLAN_FENCE_OPEN);
+  lines.push(JSON.stringify({ operations, declined }, null, 2));
+  lines.push(PLAN_FENCE_CLOSE);
+  lines.push("");
+  return lines.join("\n");
+}
+
+export function parseProposal(text) {
+  const src = String(text == null ? "" : text);
+  const starts = [];
+  let at = src.indexOf(PLAN_FENCE_OPEN);
+  while (at !== -1) {
+    starts.push(at);
+    at = src.indexOf(PLAN_FENCE_OPEN, at + PLAN_FENCE_OPEN.length);
+  }
+  if (starts.length === 0) {
+    return { ok: false, reason: "No professor-orb:plan block in this file, so there is nothing to execute." };
+  }
+  if (starts.length > 1) {
+    // Two blocks are two answers to "what did the DM approve". Picking one
+    // silently executes something they may have struck by pasting a replacement
+    // above the original.
+    return {
+      ok: false,
+      reason: `${starts.length} professor-orb:plan blocks in this file. Leave exactly one; which of them is the approved plan is not something to guess at.`,
+    };
+  }
+
+  const bodyStart = starts[0] + PLAN_FENCE_OPEN.length;
+  const end = src.indexOf(`\n${PLAN_FENCE_CLOSE}`, bodyStart);
+  if (end === -1) {
+    return { ok: false, reason: "The professor-orb:plan block is never closed." };
+  }
+
+  let parsed;
+  try {
+    parsed = JSON.parse(src.slice(bodyStart, end));
+  } catch (err) {
+    return { ok: false, reason: `Could not parse the professor-orb:plan block as JSON: ${firstLine(err.message)}` };
+  }
+  if (!parsed || !Array.isArray(parsed.operations)) {
+    return { ok: false, reason: "The professor-orb:plan block carries no operations array." };
+  }
+  return { ok: true, plan: { operations: parsed.operations, declined: list(parsed.declined) } };
+}
+
+// ---------------------------------------------------------------------------
 // Apply phase
 // ---------------------------------------------------------------------------
 //
