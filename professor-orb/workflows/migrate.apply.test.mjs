@@ -2938,6 +2938,326 @@ withRepo(
   check("a malformed bucket never renders null into the entry's bucket list", entry.buckets, []);
 }
 
+console.log("\n=== rename-entity ===");
+
+withRepo(
+  {
+    "settings/rolara/factions/Ashfall-Compact.md":
+      "---\ntype: Organization\nname: Ashfall Compact\npublish: false\n---\n\nThe Ashfall Compact holds the northern passes.\n",
+    "settings/rolara/factions/Factions-INDEX.md": article("type: Index", "- [[Ashfall-Compact]]"),
+    "settings/rolara/people/Thoric.md": article("type: Person", "Sworn to [[Ashfall-Compact|the Compact]]."),
+  },
+  (root) => {
+    const r = apply(root, [
+      {
+        op: "rename-entity",
+        from: "settings/rolara/factions/Ashfall-Compact.md",
+        to: "settings/rolara/factions/Cinder-Pact.md",
+        nameFrom: "Ashfall Compact",
+        nameTo: "Cinder Pact",
+        links: ["settings/rolara/factions/Factions-INDEX.md", "settings/rolara/people/Thoric.md"],
+        reason: "scope",
+      },
+    ]);
+    const entry = first(r.applied);
+    check("rename-entity applies", [r.ok, entry.applied], [true, true]);
+    check("the file is renamed", has(root, "settings/rolara/factions/Cinder-Pact.md"), true);
+    check("the frontmatter name is updated",
+      read(root, "settings/rolara/factions/Cinder-Pact.md").includes("name: Cinder Pact"), true);
+    check("a plain wikilink is rewritten",
+      read(root, "settings/rolara/factions/Factions-INDEX.md").includes("[[Cinder-Pact]]"), true);
+    check("a piped wikilink keeps its display text",
+      read(root, "settings/rolara/people/Thoric.md").includes("[[Cinder-Pact|the Compact]]"), true);
+    // The scope boundary, asserted rather than described. Renaming prose is
+    // chronicler's job; doing it here would rewrite the DM's sentences under a
+    // structural approval.
+    check("body prose naming the old entity is NOT rewritten",
+      read(root, "settings/rolara/factions/Cinder-Pact.md").includes("The Ashfall Compact holds"), true);
+    // The same boundary from the other side, so the case cannot pass because the
+    // whole file was left alone: the prose sentence survives while the frontmatter
+    // name on the line above it changed, and the old name appears nowhere else.
+    check("and the old name survives ONLY in the prose",
+      read(root, "settings/rolara/factions/Cinder-Pact.md").split("Ashfall Compact").length - 1, 1);
+    check("both link rewrites are counted", entry.linksRewritten, 2);
+  }
+);
+
+withRepo(
+  {
+    "settings/rolara/factions/Ashfall-Compact.md": article("type: Organization", "Body."),
+    "settings/rolara/factions/Factions-INDEX.md": article("type: Index", "- [[Ashfall-Compact]]"),
+  },
+  (root) => {
+    const r = apply(root, [
+      {
+        op: "rename-entity",
+        from: "settings/rolara/factions/Ashfall-Compact.md",
+        to: "settings/rolara/factions/Cinder-Pact.md",
+        nameFrom: "Ashfall Compact",
+        nameTo: "Cinder Pact",
+        links: ["settings/rolara/factions/Factions-INDEX.md", "settings/rolara/factions/Gone.md"],
+        reason: "scope",
+      },
+    ]);
+    // A rename and its link rewrites are ONE unit of work with one entry. A
+    // dead wikilink is valid markdown that fails silently in Obsidian, so a
+    // move reported as done while a rewrite was dropped is invisible without
+    // this.
+    const e = first(r.applied.concat(r.failed));
+    check("an unreachable link file fails the whole entry", e.applied, false);
+    check("even though the file did move", has(root, "settings/rolara/factions/Cinder-Pact.md"), true);
+    // The reachable referrer is still rewritten rather than abandoned at the
+    // first bad name, on the same terms applyRenameWithLinkRewrite collects its
+    // misses: the rename has already landed, so every referrer left unrewritten
+    // is one more dead wikilink.
+    check("and the referrer that COULD be read was rewritten anyway",
+      read(root, "settings/rolara/factions/Factions-INDEX.md").includes("[[Cinder-Pact]]"), true);
+    check("with the unreadable one named in the entry's detail",
+      /Gone\.md/.test(String(e.detail)), true);
+  }
+);
+
+withRepo(
+  { "settings/rolara/factions/Ashfall-Compact.md": article("type: Organization", "Body.") },
+  (root) => {
+    const r = apply(root, [
+      {
+        op: "rename-entity",
+        from: "settings/rolara/factions/Ashfall-Compact.md",
+        to: "settings/rolara/factions/Cinder-Pact.md",
+        nameFrom: "Ashfall Compact",
+        nameTo: "Cinder Pact",
+        links: [],
+        reason: "scope",
+      },
+    ]);
+    // No name field at all is normal: the base schema does not require one.
+    // Renaming the file is still the operation's job, so this must not fail.
+    check("a file with no name field still renames", [r.ok, first(r.applied).applied], [true, true]);
+    check("and nothing is inserted",
+      read(root, "settings/rolara/factions/Cinder-Pact.md").includes("name:"), false);
+  }
+);
+
+withRepo(
+  {
+    "settings/rolara/factions/Ashfall-Compact.md":
+      '---\ntype: Organization\nname: "Ashfall Compact"  # the founding charter spells it thus\n---\n\nBody.\n',
+  },
+  (root) => {
+    // The frontmatter edit is a raw-line edit for the same reason
+    // applyNormalizeType's is: parsing and regenerating would strip the DM's
+    // quoting and drop the comment.
+    const r = apply(root, [
+      {
+        op: "rename-entity",
+        from: "settings/rolara/factions/Ashfall-Compact.md",
+        to: "settings/rolara/factions/Cinder-Pact.md",
+        nameFrom: "Ashfall Compact",
+        nameTo: "Cinder Pact",
+        links: [],
+        reason: "scope",
+      },
+    ]);
+    const text = read(root, "settings/rolara/factions/Cinder-Pact.md");
+    check("the new name keeps the quoting the DM used", text.includes('name: "Cinder Pact"'), true);
+    check("and the inline comment survives", text.includes("# the founding charter spells it thus"), true);
+    check("with no other line disturbed", text.split("\n").slice(1, 3),
+      ["type: Organization", 'name: "Cinder Pact"  # the founding charter spells it thus']);
+    check("and the rename is reported applied", [r.ok, first(r.applied).applied], [true, true]);
+  }
+);
+
+withRepo(
+  {
+    "settings/rolara/factions/Ashfall-Compact.md":
+      "---\ntype: Organization\nname: The Ashfall Concord\n---\n\nBody.\n",
+  },
+  (root) => {
+    // A stale plan is reported, never guessed at, exactly as applyNormalizeType
+    // reports a type that no longer matches typeFrom. Rewriting whatever is there
+    // would overwrite a name the DM changed after the plan was built.
+    const r = apply(root, [
+      {
+        op: "rename-entity",
+        from: "settings/rolara/factions/Ashfall-Compact.md",
+        to: "settings/rolara/factions/Cinder-Pact.md",
+        nameFrom: "Ashfall Compact",
+        nameTo: "Cinder Pact",
+        links: [],
+        reason: "scope",
+      },
+    ]);
+    const e = first(r.failed);
+    check("a name that no longer matches nameFrom fails the entry", [r.ok, e.applied], [false, false]);
+    check("and the name on disk is left exactly as the DM left it",
+      read(root, "settings/rolara/factions/Cinder-Pact.md").includes("name: The Ashfall Concord"), true);
+    check("with both names in the detail, so the DM can see which is which",
+      [/Ashfall Concord/.test(String(e.detail)), /Ashfall Compact/.test(String(e.detail))], [true, true]);
+  }
+);
+
+withRepo(
+  {
+    "settings/rolara/factions/Ashfall-Compact.md": article("type: Organization", "Body."),
+    // The plan names this file as a referrer and its only mention of the old
+    // stem is inside a fenced block, which rewriteWikilinks leaves alone by
+    // design. Zero rewrites in a named file is a stale plan, and both the other
+    // rename executors already treat it as a drop.
+    "settings/rolara/factions/Notes.md": article("type: Concept", "```\n- [[Ashfall-Compact]]\n```"),
+  },
+  (root) => {
+    const r = apply(root, [
+      {
+        op: "rename-entity",
+        from: "settings/rolara/factions/Ashfall-Compact.md",
+        to: "settings/rolara/factions/Cinder-Pact.md",
+        nameFrom: "Ashfall Compact",
+        nameTo: "Cinder Pact",
+        links: ["settings/rolara/factions/Notes.md"],
+        reason: "scope",
+      },
+    ]);
+    const e = first(r.failed);
+    check("a named referrer with no wikilink to rewrite is a drop, not a silent pass",
+      [r.applied.length, e.applied], [0, false]);
+    check("and the fenced example is left exactly as the DM wrote it",
+      read(root, "settings/rolara/factions/Notes.md").includes("- [[Ashfall-Compact]]"), true);
+  }
+);
+
+withRepo(
+  {
+    // Where the knowledge base actually is, and it holds a wikilink.
+    "kb/factions/Factions-INDEX.md": article("type: Index", "- [[Ashfall-Compact]]"),
+    "kb/factions/Ashfall-Compact.md": article("type: Organization", "Body."),
+    // The DECLARED prong root, holding nothing with a wikilink in it.
+    "settings/rolara/Placeholder.md": article("type: Concept", "No wikilinks here."),
+  },
+  (root) => {
+    // rename-entity orphans wikilinks for the same reason
+    // rename-with-link-rewrite does, so a rename-entity that rewrote one is
+    // evidence this knowledge base has them and arms the zero-link rail. Left
+    // out of LINK_BEARING_OPERATIONS, a /migrate run made entirely of entity
+    // renames would walk roots pointed away from the content and pass.
+    const before = head(root);
+    const r = applyPlan(
+      {
+        operations: [
+          {
+            op: "rename-entity",
+            from: "kb/factions/Ashfall-Compact.md",
+            to: "kb/factions/Cinder-Pact.md",
+            nameFrom: null,
+            nameTo: null,
+            links: ["kb/factions/Factions-INDEX.md"],
+            reason: "scope",
+          },
+        ],
+      },
+      { cwd: root, settings: SETTINGS, baseRules: BASE_RULES, commit: true }
+    );
+    check("the rewrite landed, so a wikilink demonstrably exists in this project",
+      first(r.applied).linksRewritten, 1);
+    check("so an entity rename arms the zero-link rail too",
+      [links(r).ok, links(r).coverage, links(r).linksChecked], [false, "no-links-checked", 0]);
+    check("and nothing is committed on it", [r.committed, head(root)], [false, before]);
+  }
+);
+
+// rename-entity's per-file move is FLAT: a `from` and a `to` on the operation
+// itself, not an `articles` list. The three shared precheck mechanisms read that
+// shape already, and the last three operation kinds added here each shipped with one
+// of them not seeing their per-file data, so it is pinned rather than assumed.
+withRepo(
+  {
+    ".gitignore": "settings/rolara/factions/Ashfall-Compact.md\n",
+    "settings/rolara/factions/Ashfall-Compact.md": article("type: Organization", "Body."),
+    "settings/rolara/factions/Factions-INDEX.md": article("type: Index", "- [[Ashfall-Compact]]"),
+  },
+  (root) => {
+    const before = snapshotTree(root);
+    const r = apply(root, [
+      {
+        op: "rename-entity",
+        from: "settings/rolara/factions/Ashfall-Compact.md",
+        to: "settings/rolara/factions/Cinder-Pact.md",
+        nameFrom: null,
+        nameTo: null,
+        links: ["settings/rolara/factions/Factions-INDEX.md"],
+        groups: ["entityRenames[0]"],
+        reason: "scope",
+      },
+    ]);
+    check("an entity rename whose source is git-ignored is skipped, not moved",
+      [r.skipped.length, r.applied.length, r.failed.length], [1, 0, 0]);
+    check("the skip item names the ignored path and the scope entry",
+      [first(r.skipped).ignored, first(r.skipped).group],
+      [["settings/rolara/factions/Ashfall-Compact.md"], "entityRenames[0]"]);
+    check("and nothing moved or was rewritten", snapshotTree(root), before);
+  }
+);
+
+withRepo(
+  {
+    "settings/rolara/factions/Ashfall-Compact.md": article("type: Organization", "Body."),
+    // The destination is already occupied, which is the likelier collision shape:
+    // it needs one file, not two operations.
+    "settings/rolara/factions/Cinder-Pact.md": article("type: Organization", "A different faction."),
+  },
+  (root) => {
+    const before = snapshotTree(root);
+    const r = apply(root, [
+      {
+        op: "rename-entity",
+        from: "settings/rolara/factions/Ashfall-Compact.md",
+        to: "settings/rolara/factions/Cinder-Pact.md",
+        nameFrom: null,
+        nameTo: null,
+        links: [],
+        reason: "scope",
+      },
+    ]);
+    check("an entity rename onto an occupied destination refuses the run",
+      (r.refused || {}).reason, "collisions");
+    check("before anything is touched", snapshotTree(root), before);
+  }
+);
+
+withRepo(
+  {
+    ".gitignore": "drafts/\n",
+    "settings/rolara/factions/Ashfall-Compact.md": article("type: Organization", "Body."),
+    "settings/rolara/factions/Factions-INDEX.md": article("type: Index", "- [[Ashfall-Compact]]"),
+    "drafts/Secret.md": "See [[Ashfall-Compact]].\n",
+  },
+  (root) => {
+    // A git-ignored REFERRER is rewritten rather than skipped, because the rename
+    // breaks its wikilink either way, and the run discloses the edit the snapshot
+    // will not undo. findIgnoredReferrers reads `links` for any kind, so this needs
+    // nothing of rename-entity's own; the case proves it rather than a grep.
+    const r = apply(root, [
+      {
+        op: "rename-entity",
+        from: "settings/rolara/factions/Ashfall-Compact.md",
+        to: "settings/rolara/factions/Cinder-Pact.md",
+        nameFrom: null,
+        nameTo: null,
+        links: ["settings/rolara/factions/Factions-INDEX.md", "drafts/Secret.md"],
+        reason: "scope",
+      },
+    ]);
+    check("an entity rename's git-ignored referrer is repaired rather than left dead",
+      [first(r.applied).applied, read(root, "drafts/Secret.md")], [true, "See [[Cinder-Pact]].\n"]);
+    check("and the run names it, because git reset --hard will not undo that edit",
+      r.ignoredEdits.map((e) => [e.op, e.referrer]), [["rename-entity", "drafts/Secret.md"]]);
+    check("with the tracked referrer rewritten and NOT reported as unrecoverable",
+      [read(root, "settings/rolara/factions/Factions-INDEX.md").includes("[[Cinder-Pact]]"),
+       links(r).ok],
+      [true, true]);
+  }
+);
+
 console.log(`\n${passed} passed, ${failures.length} failed`);
 if (failures.length > 0) {
   for (const f of failures) console.log(`  FAILED: ${f}`);

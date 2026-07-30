@@ -972,6 +972,15 @@ const PLANNER_PROBES = {
   pathMoves: [{ from: "settings/rolara/misc/Odds.md", to: "settings/rolara/Odds.md", reason: "x" }],
   absorbFolders: [{ folder: "settings/rolara/misc" }],
   splitFolders: [{ folder: "settings/rolara/misc", buckets: [{ name: "odds", articles: ["Odds.md"] }] }],
+  entityRenames: [
+    {
+      file: "settings/rolara/misc/Odds.md",
+      to: "settings/rolara/misc/Sundries.md",
+      nameFrom: "Odds",
+      nameTo: "Sundries",
+      links: ["settings/rolara/misc/Misc-INDEX.md"],
+    },
+  ],
   rebuildIndexes: [{ index: "settings/rolara/misc/Misc-INDEX.md" }],
 };
 
@@ -1015,14 +1024,14 @@ const PLANNER_PROBES = {
     ["suffixRenames", () => ({}), "rename-with-link-rewrite"],
   ];
   check("the append order the plan document instructs is out of rank order as written",
-    planDocShape.map(([, , kind]) => APPLY_ORDER.indexOf(kind)), [1, 2, 3, 9, 4, 10, 5]);
+    planDocShape.map(([, , kind]) => APPLY_ORDER.indexOf(kind)), [1, 2, 3, 6, 9, 4, 10, 5]);
   check("and the order those planners RUN in is ascending rank anyway",
     scopedPlannerSequence(planDocShape).map(([, , kind]) => APPLY_ORDER.indexOf(kind)),
-    [1, 2, 3, 4, 5, 9, 10]);
+    [1, 2, 3, 4, 5, 6, 9, 10]);
   check("which puts each scope key where its planner's rank belongs",
     scopedPlannerSequence(planDocShape).map(([key]) => key),
     ["pathMoves", "absorbFolders", "splitFolders", "retypes", "suffixRenames",
-     "rebuildIndexes", "frontmatterRepairs"]);
+     "entityRenames", "rebuildIndexes", "frontmatterRepairs"]);
 }
 
 {
@@ -1037,9 +1046,9 @@ const PLANNER_PROBES = {
   const orders = permutations(SCOPED_PLANNERS).map((p) => scopedPlannerSequence(p).map(([key]) => key));
   check("every permutation of the registry runs the planners in one order",
     [orders.length, orders.every((o) => JSON.stringify(o) === JSON.stringify(expected))],
-    [24, true]);
+    [120, true]);
   check("and that order is the declared ranks ascending",
-    expected, ["pathMoves", "absorbFolders", "splitFolders", "rebuildIndexes"]);
+    expected, ["pathMoves", "absorbFolders", "splitFolders", "entityRenames", "rebuildIndexes"]);
 }
 
 {
@@ -1088,9 +1097,9 @@ const PLANNER_PROBES = {
   check("a planner emitting an operation ranked below its declaration fails loudly",
     [/orderingProbe/.test(message), /relocate-path/.test(message), /rebuild-index/.test(message)],
     [true, true, true]);
-  check("and the registry is back to its four entries",
+  check("and the registry is back to its five entries",
     SCOPED_PLANNERS.map(([key]) => key),
-    ["pathMoves", "absorbFolders", "splitFolders", "rebuildIndexes"]);
+    ["pathMoves", "absorbFolders", "splitFolders", "entityRenames", "rebuildIndexes"]);
 }
 
 {
@@ -1149,7 +1158,7 @@ const PLANNER_PROBES = {
     reversed, inOrder);
   check("with the registry restored afterward",
     SCOPED_PLANNERS.map(([key]) => key),
-    ["pathMoves", "absorbFolders", "splitFolders", "rebuildIndexes"]);
+    ["pathMoves", "absorbFolders", "splitFolders", "entityRenames", "rebuildIndexes"]);
   rmSync(root, { recursive: true, force: true });
 }
 
@@ -2102,6 +2111,176 @@ console.log("\n=== scoped plans: scope-entry groups ===");
   const p = plan(FULL_SURVEY);
   check("no setup operation carries a group",
     p.operations.some((o) => Object.prototype.hasOwnProperty.call(o, "groups")), false);
+}
+
+console.log("\n=== scoped plans: rename-entity ===");
+
+{
+  const r = scoped({
+    entityRenames: [
+      {
+        file: "settings/rolara/factions/Ashfall-Compact.md",
+        to: "settings/rolara/factions/Cinder-Pact.md",
+        nameFrom: "Ashfall Compact",
+        nameTo: "Cinder Pact",
+        links: ["settings/rolara/factions/Factions-INDEX.md"],
+      },
+    ],
+  });
+  // Every reach goes through obj(), which is this file's own rule: a field an
+  // implementation never emitted has to make the case go RED rather than throw and
+  // take every later case down with it. Measured here, not theorised. The bare
+  // `r.operations[0].links` this case was drafted with crashed the whole suite on
+  // the red run, which hides exactly the red set that proves the suite can fail.
+  const op = obj(r.operations[0]);
+  check("an entity rename plans one rename-entity", kindsOf(r.operations), ["rename-entity"]);
+  check("the referring files ride along on the operation",
+    op.links, ["settings/rolara/factions/Factions-INDEX.md"]);
+  // The rename, the frontmatter name, and the wikilinks are one unit of work, so
+  // the plan has to carry all three halves: re-deriving any of them at apply time
+  // would be the apply phase inventing an operation.
+  check("and so do both halves of the frontmatter name",
+    [op.nameFrom, op.nameTo], ["Ashfall Compact", "Cinder Pact"]);
+  check("with the scope entry's group id stamped on it",
+    list(op.groups), ["entityRenames[0]"]);
+}
+
+{
+  const r = scoped({
+    entityRenames: [{ file: "settings/rolara/factions/A.md", to: "settings/rolara/factions/A.md" }],
+  });
+  check("a rename to the same path is declined", [r.operations.length, r.declined.length], [0, 1]);
+}
+
+{
+  const r = scoped({ entityRenames: [{ to: "settings/rolara/factions/Cinder-Pact.md" }] });
+  check("an entry naming no file is declined", [r.operations.length, r.declined.length], [0, 1]);
+}
+
+{
+  // An entity with no `name` field is the ordinary case for the base schema, which
+  // does not require one, so a scope carrying neither half plans rather than
+  // declines. Nulls rather than absent fields, because the executor tests for null
+  // to decide whether it has anything to match on.
+  const r = scoped({
+    entityRenames: [
+      { file: "settings/rolara/factions/A.md", to: "settings/rolara/factions/B.md" },
+    ],
+  });
+  const op = obj(r.operations[0]);
+  check("a rename carrying no frontmatter name still plans",
+    [kindsOf(r.operations), op.nameFrom, op.nameTo, op.links],
+    [["rename-entity"], null, null, []]);
+}
+
+// Every path an entityRenames entry names is one the DM typed, and this planner
+// enumerates nothing, so nothing else proves any of them are there. Both halves are
+// checked for the same reason the split's articles are: a typo plans cleanly, passes
+// every precheck, and then half-applies after the snapshot, with the file moved and
+// the entry reporting applied false.
+{
+  const root = splitFixture();
+  const r = scoped(
+    {
+      entityRenames: [
+        { file: "settings/rolara/locations/Ashfal.md", to: "settings/rolara/locations/Cinder.md" },
+      ],
+    },
+    root
+  );
+  check("an entity rename whose source is not on disk is declined at plan time",
+    [r.operations.length, r.declined.length], [0, 1]);
+  check("and the reason names the path, so the typo is visible in the proposal",
+    String(obj(r.declined[0]).reason).includes("settings/rolara/locations/Ashfal.md"), true);
+  rmSync(root, { recursive: true, force: true });
+}
+
+{
+  const root = splitFixture();
+  const r = scoped(
+    {
+      entityRenames: [
+        {
+          file: "settings/rolara/locations/Ashfall.md",
+          to: "settings/rolara/locations/Cinder.md",
+          links: ["settings/rolara/locations/Locatons-INDEX.md"],
+        },
+      ],
+    },
+    root
+  );
+  // The whole ENTRY is declined rather than the one referrer dropped. Dropping it
+  // would rename the file and leave the wikilink the DM named unrewritten, which is
+  // the dead link the coupling exists to prevent.
+  check("a referring file that is not on disk declines the whole entry",
+    [r.operations.length, r.declined.length], [0, 1]);
+  check("with the missing referrer named",
+    String(obj(r.declined[0]).reason).includes("settings/rolara/locations/Locatons-INDEX.md"), true);
+  rmSync(root, { recursive: true, force: true });
+}
+
+{
+  // The check reasons about the tree the operation will MEET. rename-entity ranks
+  // below rebuild-index and above relocate-path, so a move in the same scope puts
+  // both the article and its referrer where this entry names them.
+  const root = absorbFixture();
+  const r = scoped(
+    {
+      pathMoves: [{ from: "settings/rolara/misc", to: "settings/rolara/notes", reason: "x" }],
+      entityRenames: [
+        {
+          file: "settings/rolara/notes/Odds.md",
+          to: "settings/rolara/notes/Sundries.md",
+          links: ["settings/rolara/notes/Misc-INDEX.md"],
+        },
+      ],
+    },
+    root
+  );
+  check("a rename of an article the same plan moves into place plans rather than declines",
+    [kindsOf(r.operations), r.declined.length], [["relocate-path", "rename-entity"], 0]);
+  rmSync(root, { recursive: true, force: true });
+}
+
+{
+  // The other direction of the same model: a rename of an article an earlier
+  // operation carries away cannot execute, so it is declined rather than planned to
+  // fail after the snapshot.
+  const root = absorbFixture();
+  const r = scoped(
+    {
+      pathMoves: [{ from: "settings/rolara/misc", to: "settings/rolara/notes", reason: "x" }],
+      entityRenames: [
+        { file: "settings/rolara/misc/Odds.md", to: "settings/rolara/misc/Sundries.md" },
+      ],
+    },
+    root
+  );
+  check("but a rename of an article an earlier move carries away is declined",
+    [kindsOf(r.operations), r.declined.length], [["relocate-path"], 1]);
+  rmSync(root, { recursive: true, force: true });
+}
+
+{
+  const root = absorbFixture();
+  const r = scoped(
+    {
+      entityRenames: [
+        { file: "settings/rolara/misc/Odds.md", to: "settings/rolara/misc/Sundries.md" },
+        { file: "settings/rolara/misc/Sundries.md", to: "settings/rolara/misc/Oddments.md" },
+      ],
+    },
+    root
+  );
+  // Same-kind operations run in the order this planner emits them, so a second
+  // entry renaming what the first produced is legitimate and must not read as a
+  // typo. It is also the shape a DM writes by accident, which is why the chain is
+  // pinned rather than assumed.
+  check("a chained rename whose source the first entry creates plans too",
+    [kindsOf(r.operations), r.declined.length], [["rename-entity", "rename-entity"], 0]);
+  check("and each entry keeps its own group id",
+    r.operations.map((o) => list(o.groups)), [["entityRenames[0]"], ["entityRenames[1]"]]);
+  rmSync(root, { recursive: true, force: true });
 }
 
 console.log(`\n${passed} passed, ${failures.length} failed`);

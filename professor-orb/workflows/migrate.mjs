@@ -921,6 +921,7 @@ export const SCOPED_PLANNERS = [
   ["pathMoves", planPathMoves, "relocate-path"],
   ["absorbFolders", planAbsorbFolders, "absorb-folder"],
   ["splitFolders", planSplitFolders, "split-folder"],
+  ["entityRenames", planEntityRenames, "rename-entity"],
   ["rebuildIndexes", planRebuildIndexes, "rebuild-index"],
 ];
 
@@ -1737,6 +1738,91 @@ function planSplitFolders(items, ctx, key) {
       folder,
       groups,
       reason: `Rebuilt because ${folder} was split into ${bucketCount} subfolder(s).`,
+    });
+  }
+  return { operations, declined };
+}
+
+// Rename an entity across the knowledge base: its filename, its frontmatter
+// `name`, and every wikilink naming it, as ONE operation with one group so that
+// all three travel together. The DM negotiated all three halves with the command,
+// so the plan carries all three: re-deriving the referrer set at apply time would
+// be the apply phase inventing an operation, which is the same rule
+// rename-with-link-rewrite's `links` and merge-index's `sourceLinks` already live
+// under.
+//
+// Body prose is not in the operation and not in this planner. See
+// applyRenameEntity for why, and for the test that pins it.
+//
+// The frontmatter name is carried as an explicit null when the scope names
+// neither half, rather than as an absent field, because the executor tests for
+// null to decide whether it has a value to match on. An entity with no `name` is
+// the ordinary case: the base schema does not require the field, and nothing is
+// ever inserted.
+//
+// EVERY path here is one the DM typed and this planner enumerates nothing, so
+// nothing else proves any of them exist. Both the article and each referrer are
+// checked, and a bad referrer declines the whole ENTRY rather than dropping the one
+// path: dropping it would rename the file and leave a wikilink the DM named
+// pointing at a filename that is gone, which is the dead link the coupling exists
+// to prevent. The checks are handed the plan so far for the usual reason, since
+// rename-entity ranks above relocate-path and an earlier entry can be what puts
+// either path where this one names it.
+function planEntityRenames(items, ctx, key) {
+  const operations = [];
+  const declined = [];
+  for (const [i, item] of items.entries()) {
+    const from = toPosix(item && item.file);
+    const to = toPosix(item && item.to);
+    if (!from || !to) {
+      declined.push({
+        op: "rename-entity",
+        target: from || to || "(unnamed)",
+        reason: "The scope entry is missing a source or a destination, so there is nothing to rename.",
+      });
+      continue;
+    }
+    if (from === to) {
+      declined.push({
+        op: "rename-entity",
+        target: from,
+        reason: "Source and destination are the same path.",
+      });
+      continue;
+    }
+    // A FILE rather than merely a path: this executor edits the article's own
+    // frontmatter, so a directory sitting there cannot execute either. `to` is
+    // deliberately not checked, because a destination that already exists is
+    // findDestinationCollisions's question and its answer is the opposite one.
+    if (namedPathNotAFile(ctx, from, "rename-entity", operations)) {
+      declined.push({
+        op: "rename-entity",
+        target: from,
+        reason: `No file exists at ${from}, so there is no entity to rename. Check that path for a typo: a scope naming a file that is not there plans cleanly and then fails after the snapshot.`,
+      });
+      continue;
+    }
+    const links = list(item.links).map(toPosix).filter(Boolean);
+    const missing = links.filter((rel) => namedPathNotAFile(ctx, rel, "rename-entity", operations));
+    if (missing.length > 0) {
+      declined.push({
+        op: "rename-entity",
+        target: from,
+        reason: `${missing.join(", ")} ${missing.length === 1 ? "is" : "are"} named as referring file(s) but ${
+          missing.length === 1 ? "is" : "are"
+        } not there to rewrite. The rename and its wikilink rewrites are one unit of work, so the whole entry is declined rather than the rename planned without them: a rewrite that cannot happen leaves a wikilink naming a filename that is gone, and a dead wikilink is valid markdown that fails silently in Obsidian.`,
+      });
+      continue;
+    }
+    operations.push({
+      op: "rename-entity",
+      from,
+      to,
+      nameFrom: item.nameFrom == null ? null : String(item.nameFrom),
+      nameTo: item.nameTo == null ? null : String(item.nameTo),
+      links,
+      groups: [groupIdFor(key, i)],
+      reason: String((item && item.reason) || "Renamed by a DM-approved /migrate scope."),
     });
   }
   return { operations, declined };
@@ -3050,6 +3136,130 @@ function applyRenameWithLinkRewrite(op, ctx) {
   return entry;
 }
 
+// 3b. Rename an entity: the file, its frontmatter `name`, and every wikilink
+//     naming it, as ONE unit of work with one accounting entry. Modelled on
+//     applyRenameWithLinkRewrite just above and holding the same property for the
+//     same reason: a dead wikilink is valid markdown that fails silently in
+//     Obsidian, so a move reported as done with a dropped rewrite is invisible
+//     without this. The frontmatter name is the part this one adds.
+//
+// BODY PROSE IS NOT TOUCHED. "Rename X to Y everywhere" reads as including the
+// sentences that mention X, and it does not: rewriting those is chronicler's
+// work, behind chronicler's own proposal gate. Doing it here would rewrite the
+// DM's own writing under an approval they gave for a structural change. A case in
+// migrate.apply.test.mjs pins that boundary from both sides rather than trusting
+// this paragraph.
+//
+// The drop rules are the sibling's, deliberately identical rather than merely
+// similar. An unreadable or unwritable referrer, and a referrer holding no
+// wikilink to the old name, are all collected and reported together, and every
+// one of them makes the entry report applied false even though the file moved.
+// Zero rewrites in a NAMED file is the rewriteWikilinks contract's own case: a
+// wikilink inside a code span or a fenced block is left alone, so a plan naming a
+// documentation file as a referrer is a stale plan, and saying so is better than
+// editing prose that was never a link.
+function applyRenameEntity(op, ctx) {
+  const entry = entryFor(op);
+  entry.linksRewritten = 0;
+  entry.linksExpected = list(op.links).length;
+  // Stated rather than left absent, because a later task renders these entries to
+  // the DM: "false" says the article carried no name field, which is a normal
+  // outcome, while a missing field says nothing at all.
+  entry.nameUpdated = false;
+
+  const from = toPosix(op.from);
+  const to = toPosix(op.to);
+  const moved = gitMove(ctx, from, to);
+  if (!moved.ok) {
+    entry.detail = `git mv failed: ${moved.error}`;
+    return entry;
+  }
+  entry.mode = moved.mode;
+
+  // The frontmatter name, if the plan names one AND the article carries one.
+  // Absence is normal rather than a fault: the base schema does not require the
+  // field, so nothing is ever inserted here, on the same rule that keeps
+  // `publish` out of every insertion in this module. A plan carrying no nameFrom
+  // cannot match on anything, so it does not edit anything either.
+  if (op.nameFrom != null && op.nameTo != null) {
+    const read = readText(ctx, to);
+    if (!read.ok) {
+      entry.detail = `The file moved with git mv (${moved.mode}) but could not be read back, so its frontmatter name still holds the old value: ${read.error}`;
+      return entry;
+    }
+    const doc = splitTextLines(read.text);
+    const bounds = frontmatterBounds(doc.lines);
+    if (bounds) {
+      for (let i = bounds.start; i < bounds.end; i++) {
+        const m = /^(name[ \t]*:[ \t]*)(.*)$/.exec(doc.lines[i]);
+        if (!m) continue;
+        let rest = m[2];
+        let comment = "";
+        const c = inlineCommentIndex(rest);
+        if (c !== -1) {
+          comment = rest.slice(c);
+          rest = rest.slice(0, c);
+        }
+        // Raw lines, never a parse and regenerate, and the quoting and any inline
+        // comment are carried across: the same rule and the same mechanics as
+        // applyNormalizeType.
+        const { quote, value } = unquoteScalar(rest);
+        if (value !== op.nameFrom) {
+          entry.detail = `The file carries name ${JSON.stringify(value)}, not the ${JSON.stringify(
+            op.nameFrom
+          )} this plan was built against. Left unchanged rather than guessed at, so the rename is incomplete; re-run the plan phase.`;
+          return entry;
+        }
+        doc.lines[i] = `${m[1]}${quote}${op.nameTo}${quote}${comment}`;
+        const written = writeText(ctx, to, joinTextLines(doc));
+        if (!written.ok) {
+          entry.detail = `Could not write the frontmatter name: ${written.error}`;
+          return entry;
+        }
+        entry.nameUpdated = true;
+        break;
+      }
+    }
+  }
+
+  const oldStem = stemOf(from);
+  const newStem = stemOf(to);
+  const missed = [];
+  for (const link of list(op.links)) {
+    const read = readText(ctx, link);
+    if (!read.ok) {
+      missed.push(`${link} (unreadable: ${read.error})`);
+      continue;
+    }
+    const rewritten = rewriteWikilinks(read.text, oldStem, newStem);
+    if (rewritten.count === 0) {
+      missed.push(`${link} (no wikilink to ${oldStem} found)`);
+      continue;
+    }
+    const written = writeText(ctx, link, rewritten.text);
+    if (!written.ok) {
+      missed.push(`${link} (unwritable: ${written.error})`);
+      continue;
+    }
+    entry.linksRewritten += rewritten.count;
+  }
+
+  const nameNote = entry.nameUpdated ? "the frontmatter name was updated" : "there was no frontmatter name to update";
+  if (missed.length > 0) {
+    entry.detail =
+      `The file moved with git mv (${moved.mode}) and ${nameNote}, but the link rewrite half did not complete ` +
+      `for: ${missed.join("; ")}. The rename and its rewrites are one unit of work, so this entry reports ` +
+      "applied false rather than counting the move as done.";
+    return entry;
+  }
+  entry.applied = true;
+  entry.detail =
+    `git mv (${moved.mode}) to ${newStem}, ${nameNote}, and ${entry.linksRewritten} wikilink(s) rewritten across ` +
+    `${entry.linksExpected} referring file(s) in the same unit of work. Body prose naming the old entity was not ` +
+    "touched: rewriting the DM's sentences is chronicler's work, behind its own proposal gate.";
+  return entry;
+}
+
 // The article stems in a folder, sorted: every .md file that is not itself an
 // index. Subfolders are skipped, and that is load-bearing rather than
 // incidental: a subfolder's articles belong to its own index, and listing them
@@ -3601,6 +3811,7 @@ const EXECUTORS = {
   "split-folder": applySplitFolder,
   "normalize-type": applyNormalizeType,
   "rename-with-link-rewrite": applyRenameWithLinkRewrite,
+  "rename-entity": applyRenameEntity,
   "create-index": applyCreateIndex,
   "merge-index": applyMergeIndex,
   "rebuild-index": applyRebuildIndex,
@@ -3636,7 +3847,14 @@ export function applyOperation(op, ctx) {
 // Membership here is necessary but NOT sufficient to arm the zero-link rail; see
 // the expectLinks argument in applyPlan. A plan carrying one of these kinds says
 // only what was attempted.
-const LINK_BEARING_OPERATIONS = new Set(["rename-with-link-rewrite", "merge-index"]);
+//
+// rename-entity is here on exactly the rename argument above: it changes a
+// target's filename and carries `links` to repair the wikilinks that named it. Its
+// omission would have left the rail unarmed for a /migrate run made entirely of
+// entity renames, so a walk pointed away from the content would have passed with
+// zero links checked. Inert for setup's unattended migration either way, because
+// no planner buildPlan reaches emits the kind.
+const LINK_BEARING_OPERATIONS = new Set(["rename-with-link-rewrite", "rename-entity", "merge-index"]);
 
 // The recovery instruction, whole rather than half of one.
 //
