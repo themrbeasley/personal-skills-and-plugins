@@ -1010,6 +1010,23 @@ export const SCOPED_PLANNERS = [
   // lands it anyway; scopedPlannerSequence is still what decides that, not this
   // position.
   ["prosePathUpdates", planProsePathUpdates, "update-prose-paths"],
+  // The three setting-lifecycle planners, each emitting exactly ONE kind, so the
+  // lowest-ranked kind each emits is the only kind each emits. settingRenames and
+  // settingRetirements both move prong roots, which is relocate-prong (rank 0);
+  // campaignRetirements moves one campaign folder, which is relocate-path (rank 1),
+  // the same mechanics with a different meaning.
+  //
+  // Appended, and rank 0 is the FRONT of the run order, which is exactly the case
+  // the declarations exist for: read off source position these three would run
+  // last, after every planner whose checks need to see a prong move.
+  //
+  // The two rank-0 entries TIE, and scopedPlannerSequence's sort is stable, so
+  // settingRenames runs first. Nothing depends on which way the tie falls: a scope
+  // that both renames and retires one setting has the second planner find its
+  // roots already carried away and decline, whichever of the two that is.
+  ["settingRenames", planSettingRenames, "relocate-prong"],
+  ["settingRetirements", planSettingRetirements, "relocate-prong"],
+  ["campaignRetirements", planCampaignRetirements, "relocate-path"],
 ];
 
 const applyRank = (kind) => APPLY_ORDER.indexOf(kind);
@@ -2351,6 +2368,251 @@ function planProsePathUpdates(items, ctx, key) {
   return { operations, declined };
 }
 
+// ---------------------------------------------------------------------------
+// Setting lifecycle
+// ---------------------------------------------------------------------------
+//
+// A rename, a retirement, and a campaign retirement. All three are COMPOSITIONS
+// of relocate-prong and relocate-path plus a conventions update, and none of them
+// adds an executor: a setting is three prong roots and a conventions entry, so
+// moving a world is moving those roots and repointing that entry.
+//
+// This is the module's highest blast radius. A prong root holds an entire
+// knowledge base, homebrew catalog, or campaign's session reports, so a wrong
+// destination here moves a DM's whole world somewhere they did not ask for. Two
+// rails follow from that and are argued where they are enforced below: the three
+// moves of one setting are ONE skip unit, and anything conventions.json does not
+// record is declined rather than executed.
+
+// The three prong roots of a setting: the conventions field recording the root,
+// and the top-level folder that prong lives under in the canonical layout.
+//
+// THE FOLDER NAME IS NOT THE FIELD NAME and is not derivable from it. It is what
+// a retirement builds its archive destination out of, so it is taken from the
+// layout skills/setup/references/conventions-schema.md records
+// (settings/<name>, homebrew/<name>, session-reports/<name>) rather than from
+// the camelCase field. Getting it from the field would archive a knowledge base
+// under archive/<name>/kbRoot.
+const PRONG_FIELDS = [
+  ["kbRoot", "settings"],
+  ["homebrewRoot", "homebrew"],
+  ["sessionReportsRoot", "session-reports"],
+];
+
+// The canonical folder one prong lives under, so the campaign retirement below
+// and the setting retirement cannot drift apart on where the archive puts a
+// world's session reports.
+const prongFolderFor = (field) => (PRONG_FIELDS.find((p) => p[0] === field) || [])[1] || "";
+
+// The settings entry with this name, or null.
+//
+// An empty or absent name matches NOTHING, deliberately. `String(s.name)` on an
+// entry with no name field is the literal "undefined", which would otherwise
+// match a scope entry carrying no name at all and hand a rename the wrong world.
+const settingNamed = (settings, name) => {
+  const want = String(name == null ? "" : name);
+  if (want === "") return null;
+  return (
+    list(settings).find(
+      (s) => s && typeof s === "object" && String(s.name == null ? "" : s.name) === want
+    ) || null
+  );
+};
+
+// A prong root with its LAST component replaced by the new setting name.
+//
+// The dirname guard is not decorative. A v1 or v2 project can record a root at
+// the project root itself, where path.posix.dirname answers ".", and joining
+// that in records "./rolara-prime": a path that compares equal to nothing else
+// in this module, that toPosix does not normalize away, and that every
+// startsWith-based prong test would then miss.
+function rootRenamedTo(root, name) {
+  const parent = path.posix.dirname(toPosix(root));
+  return parent === "." || parent === "" || parent === "/" ? name : `${parent}/${name}`;
+}
+
+// Why a prong root a scope names is not there to be moved, in the DM's terms.
+// Two causes reach it and both read the same from here, so the message names
+// both rather than guessing: planResolve answers "nothing will be at this path
+// when the operation runs", not why.
+const PRONG_ABSENT_REASON =
+  "is not there to be moved by the time this operation would run. Either conventions.json records a root that " +
+  "is not on disk, or an earlier operation in this same plan already moved it. That prong is left alone; the " +
+  "others in this entry are unaffected.";
+
+// A setting rename: move all three prong roots, keeping each one's parent.
+//
+// The Obsidian vault is deliberately NOT a fourth operation. It lives at
+// <kbRoot>/.obsidian, inside the root that just moved, so it travels with it,
+// and a second move of a path already inside the first would fail. The plan
+// suite pins that so a later "also move the vault" addition cannot double-move
+// it.
+function planSettingRenames(items, ctx, key) {
+  const operations = [];
+  const declined = [];
+  for (const [i, item] of items.entries()) {
+    const from = String((item && item.from) || "");
+    const to = String((item && item.to) || "");
+    const setting = settingNamed(ctx.settings, from);
+    if (!setting) {
+      declined.push({
+        op: "relocate-prong",
+        target: from || "(unnamed)",
+        reason:
+          "No setting by that name in conventions.json. Renaming one that is not recorded would move folders the " +
+          "file still points elsewhere, which is how a knowledge base ends up half-described.",
+      });
+      continue;
+    }
+    if (!to || to === from) {
+      declined.push({
+        op: "relocate-prong",
+        target: from,
+        reason: "The new name is missing or identical to the old one, so there is nothing to rename.",
+      });
+      continue;
+    }
+    // ONE group id for all three moves. This is the skip unit, and here it is
+    // load-bearing rather than tidy: moving two of a world's three prongs and
+    // leaving the third leaves the project matching neither its old shape nor
+    // the approved one, and conventions.json would then point two roots at the
+    // new name and one at the old.
+    const group = groupIdFor(key, i);
+    for (const [field] of PRONG_FIELDS) {
+      const root = toPosix(setting[field]);
+      if (!root) continue;
+      // Handed `operations` so the roots this entry has already planned count,
+      // the same way every other planner's checks do.
+      if (namedPathMissing(ctx, root, "relocate-prong", operations)) {
+        declined.push({ op: "relocate-prong", target: root, reason: `${root} ${PRONG_ABSENT_REASON}` });
+        continue;
+      }
+      operations.push({
+        op: "relocate-prong",
+        from: root,
+        to: rootRenamedTo(root, to),
+        groups: [group],
+        reason: `Setting ${from} renamed to ${to}: its ${field} moves with the name.`,
+      });
+    }
+  }
+  return { operations, declined };
+}
+
+// A setting retirement: move all three prong roots under an archive.
+//
+// The settings ENTRY is not touched here and is never deleted; see
+// conventionsAfterScope, which marks it instead and argues why.
+function planSettingRetirements(items, ctx, key) {
+  const operations = [];
+  const declined = [];
+  for (const [i, item] of items.entries()) {
+    const name = String((item && item.setting) || "");
+    const archiveRoot = toPosix((item && item.archiveRoot) || "") || "archive";
+    const setting = settingNamed(ctx.settings, name);
+    if (!setting) {
+      declined.push({
+        op: "relocate-prong",
+        target: name || "(unnamed)",
+        reason:
+          "No setting by that name in conventions.json. Retiring one that is not recorded would move folders the " +
+          "file still points elsewhere, which is how a knowledge base ends up half-described.",
+      });
+      continue;
+    }
+    const group = groupIdFor(key, i);
+    for (const [field, folder] of PRONG_FIELDS) {
+      const root = toPosix(setting[field]);
+      if (!root) continue;
+      const to = `${archiveRoot}/${name}/${folder}`;
+      if (root === to) {
+        declined.push({
+          op: "relocate-prong",
+          target: root,
+          reason: `${root} is already where this retirement would put it, so there is nothing to move.`,
+        });
+        continue;
+      }
+      if (namedPathMissing(ctx, root, "relocate-prong", operations)) {
+        declined.push({ op: "relocate-prong", target: root, reason: `${root} ${PRONG_ABSENT_REASON}` });
+        continue;
+      }
+      operations.push({
+        op: "relocate-prong",
+        from: root,
+        to,
+        groups: [group],
+        reason: `Setting ${name} retired: its ${field} moves under ${archiveRoot}/.`,
+      });
+    }
+  }
+  return { operations, declined };
+}
+
+// A campaign retirement: one folder, out of the setting's session-reports root
+// and into the same archive a setting retirement uses.
+function planCampaignRetirements(items, ctx, key) {
+  const operations = [];
+  const declined = [];
+  for (const [i, item] of items.entries()) {
+    const name = String((item && item.setting) || "");
+    const campaign = String((item && item.campaign) || "");
+    const archiveRoot = toPosix((item && item.archiveRoot) || "") || "archive";
+    const setting = settingNamed(ctx.settings, name);
+    if (!setting) {
+      declined.push({
+        op: "relocate-path",
+        target: `${name || "(unnamed)"}/${campaign || "(unnamed)"}`,
+        reason: "No setting by that name in conventions.json.",
+      });
+      continue;
+    }
+    const campaigns = list(setting.campaigns).map((c) => (typeof c === "string" ? c : c && c.name));
+    if (!campaign || !campaigns.includes(campaign)) {
+      declined.push({
+        op: "relocate-path",
+        target: `${name}/${campaign || "(unnamed)"}`,
+        reason:
+          `${name} does not list a campaign called ${campaign || "(unnamed)"}. Retiring a folder the conventions ` +
+          "file does not record would leave the file describing a campaign that is no longer where it says.",
+      });
+      continue;
+    }
+    const reports = toPosix(setting.sessionReportsRoot);
+    if (!reports) {
+      declined.push({
+        op: "relocate-path",
+        target: `${name}/${campaign}`,
+        reason: `${name} records no sessionReportsRoot, so there is no folder this campaign can be resolved from.`,
+      });
+      continue;
+    }
+    const from = `${reports}/${campaign}`;
+    // settings[].campaigns is a cache rather than the authority, so a campaign it
+    // lists may have no folder at all. Without this the plan reads clean and then
+    // fails on `git mv` after the snapshot.
+    if (namedPathMissing(ctx, from, "relocate-path", operations)) {
+      declined.push({
+        op: "relocate-path",
+        target: from,
+        reason:
+          `Nothing is at ${from} by the time this operation would run, so there is nothing to move. ` +
+          "settings[].campaigns is a cache rather than the authority on which campaign folders exist, so a listed " +
+          "campaign with no folder is an ordinary way to reach this. Check that path for a typo.",
+      });
+      continue;
+    }
+    operations.push({
+      op: "relocate-path",
+      from,
+      to: `${archiveRoot}/${name}/${prongFolderFor("sessionReportsRoot")}/${campaign}`,
+      groups: [groupIdFor(key, i)],
+      reason: `Campaign ${campaign} retired out of ${name}'s active campaigns.`,
+    });
+  }
+  return { operations, declined };
+}
+
 // The type values a retype scope introduces, deduplicated and in first-seen
 // order. Task 10's conventions updater folds these into the base type enum's
 // extendedBy, so an article retyped to a value the enum does not carry does not
@@ -3008,14 +3270,117 @@ export function conventionsAfterScope(conventions, scope) {
     }
   }
 
-  // Tasks 12, 13, and 14 add the setting-lifecycle cases here. Task 12 adds a
-  // rename, which updates settings[].name and all three prong roots, a
-  // retirement, which marks the entry rather than deleting it, and a campaign
-  // retirement, which updates campaigns. Task 13 adds a setting split, which
-  // adds a settings entry. Task 14 adds a setting merge, which removes one.
-  // Task 15 does not touch this function.
+  // A rename repoints the name, all three prong roots, and the tag registry.
+  // Every one of them, or the file describes a world that is half where it says.
+  for (const item of list(s.settingRenames)) {
+    const from = String((item && item.from) || "");
+    const to = String((item && item.to) || "");
+    const setting = settingNamed(next.settings, from);
+    // The same three conditions planSettingRenames declines on, so this half
+    // cannot record a rename the plan half refused to plan.
+    if (!setting || !to || to === from) continue;
+    for (const [field] of PRONG_FIELDS) {
+      if (!setting[field]) continue;
+      setting[field] = rootRenamedTo(setting[field], to);
+    }
+    if (typeof setting.tagRegistryPath === "string") {
+      setting.tagRegistryPath = renamePathComponents(setting.tagRegistryPath, from, to);
+    }
+    setting.name = to;
+    changes.push(
+      `Renamed setting ${from} to ${to} and repointed all three prong roots.` +
+        (typeof setting.tagRegistryPath === "string"
+          ? ` The tag registry path follows the name: ${setting.tagRegistryPath}.`
+          : " This setting records no tag registry path, so there was none to repoint.")
+    );
+  }
+
+  for (const item of list(s.settingRetirements)) {
+    const name = String((item && item.setting) || "");
+    const setting = settingNamed(next.settings, name);
+    if (!setting) continue;
+    const archiveRoot = toPosix((item && item.archiveRoot) || "") || "archive";
+    for (const [field, folder] of PRONG_FIELDS) {
+      if (!setting[field]) continue;
+      // The name as the SCOPE gave it. It equals setting.name here by
+      // construction, since that is what settingNamed matched on, and it is
+      // written this way because it is also the name planSettingRetirements built
+      // its destinations from: both halves read one source for the archive path.
+      setting[field] = `${archiveRoot}/${name}/${folder}`;
+    }
+    // MARKED, never deleted. Deleting the entry destroys the record that this
+    // world existed, and every session report, article, and homebrew entry under
+    // the archive would then belong to no setting at all: unattributed to the
+    // validation sweep, unresolvable to /scribe and /log.
+    setting.retired = true;
+    changes.push(
+      `Marked setting ${name} retired and repointed its roots into ${archiveRoot}/. The entry is kept, not deleted: ` +
+        "everything under the archive would otherwise belong to no setting at all."
+    );
+  }
+
+  // A retired campaign leaves the active list and is RECORDED, for the same
+  // reason a retired setting's entry is kept rather than deleted.
+  for (const item of list(s.campaignRetirements)) {
+    const setting = settingNamed(next.settings, item && item.setting);
+    const campaign = String((item && item.campaign) || "");
+    if (!setting || !campaign) continue;
+    const before = list(setting.campaigns);
+    const named = (c) => (typeof c === "string" ? c : c && c.name);
+    // Only a campaign the setting ACTUALLY lists, which is the same condition
+    // planCampaignRetirements declines on. Without it, a scope naming a campaign
+    // that was never there grows a retiredCampaigns entry for a folder nothing
+    // moved, and a second run of the same scope would grow a duplicate.
+    if (!before.some((c) => named(c) === campaign)) continue;
+    setting.campaigns = before.filter((c) => named(c) !== campaign);
+    setting.retiredCampaigns = [...list(setting.retiredCampaigns), campaign];
+    changes.push(
+      `Moved campaign ${campaign} out of ${setting.name}'s campaigns and into retiredCampaigns, so the lane ` +
+        "commands stop offering it while the record that it happened survives."
+    );
+  }
+
+  // Tasks 13 and 14 add the remaining setting-lifecycle cases here. Task 13 adds
+  // a setting split, which adds a settings entry. Task 14 adds a setting merge,
+  // which removes one. Task 15 does not touch this function.
 
   return { conventions: next, changes };
+}
+
+// The old setting name replaced inside a recorded path, by path COMPONENT rather
+// than by substring.
+//
+// The obvious `path.split(old).join(new)` corrupts two shapes this file really
+// holds. A name that is a SUBSTRING of another component rewrites that component
+// too: with a setting called "orb", the canonical
+// ".professor-orb/tag-registry.orb.json" becomes ".professor-<new>/...", moving
+// the plugin's own install directory out from under the write-time hook that
+// reads this path. And a name appearing MORE THAN ONCE is not always meant twice;
+// only the parts that ARE the name should move.
+//
+// Directory components match whole. The basename matches on its dot-delimited
+// parts, which is what makes ".professor-orb/tag-registry.rolara.json" follow a
+// rename of "rolara" while ".professor-orb" stays exactly where it is, and what
+// makes "settings/rolara/tags.json" follow the kbRoot it sits inside.
+//
+// An empty old name replaces nothing. `"".split("")` is every character, and
+// joining those with the new name would rewrite the path into gibberish.
+function renamePathComponents(rel, from, to) {
+  const source = toPosix(rel);
+  if (!from) return source;
+  const parts = source.split("/");
+  return parts
+    .map((part, i) =>
+      i < parts.length - 1
+        ? part === from
+          ? to
+          : part
+        : part
+            .split(".")
+            .map((piece) => (piece === from ? to : piece))
+            .join(".")
+    )
+    .join("/");
 }
 
 // ---------------------------------------------------------------------------

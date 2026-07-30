@@ -414,6 +414,77 @@ const CONVENTIONS = {
 }
 
 {
+  const r = conventionsAfterScope(CONVENTIONS, { settingRenames: [{ from: "rolara", to: "rolara-prime" }] });
+  const s = r.conventions.settings[0];
+  check("a rename repoints every root and the name",
+    [s.name, s.kbRoot, s.homebrewRoot, s.sessionReportsRoot],
+    ["rolara-prime", "settings/rolara-prime", "homebrew/rolara-prime", "session-reports/rolara-prime"]);
+  check("and the tag registry path follows the name",
+    s.tagRegistryPath, ".professor-orb/tag-registry.rolara-prime.json");
+  // Pure, and it matters here more than anywhere: /migrate hands this function
+  // the file it moved aside and has to be able to fall back to it unchanged.
+  check("and the file it was handed is untouched",
+    [CONVENTIONS.settings[0].name, CONVENTIONS.settings[0].kbRoot, CONVENTIONS.settings[0].tagRegistryPath],
+    ["rolara", "settings/rolara", ".professor-orb/tag-registry.rolara.json"]);
+}
+
+{
+  // THE SUBSTRING HAZARD, which is why the rewrite is by path COMPONENT rather
+  // than by `split(old).join(new)`. This setting is called "orb", and the
+  // canonical registry path holds "orb" twice: once inside ".professor-orb",
+  // which is the plugin's own install directory and has nothing to do with the
+  // setting, and once as the dot-delimited part that IS the setting's name. A
+  // substring replacement rewrites both and moves the install directory out from
+  // under the write-time hook, which reads this path to resolve a tag vocabulary.
+  const orb = {
+    settings: [
+      {
+        name: "orb",
+        kbRoot: "settings/orb",
+        homebrewRoot: "homebrew/orb",
+        sessionReportsRoot: "session-reports/orb",
+        campaigns: [],
+        tagRegistryPath: ".professor-orb/tag-registry.orb.json",
+      },
+    ],
+  };
+  const r = conventionsAfterScope(orb, { settingRenames: [{ from: "orb", to: "orb-two" }] });
+  check("a name that is also a substring of another path component rewrites only its own",
+    r.conventions.settings[0].tagRegistryPath, ".professor-orb/tag-registry.orb-two.json");
+  check("and the prong roots still follow, because there the name IS the whole component",
+    r.conventions.settings[0].kbRoot, "settings/orb-two");
+}
+
+{
+  const r = conventionsAfterScope(CONVENTIONS, { settingRetirements: [{ setting: "rolara" }] });
+  const s = r.conventions.settings[0];
+  check("retiring marks the entry rather than deleting it",
+    [r.conventions.settings.length, s.retired], [1, true]);
+  check("and repoints the roots into the archive", s.kbRoot, "archive/rolara/settings");
+}
+
+{
+  const r = conventionsAfterScope(CONVENTIONS, {
+    campaignRetirements: [{ setting: "rolara", campaign: "karsk" }],
+  });
+  const s = r.conventions.settings[0];
+  check("a retired campaign leaves the active list", s.campaigns, []);
+  check("and is recorded rather than forgotten", s.retiredCampaigns, ["karsk"]);
+}
+
+{
+  // The planner declines a campaign the setting does not list, so this half must
+  // not record one either. Otherwise conventions.json grows a retiredCampaigns
+  // entry for a campaign that was never there and that nothing moved.
+  const r = conventionsAfterScope(CONVENTIONS, {
+    campaignRetirements: [{ setting: "rolara", campaign: "nope" }],
+  });
+  const s = r.conventions.settings[0];
+  check("a campaign the setting never listed is not recorded as retired",
+    [s.campaigns, s.retiredCampaigns, r.changes.length], [["karsk"], undefined, 0]);
+}
+
+{
   const r = conventionsAfterScope(CONVENTIONS, {
     retypes: [{ files: ["a.md"], typeFrom: "Person", typeTo: "Location" }],
   });

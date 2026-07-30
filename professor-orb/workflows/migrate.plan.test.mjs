@@ -991,6 +991,9 @@ const PLANNER_PROBES = {
   prosePathUpdates: [
     { file: "settings/rolara/Rolara-INDEX.md", replacements: [{ from: "misc/", to: "notes/" }] },
   ],
+  settingRenames: [{ from: "rolara", to: "rolara-prime" }],
+  settingRetirements: [{ setting: "rolara", archiveRoot: "archive" }],
+  campaignRetirements: [{ setting: "rolara", campaign: "ashes-of-the-first-crown", archiveRoot: "archive" }],
 };
 
 {
@@ -1031,15 +1034,23 @@ const PLANNER_PROBES = {
   // planners existed; now that they are registered for real, the rehearsal and
   // the reality are the same array, and this case pins that shape directly rather
   // than reconstructing it.
+  // Three more appended since, ranking 0, 0, and 1: the setting-lifecycle
+  // planners. They make this case STRONGER rather than merely longer. The three
+  // that came before ranked 4, 10, and 5 after one that ranks 9, so reading the
+  // registry off source position mis-ordered the middle of the run; these rank at
+  // the very FRONT while sitting at the very END of the array, so source position
+  // would now run the whole rest of the registry before the operation every
+  // later planner's checks have to be able to see.
   check("the append landed in source order, out of rank order as written",
-    SCOPED_PLANNERS.map(([, , kind]) => APPLY_ORDER.indexOf(kind)), [1, 2, 3, 6, 9, 4, 10, 5, 11]);
+    SCOPED_PLANNERS.map(([, , kind]) => APPLY_ORDER.indexOf(kind)), [1, 2, 3, 6, 9, 4, 10, 5, 11, 0, 0, 1]);
   check("and the order those planners RUN in is ascending rank anyway",
     scopedPlannerSequence().map(([, , kind]) => APPLY_ORDER.indexOf(kind)),
-    [1, 2, 3, 4, 5, 6, 9, 10, 11]);
+    [0, 0, 1, 1, 2, 3, 4, 5, 6, 9, 10, 11]);
   check("which puts each scope key where its planner's rank belongs",
     scopedPlannerSequence().map(([key]) => key),
-    ["pathMoves", "absorbFolders", "splitFolders", "retypes", "suffixRenames",
-     "entityRenames", "rebuildIndexes", "frontmatterRepairs", "prosePathUpdates"]);
+    ["settingRenames", "settingRetirements", "pathMoves", "campaignRetirements", "absorbFolders",
+     "splitFolders", "retypes", "suffixRenames", "entityRenames", "rebuildIndexes",
+     "frontmatterRepairs", "prosePathUpdates"]);
 }
 
 {
@@ -1052,13 +1063,26 @@ const PLANNER_PROBES = {
   // discovered mid-task rather than here.
   //
   // WHAT THIS STILL GUARANTEES: scopedPlannerSequence sorts by declared rank
-  // (applyRank(kind)), which is a total order over DISTINCT integers once
-  // "every registry entry declares a kind APPLY_ORDER can rank" above has
-  // passed, so Array.prototype.sort producing one answer for one input
-  // generalizes to every permutation by the comparator's own transitivity;
-  // the exhaustive walk was re-proving the comparator's correctness on inputs
-  // that differ only in an order the comparator does not read, not hunting
-  // for a bug only a specific arrangement could expose.
+  // (applyRank(kind)), so Array.prototype.sort producing one answer for one
+  // input generalizes to every permutation by the comparator's own
+  // transitivity; the exhaustive walk was re-proving the comparator's
+  // correctness on inputs that differ only in an order the comparator does not
+  // read, not hunting for a bug only a specific arrangement could expose.
+  //
+  // THE RANKS ARE NO LONGER DISTINCT, and the assertion below is written to what
+  // that leaves true rather than to what it used to be. settingRenames and
+  // settingRetirements both declare relocate-prong, and campaignRetirements
+  // declares relocate-path alongside pathMoves, so sort's stability is now
+  // observable: a permuted registry puts tied entries in a different relative
+  // order, and the sequence is NOT identical array-for-array any more. That is
+  // sound, and SCOPED_PLANNERS argues why: two planners declaring one kind emit
+  // operations of one rank, same-rank operations run in the order they were
+  // produced, so whichever planner runs first is also the one whose operations
+  // run first, and each still sees exactly the operations preceding its own.
+  // What must hold, and what is checked, is that every sample comes out in
+  // ascending rank and that the SAME keys sit at each rank. Asserting an
+  // identical array here would now be asserting something false, and asserting
+  // only the key set would drop the ordering property entirely.
   //
   // WHAT IS NOW SAMPLED RATHER THAN EXHAUSTIVE: "every permutation" becomes
   // "the identity order, the reverse, every single-position rotation, and a
@@ -1105,15 +1129,35 @@ const PLANNER_PROBES = {
     ...shuffles,
   ];
   const expected = scopedPlannerSequence().map(([key]) => key);
-  const orders = samples.map((p) => scopedPlannerSequence(p).map(([key]) => key));
+  // Keys grouped by declared rank, in ascending rank, with each rank's keys
+  // sorted so a tie's internal order does not enter the comparison. Sorting the
+  // whole list instead would compare a bag of names and lose the ordering; this
+  // keeps the ranks in sequence and normalizes only the ties.
+  const byRank = (entries) => {
+    const ranks = new Map();
+    for (const [key, , kind] of scopedPlannerSequence(entries)) {
+      const rank = APPLY_ORDER.indexOf(kind);
+      if (!ranks.has(rank)) ranks.set(rank, []);
+      ranks.get(rank).push(key);
+    }
+    return [...ranks.entries()].map(([rank, keys]) => [rank, keys.slice().sort()]);
+  };
+  const ascending = (entries) => {
+    const ranks = scopedPlannerSequence(entries).map(([, , kind]) => APPLY_ORDER.indexOf(kind));
+    return ranks.every((r, i) => i === 0 || ranks[i - 1] <= r);
+  };
+  const shape = JSON.stringify(byRank(SCOPED_PLANNERS));
   check("the sample is non-empty, so an all-vacuous .every() cannot masquerade as coverage",
     samples.length >= 2 + SCOPED_PLANNERS.length + SHUFFLE_COUNT, true);
-  check("a bounded sample of registry orderings all run the planners in one order",
-    orders.every((o) => JSON.stringify(o) === JSON.stringify(expected)), true);
+  check("a bounded sample of registry orderings all run the planners in ascending declared rank",
+    samples.every(ascending), true);
+  check("and every one of them puts the same planners at the same rank",
+    samples.every((p) => JSON.stringify(byRank(p)) === shape), true);
   check("and that order is the declared ranks ascending",
     expected,
-    ["pathMoves", "absorbFolders", "splitFolders", "retypes", "suffixRenames",
-     "entityRenames", "rebuildIndexes", "frontmatterRepairs", "prosePathUpdates"]);
+    ["settingRenames", "settingRetirements", "pathMoves", "campaignRetirements", "absorbFolders",
+     "splitFolders", "retypes", "suffixRenames", "entityRenames", "rebuildIndexes",
+     "frontmatterRepairs", "prosePathUpdates"]);
 }
 
 {
@@ -1162,10 +1206,11 @@ const PLANNER_PROBES = {
   check("a planner emitting an operation ranked below its declaration fails loudly",
     [/orderingProbe/.test(message), /relocate-path/.test(message), /rebuild-index/.test(message)],
     [true, true, true]);
-  check("and the registry is back to its nine entries",
+  check("and the registry is back to its twelve entries",
     SCOPED_PLANNERS.map(([key]) => key),
     ["pathMoves", "absorbFolders", "splitFolders", "entityRenames", "rebuildIndexes",
-     "retypes", "frontmatterRepairs", "suffixRenames", "prosePathUpdates"]);
+     "retypes", "frontmatterRepairs", "suffixRenames", "prosePathUpdates",
+     "settingRenames", "settingRetirements", "campaignRetirements"]);
 }
 
 {
@@ -1225,7 +1270,8 @@ const PLANNER_PROBES = {
   check("with the registry restored afterward",
     SCOPED_PLANNERS.map(([key]) => key),
     ["pathMoves", "absorbFolders", "splitFolders", "entityRenames", "rebuildIndexes",
-     "retypes", "frontmatterRepairs", "suffixRenames", "prosePathUpdates"]);
+     "retypes", "frontmatterRepairs", "suffixRenames", "prosePathUpdates",
+     "settingRenames", "settingRetirements", "campaignRetirements"]);
   rmSync(root, { recursive: true, force: true });
 }
 
@@ -1355,6 +1401,17 @@ function absorbFixture() {
   w("settings/rolara/misc/Misc-INDEX.md", "---\ntype: Index\n---\n\n- [[Odds]]\n");
   w("settings/rolara/misc/Odds.md", "---\ntype: Concept\n---\n\nBody.\n");
   w("settings/rolara/misc/Ends.md", "---\ntype: Concept\n---\n\nBody.\n");
+  // rolara's OTHER TWO prong roots. SETTINGS has recorded all three since it was
+  // written, and this fixture carried only the knowledge base, so any planner
+  // reasoning about a whole setting rather than about one folder inside it saw a
+  // world two thirds of which was not on disk. The setting-lifecycle probes are
+  // the first planners that do.
+  w("homebrew/rolara/Homebrew-INDEX.md", "---\ntype: Index\n---\n\n- [[Blade]]\n");
+  w("homebrew/rolara/Blade.md", "---\ntype: Item\n---\n\nBody.\n");
+  w(
+    "session-reports/rolara/ashes-of-the-first-crown/2026-01-01-One-REPORT.md",
+    "---\ntype: Session Report\n---\n\nBody.\n"
+  );
   return root;
 }
 
@@ -2922,6 +2979,236 @@ console.log("\n=== scoped plans: ignored sources reach the proposal ===");
     [/rebuild-index settings\/rolara\/Rolara-INDEX\.md/.test(String(obj(r.declined[0]).reason)),
      /no longer linked from that index/.test(String(obj(r.declined[0]).reason))],
     [true, true]);
+  rmSync(root, { recursive: true, force: true, maxRetries: 5 });
+}
+
+console.log("\n=== scoped plans: setting lifecycle ===");
+
+// HONEST FRAMING FOR THIS WHOLE SECTION. Nothing in the plugin can create a
+// second setting yet; that is a later release. So the multi-prong cases below
+// run against this literal settings array and against temporary fixtures, never
+// against a project a DM could have today, and the two operations a reference
+// consumer could actually exercise are the single-setting ones: a rename and a
+// campaign retirement. Read the coverage that way.
+const LIFECYCLE_SETTINGS = [
+  {
+    name: "rolara",
+    kbRoot: "settings/rolara",
+    homebrewRoot: "homebrew/rolara",
+    sessionReportsRoot: "session-reports/rolara",
+    campaigns: ["karsk", "ember"],
+  },
+];
+
+// The default root does not exist, which makes the plan-time path checks answer
+// UNDETERMINED and stand aside; see namedPathMissing. That is deliberate for the
+// shape cases here, which are about which operations a scope resolves to. The
+// fixture-backed cases further down pass a real root, and they are the only ones
+// that exercise those checks at all.
+const lifecycle = (scope, projectRoot = "C:/proj") =>
+  buildScopedPlan({ projectRoot, settings: LIFECYCLE_SETTINGS, baseRules: BASE_RULES, scope });
+
+function lifecycleFixture() {
+  const root = mkdtempSync(path.join(os.tmpdir(), "orb-lifecycle-"));
+  const w = (rel, body) => writeAt(root, rel, body);
+  w("settings/rolara/Rolara-INDEX.md", "---\ntype: Index\n---\n\n- [[Tale]]\n");
+  w("settings/rolara/Tale.md", "---\ntype: Concept\n---\n\nBody.\n");
+  // The vault, at its canonical place INSIDE kbRoot. See the rename case above.
+  w("settings/rolara/.obsidian/app.json", "{}\n");
+  w("homebrew/rolara/Homebrew-INDEX.md", "---\ntype: Index\n---\n\n- [[Blade]]\n");
+  w("homebrew/rolara/Blade.md", "---\ntype: Item\n---\n\nBody.\n");
+  w("session-reports/rolara/karsk/2026-01-01-One-REPORT.md", "---\ntype: Session Report\n---\n\nBody.\n");
+  w("session-reports/rolara/ember/2026-02-01-Two-REPORT.md", "---\ntype: Session Report\n---\n\nBody.\n");
+  return root;
+}
+
+{
+  const r = lifecycle({ settingRenames: [{ from: "rolara", to: "rolara-prime" }] });
+  check("a setting rename moves all three prongs",
+    r.operations.map((o) => [o.from, o.to]),
+    [
+      ["settings/rolara", "settings/rolara-prime"],
+      ["homebrew/rolara", "homebrew/rolara-prime"],
+      ["session-reports/rolara", "session-reports/rolara-prime"],
+    ]);
+  check("each is a prong relocation, not a bare path move",
+    kindsOf(r.operations), ["relocate-prong", "relocate-prong", "relocate-prong"]);
+  // The Obsidian vault lives at <kbRoot>/.obsidian, inside the root that just
+  // moved, so it rides along and needs no operation of its own. Asserted so a
+  // future "also move the vault" addition cannot double-move it.
+  check("the vault is not moved separately",
+    JSON.stringify(r.operations).includes(".obsidian"), false);
+}
+
+{
+  const r = lifecycle({ settingRenames: [{ from: "nope", to: "x" }] });
+  check("renaming a setting that is not in conventions.json is declined",
+    [r.operations.length, r.declined.length], [0, 1]);
+}
+
+{
+  const r = lifecycle({ settingRetirements: [{ setting: "rolara", archiveRoot: "archive" }] });
+  check("retiring a setting moves its prongs into the archive",
+    r.operations.map((o) => o.to),
+    ["archive/rolara/settings", "archive/rolara/homebrew", "archive/rolara/session-reports"]);
+}
+
+{
+  const r = lifecycle({ campaignRetirements: [{ setting: "rolara", campaign: "karsk", archiveRoot: "archive" }] });
+  // Through obj(), for the reason recorded at that helper: with no planner yet
+  // this list is empty, and indexing straight into it throws and takes every
+  // later case in the file down with it, hiding the very red set that proves
+  // the suite can fail. Measured: the brief's own `r.operations[0].from` did
+  // exactly that on the first RED run.
+  check("retiring a campaign moves one folder",
+    [kindsOf(r.operations), obj(r.operations[0]).from, obj(r.operations[0]).to],
+    [["relocate-path"], "session-reports/rolara/karsk", "archive/rolara/session-reports/karsk"]);
+}
+
+{
+  const r = lifecycle({ campaignRetirements: [{ setting: "rolara", campaign: "nope" }] });
+  check("retiring a campaign the setting does not list is declined",
+    [r.operations.length, r.declined.length], [0, 1]);
+}
+
+{
+  // THE SKIP UNIT, stamped. Three prong moves out of ONE scope entry have to
+  // carry ONE group id, because that is what makes the apply half take them
+  // together. Two of a world's three prongs moved is worse than none of them.
+  const r = lifecycle({
+    settingRenames: [{ from: "rolara", to: "rolara-prime" }],
+    settingRetirements: [{ setting: "rolara" }],
+  });
+  // Both entries plan here, because the root is unusable and the plan-time
+  // checks stand aside; the fixture-backed case below is where the retirement
+  // is declined for roots the rename already carried away.
+  check("every operation a lifecycle entry emits carries its entry's group id",
+    r.operations.map((o) => o.groups),
+    [
+      ["settingRenames[0]"], ["settingRenames[0]"], ["settingRenames[0]"],
+      ["settingRetirements[0]"], ["settingRetirements[0]"], ["settingRetirements[0]"],
+    ]);
+  // Same rank, so the tie falls to source order and the renames come first. The
+  // ordering itself is not what this pins: it is that the two keys stay DISTINCT
+  // skip units, so declining one never takes the other's operations with it.
+  check("and each entry's operations are its own unit, not one shared id",
+    new Set(r.operations.flatMap((o) => o.groups)).size, 2);
+}
+
+{
+  // THE GROUP UNIT AS A REGRESSION, against a real repository. One of the three
+  // prong roots is git-ignored, so the pre-migration snapshot does not contain
+  // it and moving it could not be undone. The whole entry has to go, all three
+  // moves: a world whose knowledge base and session reports moved while its
+  // homebrew stayed behind matches neither its old shape nor the approved one,
+  // and conventions.json would then point two roots one way and one the other.
+  //
+  // Non-vacuous by measurement rather than by assertion: with the `groups` stamp
+  // removed from the emitted operations, this case reports 2 operations kept and
+  // 1 declined instead of 0 and 3.
+  const root = lifecycleFixture();
+  writeAt(root, ".gitignore", "homebrew/rolara/\n");
+  commitFixture(root);
+  const r = lifecycle({ settingRenames: [{ from: "rolara", to: "rolara-prime" }] }, root);
+  check("one git-ignored prong root declines all three moves, not two of them",
+    [r.operations.length, r.declined.length], [0, 3]);
+  check("and every declined row names the entry that took it and the ignored root",
+    r.declined.map((d) => [
+      d.op,
+      /settingRenames\[0\]/.test(String(d.reason)),
+      /homebrew\/rolara/.test(String(d.reason)),
+    ]),
+    [["relocate-prong", true, true], ["relocate-prong", true, true], ["relocate-prong", true, true]]);
+  rmSync(root, { recursive: true, force: true, maxRetries: 5 });
+}
+
+{
+  // A root conventions.json records but that is not on disk. A world with no
+  // homebrew folder yet is ordinary, so this is not a reason to refuse the whole
+  // rename: there is simply nothing to move for that prong. It is still reported
+  // rather than silently dropped, because silence about a whole prong of a world
+  // reads as "it moved".
+  const root = lifecycleFixture();
+  rmSync(path.join(root, "homebrew"), { recursive: true, force: true });
+  commitFixture(root);
+  const r = lifecycle({ settingRenames: [{ from: "rolara", to: "rolara-prime" }] }, root);
+  check("a prong root that is not on disk is not planned, and the other two still are",
+    [r.operations.map((o) => o.from), r.declined.map((d) => d.target)],
+    [["settings/rolara", "session-reports/rolara"], ["homebrew/rolara"]]);
+  rmSync(root, { recursive: true, force: true, maxRetries: 5 });
+}
+
+{
+  // Renaming and retiring one setting in a single scope. The rename runs first
+  // and carries all three roots away, so the retirement's own sources are gone
+  // by the time it would run. Without the plan-time check this plans two `git
+  // mv`s per prong from the same source: the first succeeds, the second fails
+  // after the snapshot, and conventions.json is then updated to describe an
+  // archive that half happened.
+  const root = lifecycleFixture();
+  commitFixture(root);
+  const r = lifecycle(
+    {
+      settingRenames: [{ from: "rolara", to: "rolara-prime" }],
+      settingRetirements: [{ setting: "rolara" }],
+    },
+    root
+  );
+  check("a retirement whose roots an earlier rename already moved is declined, not planned twice",
+    [r.operations.map((o) => o.to), r.declined.map((d) => d.target)],
+    [
+      ["settings/rolara-prime", "homebrew/rolara-prime", "session-reports/rolara-prime"],
+      ["settings/rolara", "homebrew/rolara", "session-reports/rolara"],
+    ]);
+  rmSync(root, { recursive: true, force: true, maxRetries: 5 });
+}
+
+{
+  // RENAMING ONE SETTING ONTO ANOTHER, which is the most destructive scope this
+  // section can be handed: `git mv settings/rolara settings/karsk` with the
+  // destination already a directory does not fail, it moves the source INSIDE
+  // the destination, and conventions.json would then carry two settings with one
+  // name, which settingNamed resolves to whichever comes first.
+  //
+  // No new guard for it. The destination collision precheck already refuses,
+  // because relocate-prong is not in DESTINATION_MAY_EXIST, and applyPlan
+  // refuses a plan whose prechecks did not pass. Pinned here so that stays true.
+  const root = mkdtempSync(path.join(os.tmpdir(), "orb-lifecycle-collide-"));
+  const two = ["rolara", "karsk"].map((n) => ({
+    name: n,
+    kbRoot: `settings/${n}`,
+    homebrewRoot: `homebrew/${n}`,
+    sessionReportsRoot: `session-reports/${n}`,
+    campaigns: ["c1"],
+  }));
+  for (const n of ["rolara", "karsk"]) {
+    writeAt(root, `settings/${n}/A.md`, "---\ntype: Concept\n---\n\nBody.\n");
+    writeAt(root, `homebrew/${n}/B.md`, "---\ntype: Item\n---\n\nBody.\n");
+    writeAt(root, `session-reports/${n}/c1/R.md`, "---\ntype: Session Report\n---\n\nBody.\n");
+  }
+  commitFixture(root);
+  const r = buildScopedPlan({
+    projectRoot: root,
+    settings: two,
+    baseRules: BASE_RULES,
+    scope: { settingRenames: [{ from: "rolara", to: "karsk" }] },
+  });
+  check("renaming one setting onto another is refused by the prechecks, not applied",
+    [r.prechecks.ok, r.prechecks.collisions.map((c) => [c.kind, c.to])],
+    [false, [["on-disk", "settings/karsk"], ["on-disk", "homebrew/karsk"], ["on-disk", "session-reports/karsk"]]]);
+  rmSync(root, { recursive: true, force: true, maxRetries: 5 });
+}
+
+{
+  // settings[].campaigns is a cache, not the authority, so a campaign it lists
+  // may have no folder. Moving nothing is a plan that fails after the snapshot.
+  const root = lifecycleFixture();
+  rmSync(path.join(root, "session-reports", "rolara", "ember"), { recursive: true, force: true });
+  commitFixture(root);
+  const r = lifecycle({ campaignRetirements: [{ setting: "rolara", campaign: "ember" }] }, root);
+  check("a listed campaign with no folder on disk is declined rather than planned",
+    [r.operations.length, r.declined.map((d) => [d.op, d.target])],
+    [0, [["relocate-path", "session-reports/rolara/ember"]]]);
   rmSync(root, { recursive: true, force: true, maxRetries: 5 });
 }
 
