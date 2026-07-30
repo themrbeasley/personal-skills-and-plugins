@@ -1,5 +1,5 @@
 ---
-description: "Restructure a knowledge base to a scope the DM states, or to one of the two places professor-orb already records outstanding structural work: setup's deferred items and the validation sweep's needs-judgment findings. Resolves the scope into a concrete plan, writes it to .professor-orb/proposals/ as a file the DM may edit, and executes exactly what the approved file says. Every run requires a clean tree, takes its own snapshot commit, moves conventions.json aside so the write-time hook stays silent through the run, asserts that every wikilink resolving before still resolves after, and lands as one commit whose undo is one git revert. Performs structural operations only: it moves, renames, splits, absorbs, rebuilds indexes, retypes, repairs frontmatter, and updates path references, and never rewrites body prose, which is chronicler's work. Not a lane command: it restructures across prongs by nature and commits its own work rather than deferring to /scribe, /log, or /catalog. Use for a folder cleanup, an entity rename, a threshold split, an index rebuild, or a setting or campaign lifecycle change."
+description: "Restructure a knowledge base to a scope the DM states, or to one of the two places professor-orb already records outstanding structural work: setup's deferred items and the validation sweep's needs-judgment findings. Resolves the scope into a concrete plan, writes it to .professor-orb/proposals/ as a file the DM may edit, and executes exactly what the approved file says. Every run requires version control, requires a clean tree, takes its own snapshot commit, moves conventions.json aside behind its own preparation commit so the write-time hook stays silent through the run, asserts that every wikilink resolving before still resolves after, and lands its own work as a preparation commit and a migration commit whose combined undo is two git reverts, migration first. Performs structural operations only: it moves, renames, splits, absorbs, rebuilds indexes, retypes, repairs frontmatter, and updates path references, and never rewrites body prose, which is chronicler's work. Not a lane command: it restructures across prongs by nature and commits its own work rather than deferring to /scribe, /log, or /catalog. Use for a folder cleanup, an entity rename, a threshold split, an index rebuild, or a setting or campaign lifecycle change."
 argument-hint: "[optional: what to migrate, in your own words]"
 ---
 
@@ -46,13 +46,15 @@ Resolution is a conversation, not a parse. **Restate the scope as you understood
 
 Run `git status --porcelain`. If anything is uncommitted, **stop**. Report what is outstanding, and offer to commit it first through whichever lane command owns it (`/scribe`, `/log`, `/catalog`) or as the DM prefers. `/migrate` will not fold unrelated changes into its snapshot: the snapshot is the DM's only undo, and a snapshot containing their unrelated work in progress cannot be reverted without taking that work with it.
 
-If the project has no version control (`.professor-orb/versioning.json` mode is `changelog`, or no marker exists at all), there is no snapshot and no undo on this path. Say so plainly and require an explicit second confirmation naming that absence before going any further; do not offer to initialize a repository here, which is setup's job.
+`/migrate` requires version control. If the project has none (`.professor-orb/versioning.json` mode is `changelog`, no marker exists at all, or the project is simply not a git repository), **stop** here rather than continue. There is no confirmation that makes this path runnable: the executor cannot determine which sources are git-ignored without a repository to ask, and it refuses the whole run on that alone before it ever reaches the snapshot check, having done nothing. Say so plainly, and point the DM at `setup`, which is what establishes version control for a project. Do not offer to initialize a repository here yourself; that is setup's job, not this command's.
 
 ## Step 4: Build the plan, run the prechecks, write the proposal
 
 Build the scope into the structure `buildScopedPlan` takes: `{projectRoot, settings, baseRules, scope}`. `scope`'s keys are `pathMoves`, `absorbFolders`, `splitFolders`, `entityRenames`, `rebuildIndexes`, `retypes`, `frontmatterRepairs`, `suffixRenames`, and `prosePathUpdates`, one per registered planner, for structural changes inside a setting's own folders, and a setting rename, a setting retirement, a campaign retirement, a setting split, or a setting merge for a change to the settings themselves. Every article, every destination, and every referring file is named explicitly. The proposal the DM reads is the list of files that will actually move, not a description of a rule that will be applied to files they cannot see.
 
-**The prechecks run while the plan is being built, before the DM ever sees it.** A plan that cannot execute is worse than no plan. Destination collisions are checked before anything moves, both between two operations in this plan and against what already exists on disk. A path the scope names that neither exists now nor is created earlier in the plan is declined with that exact path quoted back, rather than passing cleanly and failing after the snapshot; the same check applies to a referring file the scope names for a wikilink rewrite that is not actually there. A git-ignored source declines its whole scope entry together, every operation that entry would have emitted, not only the operation naming the ignored file, because applying the rest would leave the project matching neither its old shape nor the one the DM approved. All of this appears in the proposal's Declined section rather than surfacing as a failure mid-run.
+**The prechecks run while the plan is being built, before the DM ever sees it.** A plan that cannot execute is worse than no plan. Destination collisions are checked before anything moves, both between two operations in this plan and against what already exists on disk. A path the scope names that neither exists now nor is created earlier in the plan is declined with that exact path quoted back, rather than passing cleanly and failing after the snapshot; the same check applies to a referring file the scope names for a wikilink rewrite that is not actually there. A git-ignored source declines its whole scope entry together, every operation that entry would have emitted, not only the operation naming the ignored file, because applying the rest would leave the project matching neither its old shape nor the one the DM approved. The missing-path decline and the ignored-source decline both appear in the proposal's Declined section. A destination collision does not: it renders in its own Prechecks section instead, and it means the plan cannot execute as written.
+
+**If a collision is found, say so instead of asking for approval as though the plan will run.** Write the proposal as usual so the DM can see exactly what collided and where, but do not present it for approval: name the colliding path or pair, point at the file's Prechecks section, and ask the DM to change the scope (rename one side, exclude the colliding path, or point at a different destination) so the plan can be rebuilt without the collision. Return to the top of this step once the scope changes; do not carry a plan with failed prechecks forward into Step 5.
 
 Write the proposal with `renderProposal` to `.professor-orb/proposals/migrate-<short-slug>.md`, following the same proposal-file convention `chronicler` uses: the DM may edit the file on disk, and execution reads that file rather than the conversation. Give the DM a summary and a pointer to the file in chat; do not paste the whole plan into the conversation.
 
@@ -60,7 +62,7 @@ Write the proposal with `renderProposal` to `.professor-orb/proposals/migrate-<s
 
 ## Step 5: Take the snapshot
 
-Re-read the proposal file from disk. **Execute what the file says, never what the conversation said.** Parse it with `parseProposal`. If it refuses (no `professor-orb:plan` block, a block that will not parse as JSON or is never closed, or two blocks in the same file), report the reason and stop; do not reconstruct a plan from the discussion to work around it.
+Re-read the proposal file from disk. **Execute what the file says, never what the conversation said.** Parse it with `parseProposal`. If it refuses (no `professor-orb:plan` block, a block that will not parse as JSON or is never closed, two blocks in the same file, or a block whose parsed JSON carries no operations array), report the reason and stop; do not reconstruct a plan from the discussion to work around it.
 
 Then commit the snapshot:
 
@@ -68,7 +70,7 @@ Then commit the snapshot:
 git commit --allow-empty -qm "chore: pre-migration snapshot before /migrate"
 ```
 
-Verify the tree is clean afterward and **print the hash**. This hash is the DM's undo, and it appears again in Step 10's report. Every later step refers to this hash, never to whatever the executor reports as its own `snapshot` field, for a reason Step 6 makes concrete.
+Verify the tree is clean afterward and **print the hash**. This hash is half of the DM's undo (Step 6 captures the other half), and it appears again in Step 10's report. Every later step refers to this hash, never to whatever the executor reports as its own `snapshot` field, for a reason Step 6 makes concrete.
 
 ## Step 6: Move `conventions.json` aside, and commit that move on its own
 
@@ -80,15 +82,17 @@ Move `.professor-orb/conventions.json` to `.professor-orb/conventions.json.pre-m
 git commit -qm "chore: migration preparation for /migrate"
 ```
 
-`applyPlan` does not merely assume a snapshot exists; it verifies one at the moment it is called, reading `git status --porcelain` itself and refusing to start on a dirty tree, because a commit at HEAD that does not contain the current state has nothing to restore to. Moving `conventions.json` aside is itself a change to the tree, so without this commit **every** `/migrate` run would refuse at Step 7 having done nothing but rename one file. This commit exists purely to hand `applyPlan` a clean tree; it carries nothing the DM needs to see on its own, and by the time Step 10 runs it is already settled history, so Step 10's own staging never touches it.
+`applyPlan` does not merely assume a snapshot exists; it verifies one at the moment it is called, reading `git status --porcelain` itself and refusing to start on a dirty tree, because a commit at HEAD that does not contain the current state has nothing to restore to. Moving `conventions.json` aside is itself a change to the tree, so without this commit **every** `/migrate` run would refuse at Step 7 having done nothing but rename one file.
 
-This is also why the executor's own `snapshot` field is not Step 5's hash. `applyPlan` reads `git rev-parse HEAD` at the moment it runs, which by now is this preparation commit, not Step 5's. Whatever the executor returns or prints as `snapshot`, or whatever restore line it builds from it, do not copy it into the report. Step 5's hash, printed above, is the one the DM needs, and Step 10 uses it and only it.
+**Print this commit's hash too.** By the time Step 10 runs, this commit is already settled history, so Step 10's own staging never touches it, but its hash still has two jobs ahead of it: Step 10's undo needs it alongside Step 5's hash, and Step 8 needs it if Step 7 refuses.
+
+This is also why the executor's own `snapshot` field is not Step 5's hash. `applyPlan` reads `git rev-parse HEAD` at the moment it runs, which by now is this preparation commit, not Step 5's. Whatever the executor returns or prints as `snapshot`, or whatever restore line it builds from it, do not copy it into the report. Step 5's hash and this commit's hash, both printed above, are the ones the DM needs, and Step 10 uses them and only them.
 
 ## Step 7: Execute
 
 Call `applyPlan` (`workflows/migrate.mjs`'s apply mode) with the parsed plan and `"commit": false`, because Step 10 makes the single commit.
 
-**What the executor guarantees, and what you carry into the report rather than restate as your own:** every relocation goes through `git mv`; an operation whose source is git-ignored is skipped and reported rather than moved, because the snapshot does not contain it; every operation's outcome lands in exactly one of `applied`, `failed`, or `dropped`, so a worker that threw or returned nothing is never silently counted as done; and it reports `ignoredEdits` and `ignoredMoved`, the edits and moves the snapshot cannot undo (Step 10 explains both). Read every entry in `result.messages` too, not only the ones already described here: it also carries less common notes, among them a disclosure for an operation that ran even though a sibling in its own scope entry was skipped. Nothing in `result.messages` is noise; surface anything found there.
+**What the executor guarantees, and what you carry into the report rather than restate as your own:** every relocation goes through `git mv`; a scope entry naming a git-ignored source is skipped whole, every operation it emitted, and reported in `result.skipped` rather than moved, because the snapshot does not contain it; every operation that does run lands in exactly one of `applied`, `failed`, or `dropped` (`result.dropped` is a worker that threw or returned nothing, never silently counted as done); and it reports `ignoredEdits` and `ignoredMoved`, the edits and moves the snapshot cannot undo (Step 10 explains both). Read every entry in `result.messages` too, not only the ones already described here: it also carries less common notes, among them a disclosure for an operation that ran even though a sibling in its own scope entry was skipped. Nothing in `result.messages` is noise; surface anything found there. `result.skipped` is never pushed to `messages`, so it reaches the DM only if Step 10's report carries it directly.
 
 If `result.refused` is set, the run touched nothing. The reasons cluster into a few shapes: no project root to work from; a plan carrying no operations array, or one that is malformed, out of the required dependency order, or naming an operation kind the executor has no worker for; a plan carrying a literal `absorb` or `split` operation, never the scoped `absorb-folder` or `split-folder` kinds a real plan uses (those run fine); whether a source is git-ignored could not be determined; the prechecks found a destination collision; or there is no verified snapshot to fall back on, because HEAD cannot be resolved or the tree is not clean, which is exactly the failure Step 6's preparation commit exists to prevent. Report `refused.detail` verbatim and stop. A hand-edited proposal reaches this point without ever passing back through the planner, so a refusal here is the expected way an inconsistent edit surfaces, not a bug.
 
@@ -97,6 +101,8 @@ If `result.refused` is set, the run touched nothing. The reasons cluster into a 
 Call `conventionsAfterScope` with the file you moved aside and the scope. Write the result's `conventions` back to `.professor-orb/conventions.json` and delete the aside file. `conventionsAfterScope` never mutates the copy you hand it, so if anything below still goes wrong you still hold the original, untouched. Report every entry in its `changes` array to the DM in Step 10: a silently updated conventions file is exactly the kind of change that is discovered three sessions later.
 
 If Step 7 refused, or Step 9's read of `linkIntegrity` fails, **restore the aside unchanged** rather than the updated version. The conventions file describes a structure that no longer happened.
+
+**If Step 7 refused, clean up before you stop.** `result.refused` means the run touched nothing else, so the only thing standing between here and a clean tree is Step 6's preparation commit. Revert it: `git revert --no-edit [Step 6's preparation commit hash]`. Its own diff was exactly the aside move, and nothing has changed since, so the revert applies cleanly, restores `conventions.json` to its normal path with its original content in the same step, and leaves no uncommitted rename behind for Step 3's next clean-tree check to trip over. Report the refusal reason to the DM and say plainly that the tree is clean again and the run can be retried once the cause is fixed. Step 9's own failure below needs a different cleanup, because by then real operations have already changed the tree beyond the aside file; its own instruction (reset to Step 5's snapshot) is what applies there, not this revert.
 
 ## Step 9: Assert link integrity
 
@@ -130,8 +136,15 @@ Then report:
 **Proposal:** [path to the proposal file]
 
 ### Applied
-Files moved: N. Renamed: N. Created: N. Merged: N. Absorbed: N. Split: N. Deleted: N.
+Files moved: N. Renamed: N. Created: N. Absorbed: N. Split: N. Deleted: N.
 Indexes rebuilt: N. Wikilinks rewritten: N.
+
+### Skipped
+[Every entry from result.skipped: the scope entry it came from, the operations
+it covered, and the git-ignored file that triggered it. "None" if empty. This
+is the bucket the DM most needs told, since nothing in result.messages
+mentions it: un-ignoring the file, or excluding it from the scope, and
+re-running /migrate is how these get picked back up.]
 
 ### Edited
 Files whose contents were edited: N, broken down by the operation that edited
@@ -149,20 +162,28 @@ proposal by hand.]
 ### Failed
 [operation and error, or "None"]
 
+### Dropped
+[Every entry from result.dropped: the operation whose worker failed or
+returned nothing, so it is not confirmed applied. "None" if empty. Distinct
+from Failed: a failed worker ran and reported why; a dropped one threw or
+returned nothing, so there is no reason beyond "unconfirmed, needs a manual
+look."]
+
 ### Conventions
 [Every entry from conventionsAfterScope's changes array, or "Unchanged".]
 
 ### Git
 **Snapshot:** [Step 5's hash]
+**Preparation:** [Step 6's hash]
 **Migration:** [Step 10's commit hash]
-**Undo:** git -C [project] revert [Step 10's commit hash]
+**Undo:** git -C [project] revert [Step 10's commit hash] [Step 6's hash]
 
 ### Next
 Re-run the validation sweep to confirm the knowledge base is clean after a
 structural change.
 ```
 
-**Undo is `git revert` of the migration commit, not a reset to the snapshot.** By the time this commit lands, Step 5's snapshot sits behind both Step 6's preparation commit and this one; a hard reset to it would discard both, and anything the DM has committed since, along with the migration itself. A revert undoes only this commit's own changes and leaves the rest of the history, snapshot and preparation commit included, exactly as it was. State the command in the report. Never run it.
+**Undo is two `git revert`s, migration commit first, not a reset to the snapshot.** By the time this commit lands, Step 5's snapshot sits behind both Step 6's preparation commit and this one, so reverting only the migration commit does not reach the snapshot: it lands the tree on Step 6's preparation commit instead, where `conventions.json` is still sitting under its `.pre-migration` name. That is not a safe place to stop. `/scribe` and `/log` both refuse to resolve a lane without `conventions.json` at its normal path, and the write-time hook goes silent rather than erroring, so nothing announces the problem. Revert both commits, migration first, then preparation: both touch `conventions.json`, so reverting them in the other order conflicts, because the older commit's diff no longer matches what the newer one left behind; reverting the migration commit first returns the tree to exactly what the preparation commit produced, and only then does reverting the preparation commit apply as its own clean inverse, landing the tree exactly on Step 5's snapshot with `conventions.json` back where it belongs. A hard reset to the snapshot would discard both commits, and anything the DM has committed since, along with the migration itself. Two reverts leave the rest of the history, including the snapshot and the now-reverted preparation and migration commits, exactly as it was, and keep the run auditable. State both commands, in that order, in the report. Never run them.
 
 ## Things to never do
 
@@ -171,7 +192,7 @@ structural change.
 - **Never run without a clean tree** (Step 3), and never fold the DM's unrelated work into the snapshot.
 - **Never call the executor before Step 6's preparation commit lands.** `applyPlan` refuses on a dirty tree by design, and the file just moved aside is exactly what would dirty it.
 - **Never commit when Step 9's read of `linkIntegrity` failed.**
-- **Never use the executor's own `snapshot` field or its printed restore line in the report.** By the time Step 7 runs it names Step 6's preparation commit, not Step 5's. Step 5's hash is the one the DM needs.
+- **Never use the executor's own `snapshot` field or its printed restore line in the report.** By the time Step 7 runs it names Step 6's preparation commit, not Step 5's, and either way the DM needs both hashes for the two-revert undo, not the one the executor happens to report.
 - **Never delete a setting's entry from `conventions.json`.** Retiring marks it; deleting destroys the record of a world that existed.
 - **Never create a setting.** Lifecycle operations act on settings that exist.
 - **Never auto-resume an interrupted run.** The per-item accounting makes a partial application diagnosable and the snapshot is the undo; resuming would apply operations against a tree that no longer matches the plan.
@@ -182,9 +203,9 @@ structural change.
 
 - **Scope resolves to nothing.** Say so. No snapshot, no commit, no proposal.
 - **Scope resolves to something enormous** (a rename touching 800 files). Execute it, but state the count in the proposal before approval. "Rename X everywhere" does not feel like 800 files until it is.
-- **No git.** `versioning.json` mode is `changelog`, so there is no snapshot and no undo. State that plainly and require an explicit second confirmation naming the absence of an undo, the same posture setup takes. If the DM declines, stop; do not offer to initialize a repository here, which is setup's job.
+- **No git.** `versioning.json` mode is `changelog`, no marker exists at all, or the project simply is not a git repository. `/migrate` cannot run on this path at any confirmation level: the executor refuses outright when it cannot determine what is git-ignored, before it ever reaches the snapshot check. State that plainly at Step 3 and point the DM at `setup`, which is what establishes version control. Do not offer to initialize a repository here yourself; that is setup's job.
 - **A plan the DM edited into something inconsistent.** `applyPlan` re-runs the prechecks against what actually arrives and refuses. Report why it cannot execute and stop. Never a repaired guess.
-- **Interrupted run.** The report names what applied and what did not, and Step 5's snapshot hash is the undo. Do not auto-resume.
+- **Interrupted run.** The report names what applied and what did not, and Step 5's snapshot hash together with Step 6's preparation-commit hash are the undo. Do not auto-resume.
 - **Scope crossing settings.** Supported, and treated as a link-boundary operation: outgoing wikilinks from a moved article are enumerated in the proposal, because they will not resolve on the far side.
 - **A file the DM struck from the proposal.** It is not applied and it appears under Declined, so the report and the file agree.
 - **The proposal file is gone when the DM approves.** Do not regenerate it silently. Say it is missing and rebuild it from the same scope, then ask for approval again.
