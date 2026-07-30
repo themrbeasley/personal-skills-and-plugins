@@ -219,6 +219,11 @@ Everything not done, with the reason: git-ignored files, absorb candidates, spli
 proposals, -TIMELINE and -HISTORY files, articles missing `publish`, prose path
 references in CLAUDE.md or elsewhere.
 
+Every item in this section except the missing `publish` values is something
+`/migrate` can execute once you scope it. Run `/migrate` with no argument and
+it will offer them, re-derived from the tree as it stands rather than read
+back out of this report.
+
 ### Failed
 [file and error, or "None"]
 
@@ -239,4 +244,4 @@ On the no-version-control path, replace the **Undo** line with a plain statement
 
 ## Closing this run
 
-Add what the report shape does not cover: the conventions source and tier used, the number of rules and their enforcement levels, whether the workflows copied successfully, and, on a first-time setup, that `pipeline-state.json` was initialized empty. If you noticed any factual discrepancy in the DM's documents while reading them, include one line flagging it: "noticed X, you may want to look at it". No offers, no corrections, no edits. Point them at the session pipeline (debrief is the natural first step) as a next action. Setup's job ends here; the pipeline skills take it from there.
+Add what the report shape does not cover: the conventions source and tier used, the number of rules and their enforcement levels, whether the workflows copied successfully, and, on a first-time setup, that `pipeline-state.json` was initialized empty. If you noticed any factual discrepancy in the DM's documents while reading them, include one line flagging it: "noticed X, you may want to look at it". No offers, no corrections, no edits. Point them at the session pipeline (debrief is the natural first step) as a next action, and, if the Declined section holds anything beyond missing `publish` values, name `/migrate` as the next action for those deferred items specifically, whenever the DM is ready to restructure. Setup's job ends here; the pipeline skills take it from there.

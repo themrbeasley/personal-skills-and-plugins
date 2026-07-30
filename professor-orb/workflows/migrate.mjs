@@ -842,7 +842,7 @@ function proposeDeferred(opKind, { discovered, baseRules }) {
           (minEntries == null ? "" : `, at or past the split threshold of ${minEntries}`) +
           ". " +
           (c.proposal ? `Proposed partition: ${c.proposal}. ` : "") +
-          "Not executed: crossing the threshold says the folder should divide, not how to partition it. Reported here for the DM to decide.",
+          "Not executed: crossing the threshold says the folder should divide, not how to partition it. Run /migrate to split it once you have decided how.",
       }));
   }
   if (opKind === "absorb") {
@@ -855,7 +855,7 @@ function proposeDeferred(opKind, { discovered, baseRules }) {
         reason:
           `Holds ${c.entryCount} articles` +
           (maxEntries == null ? "" : `, under the absorb threshold of ${maxEntries}`) +
-          ". Not executed: dissolving a folder that holds subfolders is undefined, and prong, setting, and campaign folders are exempt permanently. Reported here for the DM to decide.",
+          ". Not executed: dissolving a folder that holds subfolders is undefined, and prong, setting, and campaign folders are exempt permanently. Run /migrate to dissolve it into its parent once you have decided that is what you want.",
       }));
   }
   // Same reasoning as planOperation's default: silence about a whole class of
