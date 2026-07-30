@@ -107,9 +107,15 @@ tag registry exists and where to find it; it does not embed the tag list.
       // roots to point there. A MERGE moves the world's material into another
       // world's prongs and leaves these roots exactly where they are, still
       // naming the folders the material was moved out of; "mergedInto" is what
-      // tells the two cases apart. Either way the lane commands stop offering
-      // the world, and the entry is MARKED rather than deleted, so the record
-      // that the world existed survives.
+      // tells the two cases apart. Either way the entry is MARKED rather than
+      // deleted, so the record that the world existed, and how it left
+      // service, survives the retirement or merge itself and every resync
+      // afterward. A retirement repoints these roots into the archive; it
+      // does not remove the entry from "settings", so the lane commands
+      // still resolve this setting there. (A retired CAMPAIGN is different:
+      // its folder moves out from under sessionReportsRoot entirely, and
+      // /log enumerates the filesystem rather than this array, so that case
+      // genuinely does stop being offered.)
       "retired": true,
       // The setting this world was merged into, written alongside "retired" when
       // /migrate folds this world's three prongs into another world's. Absent on

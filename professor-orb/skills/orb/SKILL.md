@@ -25,7 +25,7 @@ Professor Orb is a post-session workflow plugin for D&D DMs. Every skill drafts 
 
 | Component | Type | Purpose | Invoke |
 |---|---|---|---|
-| setup | Skill | One-time onboarding (plus on-demand resync) that produces `.professor-orb/` (conventions, pipeline state, tag registry, proposals) and copies the validation-sweep workflow into the project | Installing professor-orb into a project, or when `.professor-orb/` is missing or looks stale |
+| setup | Skill | One-time onboarding (plus on-demand resync) that produces `.professor-orb/` (conventions, pipeline state, tag registry, proposals) and copies `migrate.mjs` and the validation-sweep workflow into the project | Installing professor-orb into a project, or when `.professor-orb/` is missing or looks stale |
 | debrief | Skill | Turn a just-played session into a structured session report, then hand off to the `lore` agent for KB cross-referencing | "debrief me," "write up last night's session," "session report" |
 | prep | Skill | Build a session brief with the DM: work review, recap, north stars, handout list | "plan next session," "session prep," "what do I need to prep" |
 | content | Skill | Generate player-facing recaps, handouts, setpieces, and timeline visualizations from a session report | "write the recap," "draft the letter from X," "boxed text," "player-facing timeline" |

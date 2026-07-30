@@ -158,7 +158,7 @@ setup's onboarding migration.
 _Avoid_: executing anything the approved proposal does not carry, rewriting body
 prose, running on a dirty tree
 
-**folder–index parity**:
+**folder-index parity**:
 The structural convention professor-orb introduces (amending Rolara's current,
 sloppier practice via the resync flow): exactly one index per folder; subfolders
 each carry their own. An article's owning index is thereby derivable from its

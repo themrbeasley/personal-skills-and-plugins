@@ -222,9 +222,12 @@ proposals, -TIMELINE and -HISTORY files, articles missing `publish`, prose path
 references in CLAUDE.md or elsewhere.
 
 Every item in this section except the missing `publish` values is something
-`/migrate` can execute once you scope it. Run `/migrate` with no argument and
-it will offer them, re-derived from the tree as it stands rather than read
-back out of this report.
+`/migrate` can act on once you scope it, though a git-ignored source declines
+until you un-ignore and commit it first. `/migrate` never inserts a missing
+`publish` value: that is set per article, deliberately, never by an
+unattended process. Run `/migrate` with no argument and it will offer the
+rest, re-derived from the tree as it stands rather than read back out of this
+report.
 
 ### Failed
 [file and error, or "None"]
