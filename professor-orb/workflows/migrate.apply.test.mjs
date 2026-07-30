@@ -2074,12 +2074,196 @@ withRepo(
     // runPrechecks catches this before anything moves. Asserting the refusal
     // here as well as in the plan suite is deliberate: a hand-edited proposal
     // reaches applyPlan without ever passing through the planner.
-    check("a basename collision in the parent refuses the whole run", r.ok, false);
+    //
+    // The reason is asserted alongside, because "nothing moved" alone only
+    // discriminates the precheck refusal from git mv's own destination-exists
+    // refusal while Ends.md happens to be listed FIRST. Reverse the array and
+    // that assertion passes under a bypassed precheck again; the reason pins
+    // the mechanism directly and survives a reorder.
+    check("a basename collision in the parent refuses the whole run",
+      [r.ok, r.refused && r.refused.reason], [false, "collisions"]);
     check("and nothing moved",
       [has(root, "settings/rolara/misc/Odds.md"),
        has(root, "settings/rolara/misc/Ends.md"),
        read(root, "settings/rolara/Odds.md").includes("A different article")],
       [true, true, true]);
+  }
+);
+
+withRepo(
+  {
+    "settings/rolara/Rolara-INDEX.md": article("type: Index", "- [[Misc-INDEX]]"),
+    "settings/rolara/misc/Misc-INDEX.md": article("type: Index", "- [[Odds]]"),
+    "settings/rolara/misc/Odds.md": article("type: Concept", "Body. ![[Map.png]]"),
+    "settings/rolara/misc/Map.png": "PNG",
+    "settings/rolara/misc/notes.txt": "Loose notes.\n",
+  },
+  (root) => {
+    const r = apply(root, [
+      {
+        op: "absorb-folder",
+        from: "settings/rolara/misc",
+        to: "settings/rolara",
+        articles: [
+          { from: "settings/rolara/misc/Map.png", to: "settings/rolara/Map.png" },
+          { from: "settings/rolara/misc/Odds.md", to: "settings/rolara/Odds.md" },
+          { from: "settings/rolara/misc/notes.txt", to: "settings/rolara/notes.txt" },
+        ],
+        index: "settings/rolara/misc/Misc-INDEX.md",
+        reason: "scope",
+      },
+      { op: "rebuild-index", to: "settings/rolara/Rolara-INDEX.md", folder: "settings/rolara", reason: "scope" },
+    ]);
+    check("a non-markdown file moves with the articles", [r.ok, r.applied.length], [true, 2]);
+    check("the image and the text file are in the parent",
+      [has(root, "settings/rolara/Map.png"), has(root, "settings/rolara/notes.txt")], [true, true]);
+    check("nothing is left behind to orphan",
+      [has(root, "settings/rolara/misc"), lsFiles(root).includes("settings/rolara/misc/Map.png")],
+      [false, false]);
+    // The embed still resolves: Obsidian matches ![[Map.png]] by filename, and
+    // both files moved into the same folder.
+    check("the embed rides along beside the article that carries it",
+      read(root, "settings/rolara/Odds.md").includes("![[Map.png]]"), true);
+    // The rebuilt parent index lists articles, and a PNG is not one. Listing it
+    // would put a [[Map]] wikilink in the index with no markdown behind it.
+    const index = read(root, "settings/rolara/Rolara-INDEX.md");
+    check("but the rebuilt parent index lists only the markdown",
+      [index.includes("[[Odds]]"), /\[\[Map/.test(index), /\[\[notes/.test(index)],
+      [true, false, false]);
+  }
+);
+
+// git mv EMPTIES a folder; it does not remove it. Measured in a scratch repo:
+// moving every tracked file out of misc/ leaves misc/ on disk, and adding a
+// `git rm` of the last tracked file is what prunes it. So the index-present case
+// above passes on a git side effect, and this shape, which planAbsorbFolders
+// produces whenever no file matches the index suffix or the setting has no
+// suffix, has no `git rm` in it at all.
+withRepo({ "settings/rolara/misc/Odds.md": article("type: Concept", "Body.") }, (root) => {
+  const r = apply(root, [
+    {
+      op: "absorb-folder",
+      from: "settings/rolara/misc",
+      to: "settings/rolara",
+      articles: [{ from: "settings/rolara/misc/Odds.md", to: "settings/rolara/Odds.md" }],
+      index: null,
+      reason: "scope",
+    },
+  ]);
+  check("an absorb with no index to remove still applies", [r.ok, first(r.applied).applied], [true, true]);
+  check("the file is in the parent", has(root, "settings/rolara/Odds.md"), true);
+  // Asserted as the executor's own end state rather than left to git's pruning:
+  // an empty folder left behind is content-free content the sweep flags, and it
+  // makes a later absorb of the PARENT decline as "holds a subfolder".
+  check("and the emptied folder is removed rather than left standing",
+    has(root, "settings/rolara/misc"), false);
+});
+
+withRepo(
+  {
+    "settings/rolara/misc/Odds.md": article("type: Concept", "Body."),
+    "settings/rolara/misc/Ends.md": article("type: Concept", "Body."),
+  },
+  (root) => {
+    const r = apply(root, [
+      {
+        op: "absorb-folder",
+        from: "settings/rolara/misc",
+        to: "settings/rolara",
+        articles: [{ from: "settings/rolara/misc/Odds.md", to: "settings/rolara/Odds.md" }],
+        index: null,
+        reason: "scope",
+      },
+    ]);
+    // A hand-edited plan can name fewer files than the folder holds. Emptiness
+    // is verified before the folder goes, because removing it recursively would
+    // delete a file the DM's approved proposal never named, and a half-absorbed
+    // folder reported as absorbed is the failure the one-entry accounting
+    // exists to prevent.
+    check("a folder still holding an unnamed file is reported, not emptied",
+      [r.ok, r.failed.length, has(root, "settings/rolara/misc/Ends.md")], [false, 1, true]);
+  }
+);
+
+withRepo(
+  {
+    "settings/rolara/Rolara-INDEX.md": article("type: Index", "- [[Misc-INDEX]]\n- [[Notes-INDEX]]"),
+    "settings/rolara/misc/Misc-INDEX.md": article("type: Index", "- [[Odds]]"),
+    "settings/rolara/misc/Odds.md": article("type: Concept", "Body."),
+    "settings/rolara/notes/Notes-INDEX.md": article("type: Index", "- [[Jot]]"),
+    "settings/rolara/notes/Jot.md": article("type: Concept", "Body."),
+  },
+  (root) => {
+    // The end-to-end half of the sibling-absorb case in the plan suite: two
+    // stub folders into one parent is the ordinary shape of this feature, and
+    // the DM approved ONE migration for it.
+    const r = apply(root, [
+      {
+        op: "absorb-folder",
+        from: "settings/rolara/misc",
+        to: "settings/rolara",
+        articles: [{ from: "settings/rolara/misc/Odds.md", to: "settings/rolara/Odds.md" }],
+        index: "settings/rolara/misc/Misc-INDEX.md",
+        reason: "scope",
+      },
+      {
+        op: "absorb-folder",
+        from: "settings/rolara/notes",
+        to: "settings/rolara",
+        articles: [{ from: "settings/rolara/notes/Jot.md", to: "settings/rolara/Jot.md" }],
+        index: "settings/rolara/notes/Notes-INDEX.md",
+        reason: "scope",
+      },
+      { op: "rebuild-index", to: "settings/rolara/Rolara-INDEX.md", folder: "settings/rolara", reason: "scope" },
+    ]);
+    check("two sibling absorbs into one parent apply in one run",
+      [r.ok, r.applied.length], [true, 3]);
+    check("both folders are gone",
+      [has(root, "settings/rolara/misc"), has(root, "settings/rolara/notes")], [false, false]);
+    check("and both files are in the parent",
+      [has(root, "settings/rolara/Odds.md"), has(root, "settings/rolara/Jot.md")], [true, true]);
+  }
+);
+
+withRepo(
+  {
+    ".gitignore": "settings/rolara/misc/Hidden.md\n",
+    "settings/rolara/misc/Misc-INDEX.md": article("type: Index", "- [[Odds]]"),
+    "settings/rolara/misc/Odds.md": article("type: Concept", "Body."),
+    "settings/rolara/misc/Hidden.md": article("type: Concept", "A draft the DM keeps out of git."),
+  },
+  (root) => {
+    const before = snapshotTree(root);
+    const r = apply(root, [
+      {
+        op: "absorb-folder",
+        from: "settings/rolara/misc",
+        to: "settings/rolara",
+        // Odds.md is listed FIRST deliberately. `git mv` on the ignored file
+        // hard-fails with "not under version control", exit 128, so with the
+        // skip missing the executor moves every PRECEDING file and then fails
+        // mid-dissolution. Listing the ignored file first would leave the
+        // project untouched by accident and hide that partial mutation.
+        articles: [
+          { from: "settings/rolara/misc/Odds.md", to: "settings/rolara/Odds.md" },
+          { from: "settings/rolara/misc/Hidden.md", to: "settings/rolara/Hidden.md" },
+        ],
+        index: "settings/rolara/misc/Misc-INDEX.md",
+        reason: "scope",
+      },
+    ]);
+    // WHOLE, not per file. An ignored file has no snapshot, so it cannot move;
+    // absorbing the rest would leave a half-dissolved folder holding one file
+    // and no index, which is the failure the one-entry-per-dissolution
+    // accounting exists to prevent.
+    check("an absorb carrying a git-ignored file is skipped whole",
+      [r.ok, r.skipped.length, r.applied.length, r.failed.length], [true, 1, 0, 0]);
+    check("and the folder is left byte-identical", snapshotTree(root), before);
+    // ignoredBeneath's reason says git mv carries them to the new path, which
+    // this kind never does: it moves file by file. The accurate disclosure is
+    // the skip above.
+    check("the disclosure is the skip, not the directory-move note",
+      r.ignoredMoved.length, 0);
   }
 );
 

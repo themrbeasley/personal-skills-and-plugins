@@ -8,16 +8,20 @@
 // Importable: buildPlan and runPrechecks are pure and exported so
 // migrate.plan.test.mjs can exercise them without starting a workflow run.
 //
-// WRITE APIs live in the apply half only. mkdirSync and writeFileSync below are
-// reached from applyPlan and from nothing the plan phase calls; the plan phase's
-// own functions call readdirSync, readFileSync, statSync, and existsSync and
-// nothing else. The git command set is likewise split: the plan phase issues
-// only `rev-parse --show-toplevel` and `status --ignored --porcelain -z`, and
-// every mutating git argv (mv, rm, add, commit) is built inside the apply half.
+// WRITE APIs live in the apply half only. mkdirSync, writeFileSync, and rmdirSync
+// below are reached from applyPlan and from nothing the plan phase calls; the
+// plan phase's own functions call readdirSync, readFileSync, statSync, and
+// existsSync and nothing else. The git command set is likewise split: the plan
+// phase issues only `rev-parse --show-toplevel` and `status --ignored
+// --porcelain -z`, and every mutating git argv (mv, rm, add, commit) is built
+// inside the apply half.
+//
+// rmdirSync is the module's only raw filesystem removal, and it is non-recursive
+// by choice rather than by default: see removeAbsorbedFolder.
 //
 // Node built-ins only.
 
-import { readdirSync, readFileSync, statSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { readdirSync, readFileSync, statSync, existsSync, mkdirSync, writeFileSync, rmdirSync } from "node:fs";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
 
@@ -148,19 +152,16 @@ export function runPrechecks({ operations, projectRoot }) {
 // Operation kinds whose destination is SUPPOSED to be there already, so finding
 // it on disk is not a collision. merge-index targets the surviving index it
 // folds the others into, tag-registry regenerates a registry an earlier run
-// wrote, rebuild-index edits an existing index's link list in place rather than
-// creating one, and absorb-folder's `to` is the PARENT FOLDER the dissolved
-// folder's articles move into, which by definition already exists; existsSync(to)
-// is already its own precondition check, not this one's job. Every other kind is
-// checked, including one added later: a new kind that aborts on a destination it
-// meant to create is a louder failure than one that silently overwrites the DM's
-// file.
+// wrote, and rebuild-index edits an existing index's link list in place rather
+// than creating one. Every other kind is checked, including one added later: a
+// new kind that aborts on a destination it meant to create is a louder failure
+// than one that silently overwrites the DM's file.
 //
-// absorb-folder's real collision hazard is one level down, in `op.articles`: one
-// article's destination basename already occupied in the parent. That is not
-// this set's job either; findDestinationCollisions checks it separately, because
-// the collision is per ARTICLE, not per the folder-level `to` this set exempts.
-const DESTINATION_MAY_EXIST = new Set(["merge-index", "tag-registry", "rebuild-index", "absorb-folder"]);
+// absorb-folder is NOT here, and was: its folder-level `to` is the parent folder
+// and used to need the exemption. It no longer contributes a destination entry
+// at all, so there is nothing left to exempt; see destinationEntriesOf for why
+// the entry went away.
+const DESTINATION_MAY_EXIST = new Set(["merge-index", "tag-registry", "rebuild-index"]);
 
 // vault joins them for the CREATE shape ONLY, which is why this is a predicate
 // rather than a third entry in the set above.
@@ -211,18 +212,33 @@ function destinationMayExist(op) {
 // half the key let through a pair that is one file.
 //
 // A "destination entry" is one from/to pair this check considers. Most
-// operations contribute exactly one: their own from and to. An operation that
-// also carries `articles` (currently only absorb-folder) contributes one more
-// PER ARTICLE, because articles is the field the DM's approved proposal names,
-// and each article's own destination is what can actually collide with a file
-// already sitting in the parent. The operation's own `to` stays governed by
-// destinationMayExist as before (for absorb-folder that is the parent folder,
-// which is supposed to be there already); an article's `to` is never exempt,
-// because a basename collision there is exactly the hazard this check exists to
-// catch before anything moves, on the same "refuse before mutation" terms every
-// other kind gets.
+// operations contribute exactly one: their own from and to.
+//
+// absorb-folder is the exception, and contributes one entry PER FILE in
+// `articles` and NONE of its own. `articles` is the field the DM's approved
+// proposal names, and for this kind those files ARE the destinations: the
+// executor moves them one `git mv` at a time and never writes the folder-level
+// `to` as a unit. So a file's `to` is never exempt, because a basename collision
+// in the parent is exactly the hazard this check exists to catch before anything
+// moves, and the folder-level `to` is not a destination to check at all.
+//
+// It used to contribute both, with the folder-level entry exempted by
+// destinationMayExist. That entry made the feature's ORDINARY case refuse:
+// absorbing two sibling stub folders into one parent gives two operations the
+// same folder-level `to`, and the generic in-plan rule below reads two entries
+// with one destination as a collision whatever their kinds, exemption or not.
+// Measured: two absorbs into settings/rolara reported ok false with an in-plan
+// collision of settings/rolara against itself, and applyPlan then refused the
+// run over a file that would not have been overwritten. The only thing dropping
+// the entry gives up is vacate credit on the dissolved folder path itself, which
+// nothing needs: no operation moves anything ONTO a folder another operation is
+// dissolving, and if one ever did, withheld credit costs a false collision and a
+// rerun rather than an overwrite.
 function destinationEntriesOf(o) {
-  const entries = [{ op: o.op, from: o.from, to: o.to, mayExist: destinationMayExist(o) }];
+  const entries = [];
+  if (o.op !== "absorb-folder") {
+    entries.push({ op: o.op, from: o.from, to: o.to, mayExist: destinationMayExist(o) });
+  }
   for (const a of list(o.articles)) {
     if (!a || !a.to) continue;
     entries.push({ op: o.op, from: a.from, to: a.to, mayExist: false });
@@ -264,13 +280,20 @@ function findDestinationCollisions(operations, projectRoot, ignored) {
   // collision abort, which costs a rerun and nothing else. Given that
   // asymmetry, undetermined takes the conservative reading rather than
   // today's permissive one.
+  //
+  // Both sides of the lookup are posix-normalized, the same way the vacated key
+  // one line below already is. Plan paths are posix by contract, so this changes
+  // nothing for a planned plan; it keeps the comparison honest for a hand-edited
+  // one, where a Windows DM's backslash would otherwise miss the match and hand
+  // back the credit this is withholding.
   const ignoredFroms =
-    ignored === null ? null : new Set(list(ignored).map((i) => i.from).filter(Boolean));
+    ignored === null ? null : new Set(list(ignored).map((i) => toPosix(i.from)).filter(Boolean));
   const vacated = new Set();
   for (const e of entries) {
     if (!e.from || !e.to) continue;
-    if (ignoredFroms === null || ignoredFroms.has(e.from)) continue;
-    vacated.add(foldKey(toPosix(e.from)));
+    const from = toPosix(e.from);
+    if (ignoredFroms === null || ignoredFroms.has(from)) continue;
+    vacated.add(foldKey(from));
   }
 
   const byDir = new Map();
@@ -322,9 +345,9 @@ function findDestinationCollisions(operations, projectRoot, ignored) {
 // project. The read-only property is not an absence of walking. It is that
 // every fs call the plan phase makes is readdirSync, readFileSync, statSync, or
 // existsSync, none of which can write, plus two git argv literals that take
-// nothing from the caller or the project. The module also imports mkdirSync and
-// writeFileSync and builds mutating git argv, but only inside the apply half
-// below, which no plan-phase function reaches.
+// nothing from the caller or the project. The module also imports mkdirSync,
+// writeFileSync, and rmdirSync and builds mutating git argv, but only inside the
+// apply half below, which no plan-phase function reaches.
 //
 // Every field is optional; a survey that found nothing of a kind may omit it.
 //
@@ -859,6 +882,15 @@ function planAbsorbFolders(items, ctx) {
   const operations = [];
   const declined = [];
   const protectedSet = protectedFolders(ctx.settings);
+  // Parent index path -> the folders absorbed into it. A Map rather than an
+  // emission inside the loop, because two absorbs sharing a parent would
+  // otherwise append the same rebuild-index twice from two perfectly valid
+  // scope entries, and two operations with one destination is an in-plan
+  // collision that refuses the whole run. Keyed by `to`, which is the field
+  // findDestinationCollisions compares. Collecting the folders as well as
+  // deduping the path keeps the surviving operation's reason truthful: it names
+  // every folder that made the rebuild necessary, not just the first.
+  const rebuilds = new Map();
 
   for (const item of items) {
     const folder = toPosix(item && item.folder);
@@ -886,7 +918,20 @@ function planAbsorbFolders(items, ctx) {
     }
 
     const suffix = indexSuffixFor(settingForFolder(ctx.settings, folder), ctx.baseRules);
-    const articles = [];
+    const parent = path.posix.dirname(folder);
+    // EVERY file moves, markdown and otherwise, and every one is enumerated so
+    // it appears in the proposal the DM approves. Enumerating only the markdown
+    // left the rest stranded: measured, a folder holding Odds.md, Map.png, and
+    // notes.txt planned one absorb naming Odds.md alone, and applying it left
+    // the folder holding two orphaned files and no index, which the validation
+    // sweep then flags as content with no index on every later run. It also
+    // contradicted the proposal contract, which is that the DM approves a
+    // proposal naming every file the operation moves.
+    //
+    // Moving them keeps an image beside the article that embeds it, and does not
+    // break the embed: Obsidian resolves ![[Map.png]] by filename, so a move
+    // within one vault leaves it resolving.
+    const files = [];
     let index = null;
     let hasSubfolder = false;
     for (const name of names) {
@@ -900,13 +945,14 @@ function planAbsorbFolders(items, ctx) {
         hasSubfolder = true;
         continue;
       }
-      if (!name.toLowerCase().endsWith(".md")) continue;
-      const stem = name.slice(0, -3);
-      if (suffix && stem.endsWith(suffix)) {
+      // The folder's own index is the one file removed rather than moved, and it
+      // is identified exactly as before: a markdown file whose stem ends with
+      // the owning setting's index suffix.
+      if (name.toLowerCase().endsWith(".md") && suffix && name.slice(0, -3).endsWith(suffix)) {
         index = `${folder}/${name}`;
         continue;
       }
-      articles.push({ from: `${folder}/${name}`, to: `${path.posix.dirname(folder)}/${name}` });
+      files.push({ from: `${folder}/${name}`, to: `${parent}/${name}` });
     }
 
     if (hasSubfolder) {
@@ -919,12 +965,16 @@ function planAbsorbFolders(items, ctx) {
       continue;
     }
 
-    const parent = path.posix.dirname(folder);
     operations.push({
       op: "absorb-folder",
       from: folder,
       to: parent,
-      articles,
+      // `articles` is the field name the operation shape declares, and it now
+      // carries every file rather than only the markdown ones. Kept as the name
+      // because it is what the plan, the proposal, and destinationEntriesOf all
+      // read; the executor's own messages say "file" so the DM is not told an
+      // image is an article.
+      articles: files,
       index,
       reason: String((item && item.reason) || "Absorbed by a DM-approved /migrate scope."),
     });
@@ -933,13 +983,19 @@ function planAbsorbFolders(items, ctx) {
     // lists articles only, so rebuilding the parent is what clears that link.
     const parentIndex = existingIndexIn(ctx, parent, suffix);
     if (parentIndex) {
-      operations.push({
-        op: "rebuild-index",
-        to: parentIndex,
-        folder: parent,
-        reason: `Rebuilt because ${folder} was absorbed into it.`,
-      });
+      if (!rebuilds.has(parentIndex)) rebuilds.set(parentIndex, { folder: parent, absorbed: [] });
+      rebuilds.get(parentIndex).absorbed.push(folder);
     }
+  }
+
+  for (const [to, { folder, absorbed }] of rebuilds) {
+    operations.push({
+      op: "rebuild-index",
+      to,
+      folder,
+      reason:
+        `Rebuilt because ${absorbed.join(", ")} ${absorbed.length === 1 ? "was" : "were"} absorbed into it.`,
+    });
   }
   return { operations, declined };
 }
@@ -1068,6 +1124,9 @@ function ignoreOracle(projectRoot) {
   };
 }
 
+const IGNORED_SOURCE_REASON =
+  "Source is git-ignored, so the pre-migration snapshot does not contain it. Reported and left where it is; moving it would be unrecoverable.";
+
 // An ignored file is not in the snapshot, so moving it would be unrecoverable.
 // Every operation whose SOURCE is ignored is reported here and skipped by the
 // apply phase. It does not fail the run: see runPrechecks.
@@ -1105,14 +1164,27 @@ function findIgnoredSources(operations, oracle) {
     if (!o || typeof o !== "object") continue;
     for (const source of [o.from, ...list(o.sources)]) {
       if (!source || !oracle.isIgnored(source)) continue;
-      out.push({
-        op: o.op,
-        source: toPosix(source),
-        from: o.from,
-        to: o.to,
-        reason:
-          "Source is git-ignored, so the pre-migration snapshot does not contain it. Reported and left where it is; moving it would be unrecoverable.",
-      });
+      out.push({ op: o.op, source: toPosix(source), from: o.from, to: o.to, reason: IGNORED_SOURCE_REASON });
+    }
+    // absorb-folder never moves its own `from`. It moves each file named in
+    // `articles`, one `git mv` at a time, so the source that can be git-ignored
+    // is one of those FILES rather than the folder, and enumerating only o.from
+    // left a git-ignored file invisible here. Two things then went wrong, both
+    // measured: findDestinationCollisions credited the file with vacating a path
+    // it will never leave, permitting a rename onto a git-ignored file that has
+    // no snapshot; and applyPlan's skip list, which reads this same set, moved
+    // every preceding file and then failed mid-dissolution, because `git mv` on
+    // an ignored file hard-fails with "not under version control", exit 128.
+    //
+    // Reported with the FILE's own from and to rather than the folder's. That is
+    // what the report should read as (the move that will not happen), and it is
+    // what findDestinationCollisions needs: it withholds vacate credit by
+    // matching this `from` against each destination entry's `from`, which for an
+    // enumerated file is the file's own path. Naming the folder there would
+    // leave the hole open.
+    for (const a of list(o.articles)) {
+      if (!a || !a.from || !oracle.isIgnored(a.from)) continue;
+      out.push({ op: o.op, source: toPosix(a.from), from: toPosix(a.from), to: toPosix(a.to), reason: IGNORED_SOURCE_REASON });
     }
   }
   return out;
@@ -1125,11 +1197,21 @@ function findIgnoredSources(operations, oracle) {
 // buys is that the DM learns which files `git reset --hard` will not put back.
 //
 // Array OR null, on the same terms as findIgnoredSources.
+//
+// absorb-folder is excluded, keyed on the kind, because the kind is exactly what
+// decides whether the directory itself is what moves. This one's `from` IS a
+// directory, so it reached this report, but it is never handed to `git mv`: the
+// executor moves each file in `articles` individually. So the reason below,
+// "git mv carries them to the new path", is false for it, and the disclosure the
+// DM most needs is the opposite one. Every file in the folder is enumerated, so
+// a git-ignored file beneath it is an ignored SOURCE, which findIgnoredSources
+// reports and the apply phase skips the whole dissolution over.
 function findIgnoredWithinSources(operations, oracle, projectRoot) {
   if (oracle === null) return null;
   const out = [];
   for (const o of list(operations)) {
     if (!o || typeof o !== "object" || !o.from || !o.to) continue;
+    if (o.op === "absorb-folder") continue;
     let st;
     try {
       st = statSync(path.resolve(projectRoot, o.from));
@@ -1396,8 +1478,8 @@ export function gitMove(ctx, from, to) {
   // moved only the bracketed file and left the neighbouring `Weapons O-INDEX.md`
   // that a glob would have matched exactly where it was. Prefixing these would
   // instead create a file whose name literally begins `:(literal)`. The one
-  // pathspec-consuming git call in this module is the `git rm` in
-  // applyMergeIndex, and it carries the prefix.
+  // pathspec-consuming git call in this module is the `git rm` in gitRemove just
+  // below, which every caller goes through, and it carries the prefix.
   const direct = ctx.git(["mv", "--", from, to]);
   if (direct.ok) return { ok: true, mode: "direct" };
 
@@ -1429,15 +1511,25 @@ export function gitMove(ctx, from, to) {
   return { ok: true, mode: "two-step" };
 }
 
-// git rm takes a PATHSPEC, not a path. Measured: `git rm -q -- "Weapons [OS]-INDEX.md"`
-// also removed an unrelated `Weapons O-INDEX.md`. :(literal) disables wildcard
-// interpretation; `--` stops option parsing. They fix different halves of the
-// same line and neither substitutes for the other.
+// EVERY `git rm` in this module goes through here, so the pathspec guard is
+// written once. Both callers hand it a filename that arrived from the DM's own
+// filesystem by way of the scout, with no sanitization in between.
+//
+// `git rm` takes a PATHSPEC, not a path, so `*`, `?`, `[`, and `]` in a DM-chosen
+// filename are read as wildcards. Measured against real git, with an unrelated
+// `items/Weapons O-INDEX.md` sitting beside a merge's `items/Weapons [OS]-INDEX.md`:
+// the bare pathspec removed BOTH, and the run reported ok, committed, zero
+// failures, zero drops, and clean link integrity, because the unnamed file's
+// content had never been merged anywhere and no rail was looking at it.
+// `:(literal)` disables wildcard interpretation for that pathspec element; `--`
+// stops option parsing. Keep both: they fix different halves of the same line and
+// neither substitutes for the other. Same fix and same reasoning as the lane
+// pathspecs in `commands/`.
 //
 // ctx.git never throws (see makeGit); it reports failure through `.ok`. Checked
-// that way here too, on the same terms as gitMove and the inline `git rm` call
-// in applyMergeIndex, rather than a try/catch that a non-throwing call would
-// never trip.
+// that way here too, on the same terms as gitMove, rather than a try/catch that a
+// non-throwing call would never trip. `error` carries firstLine(stderr), which is
+// the shape both callers report to the DM.
 export function gitRemove(ctx, target) {
   const removed = ctx.git(["rm", "-q", "--", `:(literal)${target}`]);
   if (!removed.ok) return { ok: false, error: firstLine(removed.stderr) };
@@ -1967,17 +2059,27 @@ function applyRelocateProng(op, ctx) {
 
 // Dissolve a leaf folder into its parent. One accounting entry for the whole
 // dissolution, on the same principle a rename carries its link rewrite: a folder
-// reported as absorbed while one of its articles was left behind is the failure
-// the accounting exists to prevent.
+// reported as absorbed while one of its files was left behind is the failure the
+// accounting exists to prevent.
+//
+// `op.articles` names every file in the folder, not only the markdown ones, and
+// each is moved individually. The folder's own index is the one file removed
+// rather than moved. Then the emptied folder itself goes, which is the third step
+// and not a side effect of the second; see removeAbsorbedFolder.
 function applyAbsorbFolder(op, ctx) {
   const entry = entryFor(op);
   entry.moved = 0;
-  const articles = list(op.articles);
+  const files = list(op.articles);
+  const folder = toPosix(op.from);
+  if (!folder) {
+    entry.detail = "The operation names no folder to dissolve, so there is nothing to absorb.";
+    return entry;
+  }
 
-  for (const a of articles) {
+  for (const a of files) {
     const out = gitMove(ctx, toPosix(a.from), toPosix(a.to));
     if (!out.ok) {
-      entry.detail = `git mv failed for ${a.from}: ${out.error}. ${entry.moved} of ${articles.length} article(s) had already moved; the snapshot is the undo.`;
+      entry.detail = `git mv failed for ${a.from}: ${out.error}. ${entry.moved} of ${files.length} file(s) had already moved; the snapshot is the undo.`;
       return entry;
     }
     entry.moved++;
@@ -1986,14 +2088,77 @@ function applyAbsorbFolder(op, ctx) {
   if (op.index) {
     const removed = gitRemove(ctx, toPosix(op.index));
     if (!removed.ok) {
-      entry.detail = `Articles moved but the folder's index could not be removed: ${removed.error}`;
+      entry.detail = `Every file moved but the folder's index could not be removed: ${removed.error}`;
       return entry;
     }
   }
 
+  const gone = removeAbsorbedFolder(ctx, folder);
+  if (!gone.ok) {
+    entry.detail =
+      `Every file moved${op.index ? " and the folder's own index was removed" : ""}, but ${folder} is still ` +
+      `there: ${gone.error} A folder that outlives its own dissolution is content with no index to the ` +
+      "validation sweep, and it makes a later absorb of the parent decline as a folder that holds a subfolder, " +
+      "so this reports applied false rather than counting the dissolution as done.";
+    return entry;
+  }
+
   entry.applied = true;
-  entry.detail = `Absorbed ${entry.moved} article(s) into ${op.to}${op.index ? " and removed the folder's own index" : ""}.`;
+  entry.detail =
+    `Absorbed ${entry.moved} file(s) into ${op.to}` +
+    (op.index ? ", removed the folder's own index, and" : " and") +
+    ` removed the emptied folder ${folder}.`;
   return entry;
+}
+
+// The emptied folder, removed explicitly and never recursively.
+//
+// `git mv` empties a folder; it does not remove it. Measured in two scratch
+// repositories: moving every tracked file out of misc/ leaves misc/ on disk, and
+// adding a `git rm` of the last tracked file is what removes it. So the shape
+// planAbsorbFolders produces whenever no file matches the index suffix, or the
+// setting declares no suffix, has no `git rm` in it at all and used to leave the
+// folder standing while the entry reported applied true.
+//
+// Emptiness is VERIFIED first, and the removal is non-recursive so that it
+// cannot succeed against a folder that still holds something. Anything left in
+// there is a file this operation did not enumerate, and deleting a file the DM's
+// approved proposal never named is the one thing this module must not do.
+//
+// The path is resolved and then checked to be strictly inside cwd. Every other
+// mutation here goes through git, which refuses a path outside the repository on
+// its own; this is the module's only raw filesystem removal, so it does that
+// check itself rather than inheriting it.
+function removeAbsorbedFolder(ctx, folder) {
+  const abs = path.resolve(ctx.cwd, folder);
+  const root = path.resolve(ctx.cwd);
+  if (abs === root || !abs.startsWith(root + path.sep)) {
+    return { ok: false, error: `${folder} does not resolve to a path inside the project.` };
+  }
+  let leftovers;
+  try {
+    leftovers = readdirSync(abs);
+  } catch (err) {
+    // Already gone is the ordinary outcome when the index removal happened to
+    // prune it, which is what `git rm` of the last tracked file does.
+    if (err.code === "ENOENT") return { ok: true };
+    return { ok: false, error: `could not read it to confirm it is empty: ${err.message}` };
+  }
+  if (leftovers.length > 0) {
+    return {
+      ok: false,
+      error:
+        `it still holds ${leftovers.length} ${leftovers.length === 1 ? "entry" : "entries"} this operation never ` +
+        `named (${leftovers.join(", ")}), and removing a file the DM's proposal did not name is not this ` +
+        "operation's call.",
+    };
+  }
+  try {
+    rmdirSync(abs);
+  } catch (err) {
+    return { ok: false, error: `it is empty but could not be removed: ${err.message}` };
+  }
+  return { ok: true };
 }
 
 // 2. Normalize a base-type value, in place, matching on the value the plan says
@@ -2379,22 +2544,14 @@ function applyMergeIndex(op, ctx) {
     return entry;
   }
 
-  // `--` stops OPTION parsing; it does not make what follows a literal path.
-  // `git rm` takes a PATHSPEC, so `*`, `?`, `[`, and `]` inside a DM-chosen
-  // index filename are read as wildcards, and this source arrives from the DM's
-  // filesystem by way of the scout with no sanitization in between. Measured
-  // against real git, with an unrelated `items/Weapons O-INDEX.md` sitting beside
-  // the merge's `items/Weapons [OS]-INDEX.md`: the bare pathspec removed BOTH,
-  // and the run reported ok, committed, zero failures, zero drops, and clean link
-  // integrity, because the unnamed file's content had never been merged anywhere
-  // and no rail was looking at it. `:(literal)` disables wildcard interpretation
-  // for that pathspec element; the same fix and the same reasoning as the lane
-  // pathspecs in `commands/`. Keep both: `--` and `:(literal)` fix different
-  // halves of this line and neither substitutes for the other.
+  // Through gitRemove, which is where the pathspec guard this call needs lives:
+  // a merge source is a DM-chosen index filename, and a bare pathspec removed an
+  // unrelated neighbour when one held brackets. The rationale is written once,
+  // above gitRemove, rather than restated here.
   const undeleted = [];
   for (const source of folded) {
-    const removed = ctx.git(["rm", "-q", "--", `:(literal)${source}`]);
-    if (!removed.ok) undeleted.push(`${source} (${firstLine(removed.stderr)})`);
+    const removed = gitRemove(ctx, source);
+    if (!removed.ok) undeleted.push(`${source} (${removed.error})`);
   }
   if (undeleted.length > 0) {
     entry.detail =
@@ -2880,7 +3037,30 @@ export function applyPlan(plan, options = {}) {
   // ------------------------------------------------------------------
   const raw = [];
   for (const op of operations) {
-    const sources = [op.from, ...list(op.sources)].filter(Boolean).map(toPosix);
+    // The enumerated files of an absorb are sources here for the same reason
+    // findIgnoredSources counts them: that kind never moves its own `from`, it
+    // moves each file in `articles` one `git mv` at a time, so the source that
+    // can be git-ignored is one of those files.
+    //
+    // DECIDED: an absorb carrying a git-ignored file is skipped WHOLE, not per
+    // file. This loop skips per OPERATION, and adding the files to `sources` is
+    // what puts an ignored one inside that unit rather than beside it. Three
+    // reasons it is the right unit. The module's contract for an ignored source
+    // is that it is skipped and reported rather than moved, and per-file skipping
+    // would move the folder's other files, so the ignored file would be left
+    // sitting alone in a folder whose index had just been removed: skipped in
+    // name and stranded in fact. A half-absorbed folder is precisely the failure
+    // the one-entry-per-dissolution accounting exists to prevent, and there is no
+    // partial entry to report it with. And `git mv` on an ignored file hard-fails
+    // with "not under version control", exit 128, so per-file skipping would only
+    // be choosing which way to arrive at that same half-dissolved folder.
+    //
+    // The cost is that one git-ignored draft in a folder declines the absorb the
+    // DM asked for. That is a reported refusal the DM can act on by moving the
+    // draft or unignoring it, and it is recoverable; the alternative is not.
+    const sources = [op.from, ...list(op.sources), ...list(op.articles).map((a) => a && a.from)]
+      .filter(Boolean)
+      .map(toPosix);
     const ignoredHere = sources.filter((s) => ignoredSources.has(s));
     if (ignoredHere.length > 0) {
       result.skipped.push({

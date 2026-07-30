@@ -1001,18 +1001,33 @@ console.log("\n=== scoped plans: rebuild-index ===");
 
 console.log("\n=== scoped plans: absorb-folder ===");
 
+function writeAt(root, rel, body) {
+  const abs = path.join(root, rel);
+  mkdirSync(path.dirname(abs), { recursive: true });
+  writeFileSync(abs, body);
+}
+
 function absorbFixture() {
   const root = mkdtempSync(path.join(os.tmpdir(), "orb-absorb-"));
-  const w = (rel, body) => {
-    const abs = path.join(root, rel);
-    mkdirSync(path.dirname(abs), { recursive: true });
-    writeFileSync(abs, body);
-  };
+  const w = (rel, body) => writeAt(root, rel, body);
   w("settings/rolara/Rolara-INDEX.md", "---\ntype: Index\n---\n\n- [[Misc-INDEX]]\n");
   w("settings/rolara/misc/Misc-INDEX.md", "---\ntype: Index\n---\n\n- [[Odds]]\n");
   w("settings/rolara/misc/Odds.md", "---\ntype: Concept\n---\n\nBody.\n");
   w("settings/rolara/misc/Ends.md", "---\ntype: Concept\n---\n\nBody.\n");
   return root;
+}
+
+// The ignored-source cases need a real repository under the fixture, because
+// ignoreOracle asks git rather than parsing .gitignore itself.
+function commitFixture(root) {
+  const git = (...argv) =>
+    execFileSync("git", argv, { cwd: root, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+  git("init", "-q");
+  git("config", "user.email", "test@example.com");
+  git("config", "user.name", "Plan Test");
+  git("config", "commit.gpgsign", "false");
+  git("add", "-A");
+  git("commit", "-q", "-m", "fixture");
 }
 
 {
@@ -1053,6 +1068,104 @@ function absorbFixture() {
   check("a prong root is permanently exempt",
     [r.operations.length, r.declined.length], [0, 1]);
   rmSync(root, { recursive: true, force: true });
+}
+
+// Absorbing two sibling stub folders into one parent is the ORDINARY shape of
+// this feature, and a plan its own prechecks refuse is a plan the DM cannot
+// apply without splitting one approved migration into two runs.
+{
+  const root = absorbFixture();
+  writeAt(root, "settings/rolara/notes/Notes-INDEX.md", "---\ntype: Index\n---\n\n- [[Jot]]\n");
+  writeAt(root, "settings/rolara/notes/Jot.md", "---\ntype: Concept\n---\n\nBody.\n");
+  const r = scoped(
+    { absorbFolders: [{ folder: "settings/rolara/misc" }, { folder: "settings/rolara/notes" }] },
+    root
+  );
+  // ONE rebuild, not two. Two absorbs sharing a parent emit the same
+  // rebuild-index twice without a dedupe, and two operations with one
+  // destination is an in-plan collision by the generic rule.
+  check("two sibling absorbs into one parent plan one parent rebuild",
+    kindsOf(r.operations), ["absorb-folder", "absorb-folder", "rebuild-index"]);
+  check("and the rebuild's reason names both absorbed folders",
+    [/misc/.test(r.operations[2].reason), /notes/.test(r.operations[2].reason)], [true, true]);
+  // The folder-level `to` of both absorbs is the same parent folder, which the
+  // generic in-plan rule reads as a collision. It is not one: for this kind the
+  // real destinations are the enumerated files, not the parent folder, which is
+  // supposed to be there already and is never written as a unit.
+  check("and the planner does not hand its own prechecks a plan they refuse",
+    [r.declined.length, r.prechecks.ok, r.prechecks.collisions], [0, true, []]);
+  rmSync(root, { recursive: true, force: true });
+}
+
+// Absorbing must not strand the files it does not consider markdown. A folder
+// left holding an image and a text file with no index is content the validation
+// sweep flags on every later run.
+{
+  const root = absorbFixture();
+  writeAt(root, "settings/rolara/misc/Map.png", "PNG");
+  writeAt(root, "settings/rolara/misc/notes.txt", "Loose notes.\n");
+  const r = scoped({ absorbFolders: [{ folder: "settings/rolara/misc" }] }, root);
+  check("every file in the folder is enumerated, not only the markdown",
+    r.operations[0].articles.map((a) => a.from).sort(),
+    ["settings/rolara/misc/Ends.md", "settings/rolara/misc/Map.png",
+     "settings/rolara/misc/Odds.md", "settings/rolara/misc/notes.txt"]);
+  check("each one carries its own destination in the parent",
+    r.operations[0].articles.map((a) => a.to).sort(),
+    ["settings/rolara/Ends.md", "settings/rolara/Map.png",
+     "settings/rolara/Odds.md", "settings/rolara/notes.txt"]);
+  check("and the folder's own index is still named for removal rather than moved",
+    r.operations[0].index, "settings/rolara/misc/Misc-INDEX.md");
+  rmSync(root, { recursive: true, force: true });
+}
+
+{
+  const root = absorbFixture();
+  writeAt(root, "settings/rolara/misc/Map.png", "PNG");
+  writeAt(root, "settings/rolara/Map.png", "A different image already in the parent.");
+  const r = scoped({ absorbFolders: [{ folder: "settings/rolara/misc" }] }, root);
+  // A non-markdown file is a destination like any other now that it is
+  // enumerated, so overwriting one in the parent has to abort on the same terms.
+  check("a non-markdown file colliding in the parent aborts the prechecks",
+    [r.prechecks.ok, list(r.prechecks.collisions).map((c) => c.to)],
+    [false, ["settings/rolara/Map.png"]]);
+  rmSync(root, { recursive: true, force: true });
+}
+
+{
+  const root = absorbFixture();
+  writeAt(root, "settings/rolara/misc/Hidden.md", "---\ntype: Concept\n---\n\nA draft kept out of git.\n");
+  writeAt(root, "settings/rolara/Spare.md", "---\ntype: Concept\n---\n\nBody.\n");
+  writeAt(root, ".gitignore", "settings/rolara/misc/Hidden.md\n");
+  commitFixture(root);
+  const r = scoped(
+    {
+      absorbFolders: [{ folder: "settings/rolara/misc" }],
+      pathMoves: [
+        { from: "settings/rolara/Spare.md", to: "settings/rolara/misc/Hidden.md", reason: "DM scope" },
+      ],
+    },
+    root
+  );
+  // An absorb moves each file it names one git mv at a time, so the file that
+  // can be git-ignored is one of those files rather than the folder. Reaching
+  // the ignored precheck is what makes it skippable AND what withholds vacate
+  // credit from it: `git mv` on an ignored file hard-fails with "not under
+  // version control", so it never leaves the path a later operation is aiming
+  // at, and a git-ignored file has no snapshot to restore either.
+  check("a git-ignored file inside an absorbed folder reaches the ignored precheck",
+    list(r.prechecks.ignored).map((i) => [i.op, i.source, i.from, i.to]),
+    [["absorb-folder", "settings/rolara/misc/Hidden.md",
+      "settings/rolara/misc/Hidden.md", "settings/rolara/Hidden.md"]]);
+  check("so nothing is credited with vacating a path it will never leave",
+    [r.prechecks.ok, list(r.prechecks.collisions).map((c) => [c.kind, c.op, c.to])],
+    [false, [["on-disk", "relocate-path", "settings/rolara/misc/Hidden.md"]]]);
+  // ignoredBeneath's reason says `git mv` carries the ignored paths to the new
+  // path, which is true of a directory move and false of this kind. The
+  // accurate disclosure is the ignored SOURCE above, which says the operation
+  // is skipped.
+  check("and the folder is not disclosed as a directory move that carries them along",
+    list(r.prechecks.ignoredBeneath).map((b) => b.op), []);
+  rmSync(root, { recursive: true, force: true, maxRetries: 5 });
 }
 
 console.log(`\n${passed} passed, ${failures.length} failed`);
