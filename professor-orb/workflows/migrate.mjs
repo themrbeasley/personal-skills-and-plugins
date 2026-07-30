@@ -2964,6 +2964,60 @@ export function parseProposal(text) {
   return { ok: true, plan: { operations: parsed.operations, declined: list(parsed.declined) } };
 }
 
+// The conventions file as it should stand AFTER a scope has been applied.
+//
+// Three things a scope can change are recorded in conventions.json: the type
+// values in use, the prong roots, and the campaign list. Leaving any of them
+// stale is quiet and expensive. A kbRoot that no longer exists makes /scribe
+// refuse to resolve its lane, leaves the write-time hook silent because no rule
+// resolves, and makes the sweep report every article as unattributed. None of
+// those announces itself as a conventions problem.
+//
+// Pure: the argument is never mutated, because the caller holds the file it
+// moved aside and must be able to fall back to it unchanged if this returns
+// something it does not like.
+export function conventionsAfterScope(conventions, scope) {
+  const changes = [];
+  const next = JSON.parse(JSON.stringify(conventions || {}));
+  const s = scope || {};
+
+  // Retypes extend the type enum. frontmatterTypeEnum ships at enforcement
+  // block, so an article retyped to a value the enum does not carry fails the
+  // write-time hook on its next edit, on output the migration itself produced.
+  const introduced = retypeExtensions(s);
+  if (introduced.length > 0) {
+    for (const setting of list(next.settings)) {
+      const rule = setting && setting.rules && setting.rules.frontmatterTypeEnum;
+      if (!rule) continue;
+      const base = list(rule.params && rule.params.values).map(String);
+      const existing = list(rule.extendedBy).map(String);
+      const added = [];
+      for (const value of introduced) {
+        // A base value needs no extension. Adding it would be noise in a file
+        // the DM reads and would imply the project contributed something it did
+        // not.
+        if (base.includes(value) || existing.includes(value)) continue;
+        existing.push(value);
+        added.push(value);
+      }
+      if (added.length === 0) continue;
+      rule.extendedBy = existing;
+      changes.push(
+        `Extended ${setting.name || "(unnamed setting)"}'s type enum with ${added.join(", ")}, so the retyped articles do not start failing the write-time hook.`
+      );
+    }
+  }
+
+  // Tasks 12, 13, and 14 add the setting-lifecycle cases here. Task 12 adds a
+  // rename, which updates settings[].name and all three prong roots, a
+  // retirement, which marks the entry rather than deleting it, and a campaign
+  // retirement, which updates campaigns. Task 13 adds a setting split, which
+  // adds a settings entry. Task 14 adds a setting merge, which removes one.
+  // Task 15 does not touch this function.
+
+  return { conventions: next, changes };
+}
+
 // ---------------------------------------------------------------------------
 // Apply phase
 // ---------------------------------------------------------------------------

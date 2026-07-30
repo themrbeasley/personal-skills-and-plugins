@@ -8,7 +8,7 @@
 //
 // Run: node professor-orb/workflows/migrate.proposal.test.mjs
 
-import { renderProposal, parseProposal } from "./migrate.mjs";
+import { renderProposal, parseProposal, conventionsAfterScope } from "./migrate.mjs";
 
 let passed = 0;
 const failures = [];
@@ -350,6 +350,78 @@ console.log("\n=== fences are lines, not substrings ===");
   check("a note-plus-edit proposal, quoting the marker and striking an operation, parses", parsed.ok, true);
   check("...with the edited destination", parsed.ok && parsed.plan.operations[0].to, "settings/rolara/archive/A.md");
   check("...and the struck operation gone", parsed.ok && parsed.plan.operations.length, 1);
+}
+
+console.log("\n=== conventions after a scope ===");
+
+const CONVENTIONS = {
+  schemaVersion: 1,
+  settings: [
+    {
+      name: "rolara",
+      kbRoot: "settings/rolara",
+      homebrewRoot: "homebrew/rolara",
+      sessionReportsRoot: "session-reports/rolara",
+      campaigns: ["karsk"],
+      tagRegistryPath: ".professor-orb/tag-registry.rolara.json",
+      rules: {
+        frontmatterTypeEnum: {
+          provenance: "professor-orb",
+          category: "frontmatter",
+          check: "enum",
+          enforcement: "block",
+          description: "type must be recognized.",
+          params: { field: "type", values: ["Person", "Location"] },
+        },
+      },
+    },
+  ],
+};
+
+{
+  const r = conventionsAfterScope(CONVENTIONS, {
+    retypes: [{ files: ["a.md"], typeFrom: "Person", typeTo: "Character" }],
+  });
+  // frontmatterTypeEnum blocks. Retyping articles to a value the enum does not
+  // carry would make every one of them fail the write-time hook on the next
+  // edit, on output professor-orb's own migration produced.
+  check("a retype extends the type enum",
+    r.conventions.settings[0].rules.frontmatterTypeEnum.extendedBy, ["Character"]);
+  check("the base values are untouched",
+    r.conventions.settings[0].rules.frontmatterTypeEnum.params.values, ["Person", "Location"]);
+  check("the change is reported in words", r.changes.length, 1);
+  check("the input object is not mutated",
+    CONVENTIONS.settings[0].rules.frontmatterTypeEnum.extendedBy, undefined);
+}
+
+{
+  const withExisting = JSON.parse(JSON.stringify(CONVENTIONS));
+  withExisting.settings[0].rules.frontmatterTypeEnum.extendedBy = ["Settlement"];
+  const r = conventionsAfterScope(withExisting, {
+    retypes: [
+      { files: ["a.md"], typeFrom: "Person", typeTo: "Settlement" },
+      { files: ["b.md"], typeFrom: "Person", typeTo: "Character" },
+    ],
+  });
+  check("an existing extension is not duplicated",
+    r.conventions.settings[0].rules.frontmatterTypeEnum.extendedBy, ["Settlement", "Character"]);
+}
+
+{
+  const r = conventionsAfterScope(CONVENTIONS, {});
+  check("an empty scope changes nothing", r.changes, []);
+  check("and returns the file as it was", r.conventions, CONVENTIONS);
+}
+
+{
+  const r = conventionsAfterScope(CONVENTIONS, {
+    retypes: [{ files: ["a.md"], typeFrom: "Person", typeTo: "Location" }],
+  });
+  // Already a base value. Adding it to extendedBy would be noise in a file the
+  // DM reads, and would imply the project contributed something it did not.
+  check("a value already in the base enum is not added as an extension",
+    r.conventions.settings[0].rules.frontmatterTypeEnum.extendedBy, undefined);
+  check("and nothing is reported as changed", r.changes, []);
 }
 
 console.log(`\n${passed} passed, ${failures.length} failed`);
