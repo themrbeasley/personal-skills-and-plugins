@@ -899,6 +899,8 @@ withRepo(
     check("a locally modified merge source is still removed",
       [r.applied.length, r.failed.length, has(root, "settings/rolara/items/Artifacts-INDEX.md")],
       [2, 0, false]);
+    check("and gone from the index, so the removal was staged and not merely unlinked",
+      lsFiles(root).filter((f) => /Artifacts-INDEX/.test(f)), []);
     check("the survivor carries the source's MODIFIED text, so the edit was folded in rather than dropped",
       [survivor.includes("[[Crown-ITEM]]"), survivor.includes("[[Crown]]")], [true, false]);
     check("and it carries that prose exactly once",
@@ -987,6 +989,134 @@ withRepo(
     check("and the emptied folder does not outlive its own dissolution",
       has(root, "settings/rolara/items/relics"), false);
     check("the run reports ok and link integrity passes", [r.ok, links(r).ok], [true, true]);
+  }
+);
+
+// ---------------------------------------------------------------------------
+// A merge naming its own survivor among its own sources refuses instead of
+// folding the survivor into itself and then deleting it
+// ---------------------------------------------------------------------------
+//
+// `-f` above only skips a REFUSAL git would otherwise raise; it does not know
+// whether the file it is asked to remove is the one place its own content just
+// got written. `sources` at :6256 was never filtered against `to`, so a survey
+// that enumerates every index in a folder as `sources` while separately naming
+// one of them as the survivor (the off-by-one setup Step 9's parity scan is one
+// hand-edit away from making) reaches applyMergeIndex with the survivor listed
+// as one of its own sources. The fold-into-itself writes the doubled text back
+// over the survivor, and the removal loop then hands that same path to
+// gitRemove along with every other folded source, because it walks `folded`,
+// not a set that excludes `to`. Measured at 3d8d32a: both index files gone from
+// disk and from `git ls-files`, the folder's whole content nowhere, and the run
+// reporting ok true, applied, link integrity green, committed.
+//
+// These two cases assert the END STATE, the same discipline the four cases
+// above use, because the return code is exactly what stayed green while the
+// content was destroyed. A fix that only flips `ok` to `false` without
+// stopping the write-then-delete would still fail these.
+
+console.log("\nA merge naming its own survivor among its sources refuses instead of destroying it");
+
+withRepo(
+  {
+    "settings/rolara/items/Items-INDEX.md": article("publish: false\ntype: Index", "## Weapons\n\n- [[Blade]]"),
+    "settings/rolara/items/Artifacts-INDEX.md": article(
+      "publish: false\ntype: Index",
+      "## Artifacts\n\nRelics of the first crown.\n\n- [[Crown]]"
+    ),
+    "settings/rolara/items/Blade.md": article("publish: false\ntype: Item", "x"),
+    "settings/rolara/items/Crown.md": article("publish: false\ntype: Item", "x"),
+  },
+  (root) => {
+    // The exact shape measured: `sources` carries the survivor itself alongside
+    // one genuinely different index, which is what a parity scan produces when
+    // it enumerates every index in the folder without excluding the one it
+    // separately named as the survivor. commit:true, matching the reviewer's
+    // measurement, because this is setup's unattended path and it has no
+    // approval gate standing between a bad survey and a commit.
+    const before = snapshotTree(root);
+    const r = apply(
+      root,
+      [
+        {
+          op: "merge-index",
+          to: "settings/rolara/items/Items-INDEX.md",
+          sources: [
+            "settings/rolara/items/Items-INDEX.md",
+            "settings/rolara/items/Artifacts-INDEX.md",
+          ],
+          reason: "multi-index folder (survey named the survivor as its own source)",
+        },
+      ],
+      { commit: true }
+    );
+    check("the whole run refuses rather than folding the survivor into itself",
+      (r.refused || {}).reason, "malformed-operation");
+    check("and the refusal names the survivor and the fix",
+      [/Items-INDEX\.md/.test(String((r.refused || {}).detail)), /sources/.test(String((r.refused || {}).detail))],
+      [true, true]);
+    check("nothing was touched: the project is byte-identical to the snapshot",
+      snapshotTree(root), before);
+    check("the survivor keeps its own original content, not a doubled or deleted copy",
+      read(root, "settings/rolara/items/Items-INDEX.md").includes("## Weapons\n\n- [[Blade]]"), true);
+    check("the other, genuinely different source is untouched too",
+      [has(root, "settings/rolara/items/Artifacts-INDEX.md"),
+        read(root, "settings/rolara/items/Artifacts-INDEX.md").includes("Relics of the first crown.")],
+      [true, true]);
+    check("the run did not commit", r.committed, false);
+  }
+);
+
+// The mixed shape is where refusing the whole run and silently dropping only
+// the bad source (or only the one operation) diverge in what a DM would
+// observe. This plan pairs the same malformed merge with a second operation
+// that is, on its own, entirely valid and unrelated to it. Silently narrowing
+// the plan, whether by filtering `to` out of `sources` for just that operation
+// or by skipping just that one operation and continuing, would let this second
+// operation apply. Refusing the whole run, which is the choice made here,
+// means it does not: the DM gets one refusal naming the survey error and a
+// project that is still exactly the one they started with, to fix and re-run.
+withRepo(
+  {
+    "settings/rolara/items/Items-INDEX.md": article("publish: false\ntype: Index", "## Weapons\n\n- [[Blade]]"),
+    "settings/rolara/items/Artifacts-INDEX.md": article(
+      "publish: false\ntype: Index",
+      "## Artifacts\n\nRelics of the first crown.\n\n- [[Crown]]"
+    ),
+    "settings/rolara/items/Blade.md": article("publish: false\ntype: Item", "x"),
+    "settings/rolara/items/Crown.md": article("publish: false\ntype: Item", "x"),
+    "settings/rolara/locations/Ashfall.md": article("publish: false\ntype: Location", "A quiet ford."),
+  },
+  (root) => {
+    const before = snapshotTree(root);
+    const r = apply(root, [
+      {
+        op: "rename-with-link-rewrite",
+        from: "settings/rolara/locations/Ashfall.md",
+        to: "settings/rolara/locations/Ashfall-LOCATION.md",
+        links: [],
+        reason: "suffix rule",
+      },
+      {
+        op: "merge-index",
+        to: "settings/rolara/items/Items-INDEX.md",
+        sources: [
+          "settings/rolara/items/Items-INDEX.md",
+          "settings/rolara/items/Artifacts-INDEX.md",
+        ],
+        reason: "multi-index folder (survey named the survivor as its own source)",
+      },
+    ]);
+    check("the whole run refuses, not just the malformed merge operation",
+      (r.refused || {}).reason, "malformed-operation");
+    check("so the unrelated, individually valid rename never ran either",
+      [has(root, "settings/rolara/locations/Ashfall.md"), has(root, "settings/rolara/locations/Ashfall-LOCATION.md")],
+      [true, false]);
+    check("the merge's own files are untouched too",
+      [has(root, "settings/rolara/items/Items-INDEX.md"), has(root, "settings/rolara/items/Artifacts-INDEX.md")],
+      [true, true]);
+    check("nothing was touched: the project is byte-identical to the snapshot",
+      snapshotTree(root), before);
   }
 );
 

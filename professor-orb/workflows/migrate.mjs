@@ -4913,16 +4913,28 @@ export function gitMove(ctx, from, to) {
 // the same half-apply reachable by the longer route, and it needs a second,
 // separately failable step to do what one call does here.
 //
-// What `-f` costs is bounded by what each caller has already decided. It skips
-// git's local-modification check, which exists to stop `git rm` discarding
-// content that survives nowhere else. Neither caller is in that position:
-// applyMergeIndex reads each source's current on-disk bytes and folds them into
-// the survivor immediately before this call, so a local modification is already
-// preserved there, and applyAbsorbFolder's `op.index` is the one file a
-// dissolution DISCARDS by definition, so a modification to it goes either way.
-// The snapshot is the backstop for both, and it still is: measured, in every
-// state above, `git reset --hard <snapshot>` restored both the survivor's
-// original content and the removed file, with an empty `git status --porcelain`.
+// What `-f` costs is bounded by what each caller has already decided, PROVIDED
+// a merge's survivor is never one of its own sources. That is an invariant
+// this helper leans on rather than one it enforces: applyMergeIndex reads each
+// source's current on-disk bytes and folds them into the survivor immediately
+// before this call, so a local modification is already preserved there, UNLESS
+// the survivor itself is in `sources`, in which case the same fold writes the
+// survivor's own text back over itself and this call then deletes the file it
+// was just written to, taking whatever it held with it. applyAbsorbFolder has
+// no equivalent invariant to lean on: `op.index` is the one file a dissolution
+// DISCARDS by definition, so a modification to it goes either way regardless of
+// what else the operation names.
+//
+// The merge survivor invariant is enforced, but not here: malformedShapeOf
+// refuses the whole run, before the snapshot, when a merge-index operation's
+// `sources` contains its own `to` (see the check there for the reasoning this
+// helper does not repeat). So by the time a merge-index operation reaches this
+// call, that shape has already been declined and neither caller can be handed
+// it. This function does not check it itself; it trusts the refusal upstream.
+// The snapshot is the backstop for both callers' ordinary paths, and it still
+// is: measured, in every state above, `git reset --hard <snapshot>` restored
+// both the survivor's original content and the removed file, with an empty
+// `git status --porcelain`.
 //
 // `-f` does NOT widen what the pathspec matches, and it does not make an
 // UNTRACKED path removable: measured, `git rm -f` on one still fails with
@@ -6858,6 +6870,45 @@ function malformedShapeOf(o) {
     for (const [i, a] of list(b.articles).entries()) {
       if (a && typeof a === "object") continue;
       return `${where} carries ${JSON.stringify(a)} in \`buckets[${bi}].articles\` at position ${i}: ${shape}. ${stringNote}`;
+    }
+  }
+  // A merge-index naming its own survivor among its own sources is a shape none
+  // of the checks above can see: `to` is a well-formed string and `sources` is a
+  // well-formed array of well-formed strings, so nothing here flags it, yet it
+  // is unrunnable. applyMergeIndex reads the survivor's CURRENT text into
+  // `merged`, then loops `sources` reading and folding each one in; if `to` is
+  // among them, that loop folds the survivor's own text into itself, writes the
+  // doubled result back over the survivor, and then hands every folded source,
+  // `to` included, to gitRemove. `-f` (see the comment above gitRemove) does not
+  // refuse a locally modified file, so the survivor the operation just wrote is
+  // deleted from disk and from the index in the same pass, and whatever it held
+  // exists nowhere. Every rail after that is green: the entry reports applied,
+  // link integrity sees no dangling wikilink because the files that referred to
+  // the merged-away sources were folded away too, and the run commits.
+  //
+  // Refused here, for the WHOLE run, rather than filtered inside the executor.
+  // A guard inside applyMergeIndex could only drop `to` out of `sources` for
+  // that one operation after deciding to run it, which is the apply phase
+  // silently correcting a plan the DM approved; this module's stance everywhere
+  // else in this function is that a plan whose shape cannot be executed is
+  // refused entirely, before the snapshot exists, rather than narrowed one entry
+  // at a time (see every check above). That same posture is what covers a
+  // hand-edited plan, which `applyPlan` documents as a designed path. So a merge
+  // whose `sources` names the survivor ALONGSIDE one or more genuinely different
+  // indexes is refused in full too, not partly honoured by dropping only the
+  // self-reference and merging the rest: naming the survivor among its own
+  // sources is a survey error worth surfacing to the DM, not one worth quietly
+  // correcting on their behalf.
+  if (o.op === "merge-index") {
+    const to = toPosix(o.to || "");
+    const sources = list(o.sources).map((s) => toPosix(s || ""));
+    if (to !== "" && sources.includes(to)) {
+      return (
+        `${where} names its own survivor as one of its own \`sources\`. Folding ` +
+        `${JSON.stringify(to)} into itself and then removing it as a folded source would destroy its ` +
+        `content, leaving no copy anywhere, while the run reports success. Remove ${JSON.stringify(to)} ` +
+        "from `sources` and re-run."
+      );
     }
   }
   return null;
