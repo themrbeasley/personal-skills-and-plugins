@@ -447,8 +447,41 @@ function destinationEntriesOf(o) {
 function findDestinationCollisions(operations, projectRoot, ignored) {
   const ops = list(operations).filter((o) => o && typeof o === "object");
   const entries = ops.flatMap(destinationEntriesOf);
-  const foldKey = (p) => `${path.dirname(p)}::${path.basename(p)}`.toLowerCase();
   const rootUsable = Boolean(projectRoot) && existsSync(projectRoot);
+
+  // Both halves below key on samePathKey, the module-level "do these two strings
+  // name the same file" fold, rather than on a local dirname/basename key of
+  // their own. The local key folded letter case but not a leading `./`, a
+  // doubled separator, or an interior `.` or `..` segment, because neither
+  // path.dirname nor path.basename normalizes any of those away. That left the
+  // in-plan half blind: two operations targeting one destination, one of them
+  // spelled `./settings/.../Weapon.md` or reached through a `../` hop, read as
+  // two destinations, so the plan was accepted as conflict-free and one
+  // operation silently overwrote the other. The same miss hit the vacate lookup
+  // from the other side, refusing a legal `A -> ./B, B -> C` chain over a
+  // destination the plan does free. The on-disk half never had the gap: it
+  // resolves through path.resolve, which normalizes.
+  //
+  // The two keys agree on every path carrying none of those segments. `dir::base`
+  // and `dir/base` sort the same paths into the same classes, and both fold case
+  // over the whole path, so a case difference in the DIRECTORY half is still
+  // caught. They part on one shape besides the gap, and samePathKey is the right
+  // answer there too: a filename containing `::`, legal on a filesystem that is
+  // not Windows, made `a/b::c.md` and `a::b/c.md` one key. That is a false
+  // collision in the in-plan half, and false vacate credit in the half below.
+  //
+  // The two halves do not run the same risk on an over-broad fold, which is why
+  // this is worth stating rather than assuming. In the in-plan half, folding too
+  // much costs a refusal and folding too little destroys content. In the vacate
+  // half it is the other way around: credit granted for a path nothing actually
+  // frees suppresses a real on-disk collision. Normalization is safe in both
+  // because it is exact path identity rather than a guess, with the one
+  // exception samePathKey already names and this cannot settle either: a `..`
+  // hop THROUGH a symlinked directory does not name the path it normalizes to.
+  // The plan phase reads no disk, so that stays out of reach here rather than
+  // quietly assumed closed. The unconditional case fold, which IS a guess on a
+  // case-sensitive filesystem, is not new to either half: the local key folded
+  // case too, and fed both.
 
   // A move vacates its own source, so a path some operation renames away from
   // is free by the time the plan reaches it, and A -> B, B -> C is legal.
@@ -491,7 +524,7 @@ function findDestinationCollisions(operations, projectRoot, ignored) {
     if (!e.from || !e.to) continue;
     const from = toPosix(e.from);
     if (ignoredFroms === null || ignoredFroms.has(from)) continue;
-    vacated.add(foldKey(from));
+    vacated.add(samePathKey(from));
   }
 
   const byDir = new Map();
@@ -499,7 +532,7 @@ function findDestinationCollisions(operations, projectRoot, ignored) {
   for (const e of entries) {
     if (!e.to) continue;
     const to = toPosix(e.to);
-    const key = foldKey(to);
+    const key = samePathKey(to);
 
     if (byDir.has(key)) {
       hits.push({
@@ -613,8 +646,8 @@ function findDestinationCollisions(operations, projectRoot, ignored) {
 // would make two edits to one file read as a collision with itself, and would
 // now also read as a collision with the file on disk.
 
-// Paths in a plan are project-relative and posix-separated, so that the
-// collision key built from path.dirname and path.basename is stable no matter
+// Paths in a plan are project-relative and posix-separated, so that every key
+// built from one, findDestinationCollisions's included, is stable no matter
 // which separator the survey happened to use.
 //
 // slash only changes separators. toPosix also drops a trailing slash, which is
@@ -641,22 +674,26 @@ const toPosix = (p) => slash(p).replace(/(.)\/+$/, "$1");
 //     from path.posix.normalize. posix specifically, so the answer does not
 //     change with the platform the migration runs on, plan paths having already
 //     been made posix by the line above;
-//   - letter case, the same unconditional fold caseRenames and
-//     findDestinationCollisions's foldKey already apply, because the filesystem
-//     this module documents is case-insensitive.
+//   - letter case, the same unconditional fold caseRenames already applies,
+//     because the filesystem this module documents is case-insensitive.
 //
 // What it does NOT resolve, and must not be read as covering: a symlink, a hard
 // link, or a Windows 8.3 short name. Each is genuinely two names for one file,
 // and no comparison of strings can see it; settling those means asking the
-// filesystem, and the caller runs deliberately before the snapshot exists,
-// touching no disk at all. A plan naming one path through a link and the other
-// directly is out of reach here, and is left named rather than implied closed.
+// filesystem, and both callers run deliberately before the snapshot exists.
+// findDestinationCollisions above asks the disk one question only, whether a
+// destination is already occupied, never which two names are one file, and
+// malformedShapeOf below touches no disk at all. A plan naming one path through
+// a link and the other directly is out of reach here, and is left named rather
+// than implied closed.
 //
-// The case fold is unconditional rather than probed per filesystem, matching the
-// two prechecks above. On a case-sensitive filesystem that can call two
-// genuinely distinct files one file. That is the safe direction for the caller
-// below, where reading one file as two destroys its content and reading two as
-// one costs a refusal message the DM can act on.
+// The case fold is unconditional rather than probed per filesystem, matching
+// caseRenames above. On a case-sensitive filesystem that can call two genuinely
+// distinct files one file. For malformedShapeOf below that is the safe
+// direction, since reading one file as two destroys its content and reading two
+// as one costs a refusal message the DM can act on. findDestinationCollisions
+// above runs this fold in two directions at once, and works that asymmetry out
+// in its own comment rather than inheriting an answer from here.
 const samePathKey = (p) => path.posix.normalize(toPosix(p)).toLowerCase();
 const samePath = (a, b) => samePathKey(a) === samePathKey(b);
 

@@ -675,6 +675,151 @@ try {
       p.prechecks.ok, true);
   }
 
+  console.log("\nA dotted spelling of a destination names the same destination");
+
+  // The key this check builds its two sets from used to be local:
+  // `path.dirname(p) + "::" + path.basename(p)`, lowercased. It folded letter
+  // case, and nothing else, because neither path.dirname nor path.basename
+  // normalizes away a leading `./`, a doubled separator, or an interior `.` or
+  // `..` segment. The five cases below are the two directions that gap opened
+  // plus the three pins that the fold for it is not too wide.
+
+  {
+    // The dangerous direction. Two operations target one real file, one of them
+    // spelling it with a `./` prefix, and the plan came back conflict-free: one
+    // operation would have overwritten the other with nothing reporting it.
+    // Weapon.md is NOT on disk, so the on-disk half cannot be what refuses here.
+    const p = plan(
+      {
+        renames: [
+          { file: "settings/rolara/Ashfall-Compact.md", to: "settings/rolara/items/Weapon.md", ruleId: "filenameCharset" },
+          { file: "settings/rolara/Vault-Of-Secrets.md", to: "./settings/rolara/items/Weapon.md", ruleId: "filenameCharset" },
+        ],
+      },
+      repo
+    );
+    check("a destination spelled with a leading ./ collides with the same destination spelled plainly",
+      [p.prechecks.ok, p.prechecks.collisions.map((c) => c.kind)], [false, ["in-plan"]]);
+    check("and the collision names both spellings, so the DM can see which pair it means",
+      p.prechecks.collisions.map((c) => [c.a, c.b]),
+      [["settings/rolara/items/Weapon.md", "./settings/rolara/items/Weapon.md"]]);
+  }
+
+  {
+    // The same miss through a `..` hop instead of a `./` prefix. Same file, same
+    // silent overwrite, a spelling a hand-edited proposal produces just as
+    // easily as the one above.
+    const p = plan(
+      {
+        renames: [
+          { file: "settings/rolara/Ashfall-Compact.md", to: "settings/rolara/items/Weapon.md", ruleId: "filenameCharset" },
+          {
+            file: "settings/rolara/Vault-Of-Secrets.md",
+            to: "settings/rolara/locations/../items/Weapon.md",
+            ruleId: "filenameCharset",
+          },
+        ],
+      },
+      repo
+    );
+    check("a destination reached through a .. hop collides with the same destination spelled plainly",
+      [p.prechecks.ok, p.prechecks.collisions.map((c) => c.kind)], [false, ["in-plan"]]);
+  }
+
+  {
+    // The safe direction, and the one that cost a legitimate migration a rerun.
+    // The vacate lookup asks its question with the DESTINATION's key and answers
+    // it from the vacating operation's `from`, so a dotted destination missed a
+    // path the plan genuinely frees and the run refused an A -> B, B -> C chain
+    // the module's own comment names as legal.
+    const p = plan(
+      {
+        renames: [
+          {
+            file: "settings/rolara/Ashfall-Compact.md",
+            to: "./settings/rolara/Vault-Of-Secrets.md",
+            ruleId: "filenameCharset",
+          },
+          {
+            file: "settings/rolara/Vault-Of-Secrets.md",
+            to: "settings/rolara/Vault-Of-Secrets-LOCATION.md",
+            ruleId: "filenameSuffixByType",
+          },
+        ],
+      },
+      repo
+    );
+    check("a dotted destination still gets the vacate credit its plain spelling earns: A -> ./B, B -> C is legal",
+      [p.prechecks.ok, p.prechecks.collisions], [true, []]);
+  }
+
+  {
+    // Pin one: the ordinary chain, no dotted spelling anywhere, on the same two
+    // files as the case above. Widening the fold must not have changed this, and
+    // the pair together is the differential.
+    const p = plan(
+      {
+        renames: [
+          { file: "settings/rolara/Ashfall-Compact.md", to: "settings/rolara/Vault-Of-Secrets.md", ruleId: "filenameCharset" },
+          {
+            file: "settings/rolara/Vault-Of-Secrets.md",
+            to: "settings/rolara/Vault-Of-Secrets-LOCATION.md",
+            ruleId: "filenameSuffixByType",
+          },
+        ],
+      },
+      repo
+    );
+    check("the same chain with no dotted spelling at all is still legal",
+      [p.prechecks.ok, p.prechecks.collisions], [true, []]);
+  }
+
+  {
+    // Pin two: two operations whose destinations are plainly different files,
+    // one differing only in the last character of the basename and one only in
+    // the setting it lives under. Neither may be merged into a collision.
+    const p = plan(
+      {
+        renames: [
+          { file: "settings/rolara/Ashfall-Compact.md", to: "settings/rolara/items/Weapon.md", ruleId: "filenameCharset" },
+          { file: "settings/rolara/Vault-Of-Secrets.md", to: "settings/rolara/items/Weapons.md", ruleId: "filenameCharset" },
+          { file: "settings/karsk/Keep.md", to: "settings/karsk/items/Weapon.md", ruleId: "filenameCharset" },
+        ],
+      },
+      repo
+    );
+    check("three genuinely different destinations are not merged into a collision",
+      [p.prechecks.ok, p.prechecks.collisions], [true, []]);
+  }
+
+  {
+    // Pin three: a genuine on-disk collision, with nothing in the plan vacating
+    // the destination, spelled both ways. Both must still refuse. The dotted one
+    // never had the gap, since that half resolves through path.resolve, and it
+    // is asserted because normalizing the KEY must not have handed it credit no
+    // operation earned.
+    const plain = plan(
+      {
+        renames: [
+          { file: "settings/rolara/Ashfall-Compact.md", to: "settings/rolara/Vault-Of-Secrets.md", ruleId: "filenameCharset" },
+        ],
+      },
+      repo
+    );
+    const dotted = plan(
+      {
+        renames: [
+          { file: "settings/rolara/Ashfall-Compact.md", to: "./settings/rolara/Vault-Of-Secrets.md", ruleId: "filenameCharset" },
+        ],
+      },
+      repo
+    );
+    check("a destination on disk that nothing vacates still refuses, spelled plainly",
+      [plain.prechecks.ok, plain.prechecks.collisions.map((c) => c.kind)], [false, ["on-disk"]]);
+    check("and still refuses spelled with a leading ./",
+      [dotted.prechecks.ok, dotted.prechecks.collisions.map((c) => c.kind)], [false, ["on-disk"]]);
+  }
+
   console.log("\nAn ignored source does not vacate its destination");
 
   {
