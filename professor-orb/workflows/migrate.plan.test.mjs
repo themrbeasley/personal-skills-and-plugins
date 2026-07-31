@@ -2278,6 +2278,266 @@ console.log("\n=== scoped plans: one folder, two scope entries ===");
   rmSync(root, { recursive: true, force: true });
 }
 
+console.log("\n=== scoped plans: one index, several scope entries ===");
+
+// The section above covers two entries under ONE planner, which each planner's own
+// `rebuilds` Map already handled. Neither Map can see the other, and
+// planRebuildIndexes holds no Map at all, so a scope combining two of the three
+// emitted two rebuild-index operations with one `to`. findDestinationCollisions
+// correctly reads that as an in-plan collision and applyPlan refused the whole run,
+// naming an index path rather than the scope the DM wrote. Rebuilding one index
+// twice from one folder is redundant rather than contradictory, so the redundancy is
+// folded out in buildScopedPlan before the collision check sees it, on exactly the
+// terms the two Maps already fold on.
+
+// Every operation in the plan that writes `to`, whatever its kind, which is the set
+// findDestinationCollisions ranks. Written out rather than filtered on rebuild-index
+// alone, so a case asserting "one operation writes this path" cannot pass while a
+// create-index quietly writes it too.
+const writersOf = (r, to) => list(r.operations).filter((o) => o.to === to);
+const inPlanAt = (r, to) =>
+  list(r.prechecks.collisions).filter((c) => c.kind === "in-plan" && (c.a === to || c.b === to));
+
+{
+  // SHAPE 1. A rebuildIndexes entry and a splitFolders entry naming one index. The
+  // split emits the rebuild of its own folder's index, and the DM named that same
+  // index outright.
+  const root = splitFixture();
+  const to = "settings/rolara/locations/Locations-INDEX.md";
+  const r = scoped(
+    {
+      rebuildIndexes: [{ index: to }],
+      splitFolders: [
+        { folder: "settings/rolara/locations", buckets: [{ name: "north", articles: ["Ashfall.md"] }] },
+      ],
+    },
+    root
+  );
+  check("a split and a rebuildIndexes entry naming one index plan ONE rebuild",
+    [kindsOf(r.operations), writersOf(r, to).length],
+    [["split-folder", "create-index", "rebuild-index"], 1]);
+  check("and the surviving rebuild is traceable to BOTH scope entries",
+    find(r.operations, "rebuild-index").groups, ["splitFolders[0]", "rebuildIndexes[0]"]);
+  check("and its reason carries what each entry contributed",
+    [/was split into 1 subfolder/.test(String(find(r.operations, "rebuild-index").reason)),
+     /DM-approved \/migrate scope/.test(String(find(r.operations, "rebuild-index").reason))],
+    [true, true]);
+  check("and the plan is not refused over an index path",
+    [r.prechecks.ok, inPlanAt(r, to), r.declined.length], [true, [], 0]);
+  check("the folder the merged rebuild reads is the one both entries named",
+    find(r.operations, "rebuild-index").folder, "settings/rolara/locations");
+  rmSync(root, { recursive: true, force: true });
+}
+
+{
+  // SHAPE 3. An absorbFolders entry and a rebuildIndexes entry naming one parent
+  // index. The absorb emits the rebuild of the parent it dissolves into, and the DM
+  // named that parent's index outright.
+  const root = absorbFixture();
+  const to = "settings/rolara/Rolara-INDEX.md";
+  const r = scoped({ absorbFolders: [{ folder: "settings/rolara/misc" }], rebuildIndexes: [{ index: to }] }, root);
+  check("an absorb and a rebuildIndexes entry naming one parent index plan ONE rebuild",
+    [kindsOf(r.operations), writersOf(r, to).length], [["absorb-folder", "rebuild-index"], 1]);
+  check("and that rebuild is traceable to BOTH scope entries",
+    find(r.operations, "rebuild-index").groups, ["absorbFolders[0]", "rebuildIndexes[0]"]);
+  check("and the plan is not refused over an index path",
+    [r.prechecks.ok, inPlanAt(r, to), r.declined.length], [true, [], 0]);
+  rmSync(root, { recursive: true, force: true });
+}
+
+{
+  // Two rebuildIndexes entries naming ONE index. planAbsorbFolders and
+  // planSplitFolders each dedupe within themselves; this planner never did, because a
+  // DM naming one index twice is not the shape it was written for. The cross-planner
+  // fold covers it for free, which is the point of folding at the plan level rather
+  // than adding a third Map.
+  const root = splitFixture();
+  const to = "settings/rolara/locations/Locations-INDEX.md";
+  const r = scoped({ rebuildIndexes: [{ index: to }, { index: to }] }, root);
+  check("one index named twice under rebuildIndexes plans ONE rebuild",
+    [kindsOf(r.operations), r.prechecks.ok, inPlanAt(r, to)], [["rebuild-index"], true, []]);
+  check("carrying both entries", find(r.operations, "rebuild-index").groups,
+    ["rebuildIndexes[0]", "rebuildIndexes[1]"]);
+  rmSync(root, { recursive: true, force: true });
+}
+
+{
+  // SHAPE 2, AND IT IS NOT THE SAME SHAPE AS THE OTHER TWO. A rebuildIndexes entry
+  // naming a split bucket's own fresh index pairs a rebuild-index with a
+  // CREATE-INDEX, not with a second rebuild, so no rebuild fold can reach it. The
+  // two are different kinds with different executors and the pair cannot be merged
+  // into one operation of either kind:
+  //
+  //   the create-index cannot be dropped, because applyRebuildIndex refuses a path
+  //   with no index at it, so the rebuild alone would not execute;
+  //
+  //   the create-index must not take the rebuild entry's group either, because an
+  //   operation is skipped only when EVERY group it carries is skipped, so a
+  //   create-index carrying a second group would survive a skip of the split that
+  //   paired it and create the bucket folder that skipped split never populated,
+  //   which is the measured defect recorded at groupsOf.
+  //
+  // So the redundant entry is DECLINED rather than folded, which is the same channel
+  // every other scoped refusal reaches the DM through, and the work it asked for is
+  // still done: applyCreateIndex writes that index's link list from the same folder
+  // through the same articleStemsIn. The count asserted here is therefore ZERO
+  // rebuilds at that path and one writer, not one rebuild.
+  const root = splitFixture();
+  const to = "settings/rolara/locations/north/North-INDEX.md";
+  const r = scoped(
+    {
+      rebuildIndexes: [{ index: to }],
+      splitFolders: [
+        { folder: "settings/rolara/locations", buckets: [{ name: "north", articles: ["Ashfall.md"] }] },
+      ],
+    },
+    root
+  );
+  check("a rebuildIndexes entry naming an index this plan CREATES leaves one writer at that path",
+    [writersOf(r, to).map((o) => o.op), r.prechecks.ok, inPlanAt(r, to)],
+    [["create-index"], true, []]);
+  check("and the redundant entry is declined rather than dropped without a word",
+    r.declined.map((d) => [d.op, d.target]), [["rebuild-index", to]]);
+  check("with a reason saying the same plan already builds that list, and from where",
+    [/creates it/.test(String(obj(r.declined[0]).reason)),
+     /settings\/rolara\/locations\/north/.test(String(obj(r.declined[0]).reason))],
+    [true, true]);
+  check("the split's own parent rebuild is untouched by that decline",
+    [kindsOf(r.operations), find(r.operations, "rebuild-index").to],
+    [["split-folder", "create-index", "rebuild-index"], "settings/rolara/locations/Locations-INDEX.md"]);
+  rmSync(root, { recursive: true, force: true });
+}
+
+// THE FOLD MUST NOT OVER-MERGE. findDestinationCollisions catches a genuine
+// collision, which is two operations that must not both write one path, and the fold
+// removes a redundant duplicate rather than teaching that check to look away. Four
+// cases, each a pair the fold must leave exactly as it found it.
+
+{
+  // Same destination, DIFFERENT folder. `folder` is DM-supplied and defaults to the
+  // index's own directory, so two rebuilds of one index reading two folders write two
+  // different link lists to one path. That is two operations that genuinely must not
+  // both run, and it still refuses.
+  const root = splitFixture();
+  const to = "settings/rolara/locations/Locations-INDEX.md";
+  const r = scoped(
+    { rebuildIndexes: [{ index: to }, { index: to, folder: "settings/rolara" }] },
+    root
+  );
+  check("two rebuilds of one index reading DIFFERENT folders are not merged",
+    [kindsOf(r.operations), r.operations.map((o) => o.folder)],
+    [["rebuild-index", "rebuild-index"], ["settings/rolara/locations", "settings/rolara"]]);
+  check("and are still refused as a genuine in-plan collision",
+    [r.prechecks.ok, inPlanAt(r, to).length], [false, 1]);
+  rmSync(root, { recursive: true, force: true });
+}
+
+{
+  // The same guard on the create-index pair: the redundancy decline is gated on the
+  // rebuild reading the very folder the create-index builds its list from. Naming a
+  // different folder is a rebuild that writes different content to that path, so it
+  // is NOT declined as redundant and the collision check refuses the pair.
+  const root = splitFixture();
+  const to = "settings/rolara/locations/north/North-INDEX.md";
+  const r = scoped(
+    {
+      rebuildIndexes: [{ index: to, folder: "settings/rolara/locations" }],
+      splitFolders: [
+        { folder: "settings/rolara/locations", buckets: [{ name: "north", articles: ["Ashfall.md"] }] },
+      ],
+    },
+    root
+  );
+  check("a rebuild writing a DIFFERENT list to a created index is not declined as redundant",
+    [r.declined.length, writersOf(r, to).map((o) => o.op)], [0, ["create-index", "rebuild-index"]]);
+  check("and the pair is still refused as a genuine in-plan collision",
+    [r.prechecks.ok, inPlanAt(r, to).length], [false, 1]);
+  rmSync(root, { recursive: true, force: true });
+}
+
+{
+  // A rebuild-index and an operation of another kind colliding on one path. Only
+  // rebuild-index is folded, so nothing here is merged and the refusal stands.
+  const root = splitFixture();
+  const to = "settings/rolara/locations/Locations-INDEX.md";
+  const r = scoped(
+    { pathMoves: [{ from: "settings/rolara/locations/Karsk.md", to }], rebuildIndexes: [{ index: to }] },
+    root
+  );
+  check("a relocate-path and a rebuild aimed at one path are two operations, not one",
+    writersOf(r, to).map((o) => o.op), ["relocate-path", "rebuild-index"]);
+  check("and the run is still refused",
+    [r.prechecks.ok, inPlanAt(r, to).length], [false, 1]);
+  rmSync(root, { recursive: true, force: true });
+}
+
+{
+  // Two rebuilds that share a path COMPONENT and nothing else. Folding on the
+  // directory or on the basename alone would collapse these into one operation and
+  // silently drop a rebuild the DM asked for.
+  const root = absorbFixture();
+  const r = scoped(
+    {
+      rebuildIndexes: [
+        { index: "settings/rolara/Rolara-INDEX.md" },
+        { index: "settings/rolara/misc/Misc-INDEX.md" },
+      ],
+    },
+    root
+  );
+  check("two rebuilds of DIFFERENT indexes are left alone",
+    [r.operations.map((o) => o.to), r.operations.map((o) => o.groups)],
+    [["settings/rolara/Rolara-INDEX.md", "settings/rolara/misc/Misc-INDEX.md"],
+     [["rebuildIndexes[0]"], ["rebuildIndexes[1]"]]]);
+  check("and neither is refused", [r.prechecks.ok, r.prechecks.collisions], [true, []]);
+  rmSync(root, { recursive: true, force: true });
+}
+
+{
+  // A merged rebuild reaching declineIgnoredSources' surviving-shared disclosure. One
+  // of the two entries that produced it is skipped for a git-ignored article, so the
+  // rebuild survives on the multi-group rule and the decline has to say so. It needs
+  // no new code to survive: rebuild-index names no source of its own, so the merged
+  // groups array alone decides it, exactly as it does for an intra-planner merge.
+  //
+  // The wording is the part that needed care. Only an ABSORB unlinks anything: a
+  // skipped absorb leaves its folder on disk with the surviving parent rebuild no
+  // longer listing it. A skipped SPLIT dissolves nothing and a folder's own index does
+  // not link itself, so the absorb sentence described something that had not happened.
+  const root = splitFixture();
+  writeAt(root, ".gitignore", "settings/rolara/locations/Ashfall.md\n");
+  commitFixture(root);
+  const to = "settings/rolara/locations/Locations-INDEX.md";
+  const r = scoped(
+    {
+      rebuildIndexes: [{ index: to }],
+      splitFolders: [
+        { folder: "settings/rolara/locations", buckets: [{ name: "north", articles: ["Ashfall.md"] }] },
+      ],
+    },
+    root
+  );
+  check("the merged rebuild survives a skip of only ONE of its two entries",
+    [kindsOf(r.operations), find(r.operations, "rebuild-index").groups],
+    [["rebuild-index"], ["splitFolders[0]", "rebuildIndexes[0]"]]);
+  check("and the declined entry still discloses it, attributed to the entry that shares it",
+    r.declined.map((d) => [d.op, d.target]),
+    [["split-folder", "settings/rolara/locations"],
+     ["create-index", "settings/rolara/locations/north/North-INDEX.md"]]);
+  const reason = String(obj(r.declined[0]).reason);
+  check("naming the surviving operation and what a surviving rebuild costs in general",
+    [new RegExp(`rebuild-index ${to.replace(/\//g, "\\/")}`).test(reason),
+     /describes the tree this entry did not change/.test(reason)],
+    [true, true]);
+  check("but NOT claiming a link was lost, which only a skipped absorb does",
+    /no longer linked from that index/.test(reason), false);
+  try {
+    rmSync(root, { recursive: true, force: true, maxRetries: 5 });
+  } catch {
+    /* Windows keeps handles on .git objects; a leftover temp dir is not a failure. */
+  }
+}
+
 console.log("\n=== scoped plans: scope-entry groups ===");
 
 // Every operation ONE scope entry emits carries the same `groups` id, so

@@ -1470,6 +1470,16 @@ export function buildScopedPlan({ projectRoot, settings, baseRules, scope }) {
     declined.push(...list(out.declined));
   }
 
+  // One rebuild of one index, however many scope entries asked for it. The two
+  // intra-planner Maps dedupe only within themselves, so a scope combining them
+  // reached findDestinationCollisions with two rebuilds and one destination; see
+  // foldDuplicateRebuilds. Run on the accumulated list rather than inside any
+  // planner, because the duplicate is a CROSS-planner one and no planner can see
+  // the operations of a planner that has not run yet. Spliced in place because
+  // ctx.planned is this same array, and run after the loop, so no planner's checks
+  // ever saw a list this changed.
+  operations.splice(0, operations.length, ...foldDuplicateRebuilds(operations));
+
   // The result is sorted into APPLY_ORDER rather than trusted to arrive that way,
   // because a planner emits several kinds: absorbFolders runs at rank 2 and produces a
   // rank-9 rebuild, splitFolders runs at rank 3 and produces a rank-7 create-index, so
@@ -1494,6 +1504,96 @@ export function buildScopedPlan({ projectRoot, settings, baseRules, scope }) {
   declined.push(...ignoredDeclines.declined);
   const kept = ignoredDeclines.kept;
   return { operations: kept, declined, prechecks: runPrechecks({ operations: kept, projectRoot }) };
+}
+
+// The key two rebuild-index operations have to agree on to BE one rebuild.
+//
+// Both fields, because those two are the whole input to applyRebuildIndex: it
+// reads `folder`, defaulting to the destination's directory, and writes the
+// article list it finds there into the index at `to`. Two rebuilds agreeing on
+// both therefore write the identical file, and two disagreeing on either write
+// different ones. The default is reproduced here rather than assumed away so that
+// a rebuild carrying no folder and one naming the directory it would have
+// defaulted to are correctly read as one rebuild.
+//
+// Case-folded on the same terms as findDestinationCollisions' own destination key,
+// which is what makes the fold exactly as wide as the collision it removes and
+// never wider: a pair that key would call one destination is a pair this key can
+// merge, and any pair it would not is a pair this leaves alone to be refused.
+function rebuildFoldKey(o) {
+  const to = toPosix(o.to);
+  const folder = toPosix(o.folder) || path.posix.dirname(to);
+  return `${to.toLowerCase()}::${folder.toLowerCase()}`;
+}
+
+// Fold rebuilds of ONE index that several scope entries asked for into one
+// operation carrying every entry that asked.
+//
+// planAbsorbFolders and planSplitFolders each hold a `rebuilds` Map that does
+// exactly this WITHIN themselves, keyed on the index path, collecting the groups
+// and composing one reason naming every folder that made the rebuild necessary.
+// Neither can see the other's, and neither can see planRebuildIndexes, which holds
+// no such Map at all because a DM naming one index twice is not the shape it was
+// written for. So a scope combining two of the three, or naming one index twice
+// under rebuildIndexes, emitted two rebuild-index operations with one `to`;
+// findDestinationCollisions correctly reads two operations targeting one
+// destination as an in-plan collision, and applyPlan then refused the whole run
+// with a message naming an index path. Rebuilding one index twice from one folder
+// is REDUNDANT rather than contradictory, and the redundancy is removed here,
+// before the collision check ever sees it, rather than by teaching that check to
+// look away.
+//
+// This is the same fold those two Maps perform, moved up one level so it spans the
+// planner boundary, and it behaves identically to them on the plans they already
+// handle: a rebuild no other rebuild matches passes through as the same object,
+// with the same fields, unchanged. The merged one keeps the FIRST occurrence's
+// position, which the stable sort below then preserves among equal ranks.
+//
+// PROVENANCE IS FOLDED, NOT DROPPED. The surviving operation carries the group ids
+// of every entry that asked for it, exactly as the two Maps carry the groups of
+// every folder feeding one rebuild, because that array is what decides when
+// applyPlan and declineIgnoredSources skip it: an operation belonging to several
+// entries is skipped only when EVERY one of them is, which is the multi-group rule
+// argued at groupsOf and which needs no new code to cover a merged rebuild. The
+// reasons are concatenated for the same purpose the Maps name every absorbed
+// folder: the DM reading the proposal should see every entry that put this
+// operation there.
+//
+// IT CANNOT OVER-MERGE. Only rebuild-index is folded, so an unrelated operation
+// sharing the destination is untouched and still collides; and two rebuilds are
+// merged only when they agree on the destination AND on the folder read to build
+// it, so two rebuilds writing DIFFERENT content to one index stay two operations
+// and are still refused. A rebuild-index and a create-index at one path are two
+// kinds, never merged here, and planRebuildIndexes handles that pair on its own
+// terms.
+function foldDuplicateRebuilds(operations) {
+  const byKey = new Map();
+  const out = [];
+  for (const o of list(operations)) {
+    if (!o || typeof o !== "object" || o.op !== "rebuild-index" || !o.to) {
+      out.push(o);
+      continue;
+    }
+    const key = rebuildFoldKey(o);
+    const at = byKey.get(key);
+    if (at === undefined) {
+      byKey.set(key, out.length);
+      out.push(o);
+      continue;
+    }
+    const kept = out[at];
+    const groups = groupsOf(kept);
+    for (const g of groupsOf(o)) if (!groups.includes(g)) groups.push(g);
+    const reasons = [];
+    for (const r of [kept.reason, o.reason]) {
+      const text = String(r === undefined || r === null ? "" : r).trim();
+      if (text !== "" && !reasons.includes(text)) reasons.push(text);
+    }
+    // Spread rather than assigned into, so every field the kept operation carries
+    // survives the merge and the two this fold decides are the only two it touches.
+    out[at] = { ...kept, groups, reason: reasons.join(" ") };
+  }
+  return out;
 }
 
 // The operations a scoped plan drops for a git-ignored source, and the declined
@@ -1567,10 +1667,26 @@ function declineIgnoredSources(operations, ignored) {
         "it, because the entry sharing them is going ahead and dropping them would leave THAT entry holding a dead " +
         `wikilink: ${shared.map((o) => `${o.op} ${o.to || o.from || "(unnamed)"}`).join(", ")}.`;
       if (shared.some((o) => o.op === "rebuild-index")) {
+        // The general half first, because the specific one is true only of an absorb.
+        // Every surviving rebuild costs the same thing in general terms: it reads its
+        // folder when it runs, so it describes the tree this entry did not change.
+        // What that costs in particular depends on what the declined entry was going
+        // to do, and only an absorb unlinks anything. Dissolving a folder is what
+        // takes its index out of the parent's list, so a skipped absorb leaves the
+        // folder on disk with the surviving parent rebuild no longer linking it. A
+        // skipped SPLIT dissolves nothing, and a folder's own index does not link
+        // itself, so telling a DM a link was lost there described something that did
+        // not happen. Reachable before this fold through planSplitFolders' own
+        // rebuilds Map, which merges two entries splitting one folder, and reachable
+        // now through any scope pairing a split with a rebuildIndexes entry naming
+        // that folder's index.
         reason +=
-          " An index is rebuilt from what its folder holds at the time, so the folder this entry names stays on disk" +
-          " and is no longer linked from that index. Re-run this entry once its git-ignored file is dealt with, or add" +
-          " the link back by hand.";
+          " An index is rebuilt from what its folder holds at the time it runs, so that rebuild describes the tree" +
+          " this entry did not change rather than the one the proposal set out.";
+        if (item.ops.some((o) => o.op === "absorb-folder")) {
+          reason += " The folder this entry names stays on disk and is no longer linked from that index.";
+        }
+        reason += " Re-run this entry once its git-ignored file is dealt with, or correct that index by hand.";
       }
     }
     for (const op of item.ops) {
@@ -1667,6 +1783,45 @@ function planRebuildIndexes(items, ctx, key) {
         op: "rebuild-index",
         target: index,
         reason: `The folder to rebuild the list from, ${folder}, is not a folder that is there to be read, so there is nothing to list.`,
+      });
+      continue;
+    }
+    // The index this entry names may be one a create-index EARLIER IN THIS PLAN
+    // makes rather than one already on disk: a split bucket's own fresh index is
+    // the reachable case, since splitFolders governs at rank 3 and this planner at
+    // rank 9, so the create-index is in ctx.planned by the time this runs. Both
+    // checks above PASS for it, correctly, because planResolve reports the file and
+    // its folder as things the plan puts there.
+    //
+    // applyCreateIndex already writes that index's link list from the very folder
+    // this rebuild would read, through the same articleStemsIn, so the rebuild is
+    // redundant work at a path another operation already writes. Left in the plan it
+    // is two operations with one destination, which findDestinationCollisions reads
+    // as an in-plan collision whatever the two kinds are, and applyPlan then refused
+    // the whole run with a message naming an index path rather than the scope.
+    //
+    // DECLINED rather than folded, which is the one merge that looks available here
+    // and is not. foldDuplicateRebuilds merges two rebuilds and this is not that
+    // pair. The create-index cannot be dropped in the rebuild's favour, because
+    // applyRebuildIndex refuses a path with no index at it. And the create-index must
+    // not take this entry's group either: an operation is skipped only when EVERY
+    // group it carries is skipped (see groupsOf), so a create-index carrying a second
+    // group would SURVIVE a skip of the split that paired it and create the bucket
+    // folder that skipped split never populated, which is the measured defect
+    // recorded at groupsOf in its original form. A decline is what is left, and it is
+    // the right shape anyway: the DM asked for work the plan already does, and the
+    // proposal is where they are told so.
+    //
+    // Only when this rebuild would read the SAME folder the create-index builds its
+    // list from. A rebuild naming a different folder writes DIFFERENT content to that
+    // path, which is two operations that genuinely must not both write it, and
+    // findDestinationCollisions goes on refusing that pair untouched.
+    const at = planResolve(ctx, index, "rebuild-index", operations);
+    if (at.creates === "file" && folder.toLowerCase() === path.posix.dirname(index).toLowerCase()) {
+      declined.push({
+        op: "rebuild-index",
+        target: index,
+        reason: `No index exists at ${index} today; an earlier operation in this same plan creates it, and creating an index already writes its link list from ${folder}, which is exactly what this entry asks for. Rebuilding it again would be a second operation writing one path, which the prechecks refuse. The list this entry wants is built either way, so nothing is lost by dropping the entry.`,
       });
       continue;
     }
