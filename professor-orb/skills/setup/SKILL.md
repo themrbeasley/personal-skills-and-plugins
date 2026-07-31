@@ -82,7 +82,7 @@ If the DM approved predecessor removal at Step 1, remove the predecessor's insta
 
 ## Step 6: move any existing conventions.json aside
 
-Read its rules, its extras layer, and its per-rule enforcement levels into memory **first**. Then move the file to `.professor-orb/conventions.json.pre-migration`, which the snapshot has already captured.
+Read its rules, its extras layer, and its per-rule enforcement levels into memory **first**, together with any `retired`, `mergedInto`, or `retiredCampaigns` field a settings entry carries. Those three are `/migrate`'s to write and Step 12 carries them forward unchanged; once the file is aside they are the only record that a world was retired, that a world was merged into another and which one, or that a campaign was retired. Step 12 cannot carry forward what this step never read. Then move the file to `.professor-orb/conventions.json.pre-migration`, which the snapshot has already captured.
 
 `conventions.json` exists on disk at no point between this step and Step 12. That is what keeps the write-time hook silent through the migration on **resync** as well as on a first run, and resync is the path an established project takes. Without it the hook is armed for every write the migration makes, blocking on rule violations and dispatching autofixes that race the migration's own edits.
 
@@ -91,6 +91,8 @@ Read its rules, its extras layer, and its per-rule enforcement levels into memor
 This is the one confirmation the migration asks for. Enumerate the candidate locations of all three prongs (the setting knowledge base, the homebrew catalog, and the session reports), report exactly what you found and where each one would move to, and confirm the source-to-destination mapping with the DM via AskUserQuestion before anything moves.
 
 It is the one input the plugin cannot derive reliably, and getting it wrong is the one error the after-action report cannot help with, because the DM would not know to look. Any move whose destination lies inside its own source is staged through a temporary sibling path.
+
+**This applies only to a setting that is not retired or merged.** A setting carrying `retired`, `mergedInto`, or `retiredCampaigns` already had its prong roots relocated by `/migrate`: after a retirement they point into the archive, and after a merge they still point at the folders the material was moved out of. Step 6 already read those roots into memory and Step 12 carries them forward unchanged, so neither is this step's to recompute. Do not enumerate candidate locations or ask the DM to confirm a mapping for a retired or merged setting; discovery and confirmation apply only to a setting the file does not mark either way.
 
 ## Step 8: copy the workflows
 
@@ -157,7 +159,7 @@ AskUserQuestion is mandatory for this confirmation. Do not write `conventions.js
 
 ## Step 12: write the .professor-orb/ artifacts
 
-- **`conventions.json`**: the approved rules, in the exact shape documented in `references/conventions-schema.md`. It is a v3 file: a `settings` array, with `kbRoot`, `homebrewRoot`, `sessionReportsRoot`, `campaigns`, `tagRegistryPath`, and `rules` inside each setting. Copy `schemaVersion` from the `schemaVersion` of `references/base-rules.json`; it is what lets a later run detect that the base rule set has moved on, so a file written without it defeats its own purpose.
+- **`conventions.json`**: the approved rules, in the exact shape documented in `references/conventions-schema.md`. It is a v3 file: a `settings` array, with `kbRoot`, `homebrewRoot`, `sessionReportsRoot`, `campaigns`, `tagRegistryPath`, and `rules` inside each setting. Copy `schemaVersion` from the `schemaVersion` of `references/base-rules.json`; it is what lets a later run detect that the base rule set has moved on, so a file written without it defeats its own purpose. **On a resync, carry any `retired`, `mergedInto`, or `retiredCampaigns` field forward from what Step 6 read, exactly as it stood.** Setup never authors any of the three; `/migrate` writes them when it retires a setting, merges one setting into another, or retires a campaign, and a resync that regenerated the entry without them would silently un-retire a world the DM retired, lose the record of which world a merged one's material ended up in, and lose the record of which campaigns were retired. See the schema reference's note on all three.
 - **`pipeline-state.json`**: an empty initial state, `{}`. Setup does not write a `lastStep` here; setup is not a pipeline step, it is the prerequisite the pipeline runs on top of. On a resync, leave this file untouched.
 - **A tag registry per setting**, at each setting's `tagRegistryPath`. Scan that setting's KB article frontmatter for `tags` fields and build a flat object mapping each tag name to a rough count of how many articles use it, for example `{"npc": 12, "faction": 6}`. This is a quick scan for a starting inventory, not an exhaustive audit; the validation sweep regenerates these files properly later.
 - **`proposals/`**: an empty directory where the chronicler skill will later write lore-update proposals for DM review. On a resync, leave it and its contents untouched.
@@ -219,6 +221,14 @@ Everything not done, with the reason: git-ignored files, absorb candidates, spli
 proposals, -TIMELINE and -HISTORY files, articles missing `publish`, prose path
 references in CLAUDE.md or elsewhere.
 
+Every item in this section except the missing `publish` values is something
+`/migrate` can act on once you scope it, though a git-ignored source declines
+until you un-ignore and commit it first. `/migrate` never inserts a missing
+`publish` value: that is set per article, deliberately, never by an
+unattended process. Run `/migrate` with no argument and it will offer the
+rest, re-derived from the tree as it stands rather than read back out of this
+report.
+
 ### Failed
 [file and error, or "None"]
 
@@ -239,4 +249,4 @@ On the no-version-control path, replace the **Undo** line with a plain statement
 
 ## Closing this run
 
-Add what the report shape does not cover: the conventions source and tier used, the number of rules and their enforcement levels, whether the workflows copied successfully, and, on a first-time setup, that `pipeline-state.json` was initialized empty. If you noticed any factual discrepancy in the DM's documents while reading them, include one line flagging it: "noticed X, you may want to look at it". No offers, no corrections, no edits. Point them at the session pipeline (debrief is the natural first step) as a next action. Setup's job ends here; the pipeline skills take it from there.
+Add what the report shape does not cover: the conventions source and tier used, the number of rules and their enforcement levels, whether the workflows copied successfully, and, on a first-time setup, that `pipeline-state.json` was initialized empty. If you noticed any factual discrepancy in the DM's documents while reading them, include one line flagging it: "noticed X, you may want to look at it". No offers, no corrections, no edits. Point them at the session pipeline (debrief is the natural first step) as a next action, and, if the Declined section holds anything beyond missing `publish` values, name `/migrate` as the next action for those deferred items specifically, whenever the DM is ready to restructure. Setup's job ends here; the pipeline skills take it from there.

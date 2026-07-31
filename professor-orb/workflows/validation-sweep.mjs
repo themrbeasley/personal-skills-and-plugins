@@ -1074,6 +1074,12 @@ async function run() {
       indexParityFindings.length +
       ' index-parity).',
   )
+  if (needsJudgment.length > 0) {
+    log(
+      needsJudgment.length +
+        ' needs-judgment item(s) carry a question each. /migrate offers this bucket as a scope when it is invoked with no argument, so these can be resolved as one approved structural change rather than one at a time by hand.',
+    )
+  }
 
   // A file that matched no setting root reaches the DM as a number, not just a
   // log line. Dropped shards already had shardsDropped; unattributed files had
@@ -1117,7 +1123,7 @@ async function run() {
     nextStep:
       unattributedNote +
       conflictNote +
-      'Present the mechanically fixable bucket to the DM for one batch approval (a single yes covers the whole bucket), resolve each needs-judgment item individually (including the single-ownership and index-parity findings), then re-invoke this workflow with args.mode "fix", args.approvedFixes set to the approved subset, and, if the DM approves it for one setting at a time, args.approvedTagRegistry set to that setting\'s entry from proposedTagRegistries and args.tagRegistryPath set to that entry\'s tagRegistryPath.',
+      'Present the mechanically fixable bucket to the DM for one batch approval (a single yes covers the whole bucket), resolve each needs-judgment item individually (including the single-ownership and index-parity findings), then re-invoke this workflow with args.mode "fix", args.approvedFixes set to the approved subset, and, if the DM approves it for one setting at a time, args.approvedTagRegistry set to that setting\'s entry from proposedTagRegistries and args.tagRegistryPath set to that entry\'s tagRegistryPath. The needs-judgment bucket is also what /migrate takes as a scope: invoking it with no argument offers this bucket directly, so an ownership conflict or a multi-index folder can be resolved as a structural change rather than by hand.',
   }
 }
 

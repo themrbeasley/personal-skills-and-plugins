@@ -32,6 +32,7 @@ import {
   assertLinkIntegrity,
   rewriteWikilinks,
   runPrechecks,
+  buildScopedPlan,
 } from "./migrate.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -793,6 +794,547 @@ withRepo(
   }
 );
 
+// ---------------------------------------------------------------------------
+// A removal still happens when an earlier operation left the path unclean
+// ---------------------------------------------------------------------------
+//
+// gitRemove is the one `git rm` in the module and it has two callers, so these
+// cases cover both. Each one puts the removal target into a state git's
+// local-modification check refuses, using nothing but operations the SAME plan
+// already ran, and every one of them was measured RED at 6732bef: the survivor
+// held the merged content, the source index was still on disk holding it too,
+// and the run reported ok false with the operation failed. That is a half-apply,
+// and it is on setup's unattended path, not just /migrate's.
+//
+// The assertions are on the END STATE rather than the return code, because the
+// return code was the only thing a bare `-f` could be accused of buying: the
+// source has to be gone from disk AND from the index, and the content has to
+// exist exactly once.
+
+console.log("\nA merge removes its sources even when an earlier operation left them unclean");
+
+const occurrences = (haystack, needle) => haystack.split(needle).length - 1;
+
+withRepo(
+  {
+    "kb/items/Items-INDEX.md": article("publish: false\ntype: Index", "## Weapons\n\n- [[Blade]]"),
+    "kb/items/Artifacts-INDEX.md": article(
+      "publish: false\ntype: Index",
+      "## Artifacts\n\nRelics of the first crown.\n\n- [[Crown]]"
+    ),
+    "kb/items/Blade.md": article("publish: false\ntype: Item", "x"),
+    "kb/items/Crown.md": article("publish: false\ntype: Item", "x"),
+  },
+  (root) => {
+    // The pairing setup itself emits. relocate-prong precedes merge-index in
+    // OPERATION_ORDER, so any project whose prong moves AND whose folder folds
+    // sub-indexes gets both in one plan; the reference consumer's items/ folds
+    // six. The prong move stages a rename for every path under it, which leaves
+    // each merge source staged at a name HEAD does not carry.
+    const before = head(root);
+    const r = apply(
+      root,
+      [
+        { op: "relocate-prong", from: "kb", to: "settings/rolara", reason: "prong move" },
+        {
+          op: "merge-index",
+          to: "settings/rolara/items/Items-INDEX.md",
+          sources: ["settings/rolara/items/Artifacts-INDEX.md"],
+          reason: "multi-index folder",
+        },
+      ],
+      { commit: true }
+    );
+    const survivor = read(root, "settings/rolara/items/Items-INDEX.md");
+    check("both operations report applied", [r.applied.length, r.failed.length], [2, 0]);
+    check("the merge itself is the one reporting applied, not just the move",
+      (r.applied.find((e) => e.op === "merge-index") || {}).applied, true);
+    check("the merged-away source is gone from the working tree",
+      has(root, "settings/rolara/items/Artifacts-INDEX.md"), false);
+    check("and gone from the index, so the removal was staged and not merely unlinked",
+      lsFiles(root).filter((f) => /Artifacts-INDEX/.test(f)), []);
+    check("the survivor holds the source's prose exactly once, not once per copy",
+      occurrences(survivor, "Relics of the first crown."), 1);
+    check("the survivor's own content is still there beside it",
+      [survivor.includes("## Weapons"), survivor.includes("- [[Blade]]")], [true, true]);
+    check("the run reports ok rather than a half-applied merge", r.ok, true);
+    check("link integrity passes and the migration reaches its commit",
+      [links(r).ok, r.committed], [true, true]);
+    check("so HEAD moved off the snapshot", head(root) !== before, true);
+  }
+);
+
+withRepo(
+  {
+    "settings/rolara/items/Items-INDEX.md": article("publish: false\ntype: Index", "## Weapons\n\n- [[Blade]]"),
+    "settings/rolara/items/Artifacts-INDEX.md": article(
+      "publish: false\ntype: Index",
+      "## Artifacts\n\nRelics of the first crown.\n\n- [[Crown]]"
+    ),
+    "settings/rolara/items/Blade.md": article("publish: false\ntype: Item", "x"),
+    "settings/rolara/items/Crown.md": article("publish: false\ntype: Item", "x"),
+  },
+  (root) => {
+    // No move anywhere in this plan. rename-with-link-rewrite precedes
+    // merge-index in APPLY_ORDER and rewrites its referring files ON DISK, and a
+    // sub-index is exactly the kind of file that links to the article being
+    // renamed. So the merge source carries an unstaged local modification, which
+    // is a second, independent route to the same half-apply.
+    const r = apply(root, [
+      {
+        op: "rename-with-link-rewrite",
+        from: "settings/rolara/items/Crown.md",
+        to: "settings/rolara/items/Crown-ITEM.md",
+        links: ["settings/rolara/items/Artifacts-INDEX.md"],
+        reason: "suffix rule",
+      },
+      {
+        op: "merge-index",
+        to: "settings/rolara/items/Items-INDEX.md",
+        sources: ["settings/rolara/items/Artifacts-INDEX.md"],
+        reason: "multi-index folder",
+      },
+    ]);
+    const survivor = read(root, "settings/rolara/items/Items-INDEX.md");
+    check("a locally modified merge source is still removed",
+      [r.applied.length, r.failed.length, has(root, "settings/rolara/items/Artifacts-INDEX.md")],
+      [2, 0, false]);
+    check("and gone from the index, so the removal was staged and not merely unlinked",
+      lsFiles(root).filter((f) => /Artifacts-INDEX/.test(f)), []);
+    check("the survivor carries the source's MODIFIED text, so the edit was folded in rather than dropped",
+      [survivor.includes("[[Crown-ITEM]]"), survivor.includes("[[Crown]]")], [true, false]);
+    check("and it carries that prose exactly once",
+      occurrences(survivor, "Relics of the first crown."), 1);
+    check("the run reports ok and link integrity passes", [r.ok, links(r).ok], [true, true]);
+  }
+);
+
+withRepo(
+  {
+    "kb/items/Items-INDEX.md": article("publish: false\ntype: Index", "## Weapons\n\n- [[Blade]]"),
+    "kb/items/Artifacts-INDEX.md": article(
+      "publish: false\ntype: Index",
+      "## Artifacts\n\nRelics of the first crown.\n\n- [[Crown]]"
+    ),
+    "kb/items/Blade.md": article("publish: false\ntype: Item", "x"),
+    "kb/items/Crown.md": article("publish: false\ntype: Item", "x"),
+  },
+  (root) => {
+    // Both at once, which is the ordinary shape once a prong move and a rename
+    // land on the same sub-index. This is the state that decided the fix: `git
+    // rm --cached` plus a filesystem delete clears the two cases above but still
+    // refuses here, so it would have left the half-apply reachable by this route.
+    const r = apply(root, [
+      { op: "relocate-prong", from: "kb", to: "settings/rolara", reason: "prong move" },
+      {
+        op: "rename-with-link-rewrite",
+        from: "settings/rolara/items/Crown.md",
+        to: "settings/rolara/items/Crown-ITEM.md",
+        links: ["settings/rolara/items/Artifacts-INDEX.md"],
+        reason: "suffix rule",
+      },
+      {
+        op: "merge-index",
+        to: "settings/rolara/items/Items-INDEX.md",
+        sources: ["settings/rolara/items/Artifacts-INDEX.md"],
+        reason: "multi-index folder",
+      },
+    ]);
+    const survivor = read(root, "settings/rolara/items/Items-INDEX.md");
+    check("a source that is both staged-renamed and locally modified is still removed",
+      [r.applied.length, r.failed.length, has(root, "settings/rolara/items/Artifacts-INDEX.md")],
+      [3, 0, false]);
+    check("gone from the index too", lsFiles(root).filter((f) => /Artifacts-INDEX/.test(f)), []);
+    check("the survivor holds the source's prose exactly once",
+      occurrences(survivor, "Relics of the first crown."), 1);
+    check("with the rename's rewrite carried across", survivor.includes("[[Crown-ITEM]]"), true);
+    check("the run reports ok and link integrity passes", [r.ok, links(r).ok], [true, true]);
+  }
+);
+
+withRepo(
+  {
+    "kb/items/Items-INDEX.md": article("publish: false\ntype: Index", "## Items\n\n- [[Orb]]"),
+    "kb/items/relics/Relics-INDEX.md": article("publish: false\ntype: Index", "## Relics\n\n- [[Orb]]"),
+    "kb/items/relics/Orb.md": article("publish: false\ntype: Item", "x"),
+  },
+  (root) => {
+    // The absorb caller of the same helper. APPLY_ORDER puts relocate-prong and
+    // relocate-path ahead of absorb-folder, so the folder's own index is staged
+    // at a name HEAD does not carry by the time the dissolution removes it, and
+    // at 6732bef the articles had already moved when the removal refused: a
+    // folder half-dissolved, which is precisely what the one-entry-per-operation
+    // accounting exists to prevent.
+    const r = apply(root, [
+      { op: "relocate-prong", from: "kb", to: "settings/rolara", reason: "prong move" },
+      {
+        op: "absorb-folder",
+        from: "settings/rolara/items/relics",
+        to: "settings/rolara/items",
+        index: "settings/rolara/items/relics/Relics-INDEX.md",
+        articles: [
+          { from: "settings/rolara/items/relics/Orb.md", to: "settings/rolara/items/Orb.md" },
+        ],
+        reason: "under threshold",
+      },
+    ]);
+    check("both operations report applied", [r.applied.length, r.failed.length], [2, 0]);
+    check("the dissolution counts its one file",
+      (r.applied.find((e) => e.op === "absorb-folder") || {}).moved, 1);
+    check("the article landed in the parent", has(root, "settings/rolara/items/Orb.md"), true);
+    check("the folder's own index is gone from disk and from the index",
+      [has(root, "settings/rolara/items/relics/Relics-INDEX.md"),
+        lsFiles(root).some((f) => /Relics-INDEX/.test(f))],
+      [false, false]);
+    check("and the emptied folder does not outlive its own dissolution",
+      has(root, "settings/rolara/items/relics"), false);
+    check("the run reports ok and link integrity passes", [r.ok, links(r).ok], [true, true]);
+  }
+);
+
+// ---------------------------------------------------------------------------
+// A merge naming its own survivor among its own sources refuses instead of
+// folding the survivor into itself and then deleting it
+// ---------------------------------------------------------------------------
+//
+// `-f` above only skips a REFUSAL git would otherwise raise; it does not know
+// whether the file it is asked to remove is the one place its own content just
+// got written. `sources` at :6256 was never filtered against `to`, so a survey
+// that enumerates every index in a folder as `sources` while separately naming
+// one of them as the survivor (the off-by-one setup Step 9's parity scan is one
+// hand-edit away from making) reaches applyMergeIndex with the survivor listed
+// as one of its own sources. The fold-into-itself writes the doubled text back
+// over the survivor, and the removal loop then hands that same path to
+// gitRemove along with every other folded source, because it walks `folded`,
+// not a set that excludes `to`. Measured at 3d8d32a: both index files gone from
+// disk and from `git ls-files`, the folder's whole content nowhere, and the run
+// reporting ok true, applied, link integrity green, committed.
+//
+// These two cases assert the END STATE, the same discipline the four cases
+// above use, because the return code is exactly what stayed green while the
+// content was destroyed. A fix that only flips `ok` to `false` without
+// stopping the write-then-delete would still fail these.
+
+console.log("\nA merge naming its own survivor among its sources refuses instead of destroying it");
+
+withRepo(
+  {
+    "settings/rolara/items/Items-INDEX.md": article("publish: false\ntype: Index", "## Weapons\n\n- [[Blade]]"),
+    "settings/rolara/items/Artifacts-INDEX.md": article(
+      "publish: false\ntype: Index",
+      "## Artifacts\n\nRelics of the first crown.\n\n- [[Crown]]"
+    ),
+    "settings/rolara/items/Blade.md": article("publish: false\ntype: Item", "x"),
+    "settings/rolara/items/Crown.md": article("publish: false\ntype: Item", "x"),
+  },
+  (root) => {
+    // The exact shape measured: `sources` carries the survivor itself alongside
+    // one genuinely different index, which is what a parity scan produces when
+    // it enumerates every index in the folder without excluding the one it
+    // separately named as the survivor. commit:true, matching the reviewer's
+    // measurement, because this is setup's unattended path and it has no
+    // approval gate standing between a bad survey and a commit.
+    const before = snapshotTree(root);
+    const r = apply(
+      root,
+      [
+        {
+          op: "merge-index",
+          to: "settings/rolara/items/Items-INDEX.md",
+          sources: [
+            "settings/rolara/items/Items-INDEX.md",
+            "settings/rolara/items/Artifacts-INDEX.md",
+          ],
+          reason: "multi-index folder (survey named the survivor as its own source)",
+        },
+      ],
+      { commit: true }
+    );
+    check("the whole run refuses rather than folding the survivor into itself",
+      (r.refused || {}).reason, "malformed-operation");
+    check("and the refusal names the survivor and the fix",
+      [/Items-INDEX\.md/.test(String((r.refused || {}).detail)), /sources/.test(String((r.refused || {}).detail))],
+      [true, true]);
+    check("nothing was touched: the project is byte-identical to the snapshot",
+      snapshotTree(root), before);
+    check("the survivor keeps its own original content, not a doubled or deleted copy",
+      read(root, "settings/rolara/items/Items-INDEX.md").includes("## Weapons\n\n- [[Blade]]"), true);
+    check("the other, genuinely different source is untouched too",
+      [has(root, "settings/rolara/items/Artifacts-INDEX.md"),
+        read(root, "settings/rolara/items/Artifacts-INDEX.md").includes("Relics of the first crown.")],
+      [true, true]);
+    check("the run did not commit", r.committed, false);
+  }
+);
+
+// The mixed shape is where refusing the whole run and silently dropping only
+// the bad source (or only the one operation) diverge in what a DM would
+// observe. This plan pairs the same malformed merge with a second operation
+// that is, on its own, entirely valid and unrelated to it. Silently narrowing
+// the plan, whether by filtering `to` out of `sources` for just that operation
+// or by skipping just that one operation and continuing, would let this second
+// operation apply. Refusing the whole run, which is the choice made here,
+// means it does not: the DM gets one refusal naming the survey error and a
+// project that is still exactly the one they started with, to fix and re-run.
+withRepo(
+  {
+    "settings/rolara/items/Items-INDEX.md": article("publish: false\ntype: Index", "## Weapons\n\n- [[Blade]]"),
+    "settings/rolara/items/Artifacts-INDEX.md": article(
+      "publish: false\ntype: Index",
+      "## Artifacts\n\nRelics of the first crown.\n\n- [[Crown]]"
+    ),
+    "settings/rolara/items/Blade.md": article("publish: false\ntype: Item", "x"),
+    "settings/rolara/items/Crown.md": article("publish: false\ntype: Item", "x"),
+    "settings/rolara/locations/Ashfall.md": article("publish: false\ntype: Location", "A quiet ford."),
+  },
+  (root) => {
+    const before = snapshotTree(root);
+    const r = apply(root, [
+      {
+        op: "rename-with-link-rewrite",
+        from: "settings/rolara/locations/Ashfall.md",
+        to: "settings/rolara/locations/Ashfall-LOCATION.md",
+        links: [],
+        reason: "suffix rule",
+      },
+      {
+        op: "merge-index",
+        to: "settings/rolara/items/Items-INDEX.md",
+        sources: [
+          "settings/rolara/items/Items-INDEX.md",
+          "settings/rolara/items/Artifacts-INDEX.md",
+        ],
+        reason: "multi-index folder (survey named the survivor as its own source)",
+      },
+    ]);
+    check("the whole run refuses, not just the malformed merge operation",
+      (r.refused || {}).reason, "malformed-operation");
+    check("so the unrelated, individually valid rename never ran either",
+      [has(root, "settings/rolara/locations/Ashfall.md"), has(root, "settings/rolara/locations/Ashfall-LOCATION.md")],
+      [true, false]);
+    check("the merge's own files are untouched too",
+      [has(root, "settings/rolara/items/Items-INDEX.md"), has(root, "settings/rolara/items/Artifacts-INDEX.md")],
+      [true, true]);
+    check("nothing was touched: the project is byte-identical to the snapshot",
+      snapshotTree(root), before);
+  }
+);
+
+// ---------------------------------------------------------------------------
+// The same refusal, when the survivor and its self-reference are spelled
+// differently but still name one file
+// ---------------------------------------------------------------------------
+//
+// The guard above compared the two paths as strings. Letter case is not the
+// only way two strings name one file, and on this project's own platform it is
+// not even a hypothetical one: measured on Windows with core.ignorecase true,
+// `sources: [".../items-index.md"]` against `to: ".../Items-INDEX.md"` was NOT
+// refused. readText found the file (the filesystem does not care about case),
+// the survivor was folded into itself and written back doubled, `git rm`'s
+// pathspec then missed it because a pathspec IS case-sensitive, and the run
+// committed the self-duplicated survivor while the entry reported applied
+// false. In the mixed shape the genuinely valid co-source was removed anyway.
+//
+// A leading `./`, a doubled separator and an interior `.` or `..` segment are
+// the same class of bypass by a different spelling, and the module already
+// documents `./` as a form toPosix does not fold. So the comparison is
+// samePath, which folds separator style, a trailing separator, `./`, `.` and
+// `..` segments, and letter case. The last case below is the other half of the
+// contract: a merge whose source is genuinely a different file, sharing the
+// survivor's basename under a different case in a different folder, must still
+// run, because setup emits merge-index unattended and a false refusal stops a
+// real DM's migration outright.
+
+console.log("\nThe survivor guard folds case and path form, and only those");
+
+withRepo(
+  {
+    "settings/rolara/items/Items-INDEX.md": article("publish: false\ntype: Index", "## Weapons\n\n- [[Blade]]"),
+    "settings/rolara/items/Blade.md": article("publish: false\ntype: Item", "x"),
+  },
+  (root) => {
+    // Solo: the self-reference is the only source, spelled in a different case.
+    // commit:true, because the measured failure committed.
+    const before = snapshotTree(root);
+    const beforeHead = head(root);
+    const r = apply(
+      root,
+      [
+        {
+          op: "merge-index",
+          to: "settings/rolara/items/Items-INDEX.md",
+          sources: ["settings/rolara/items/items-index.md"],
+          reason: "multi-index folder (survivor named as its own source, different case)",
+        },
+      ],
+      { commit: true }
+    );
+    const detail = String((r.refused || {}).detail);
+    check("a self-reference spelled in a different letter case refuses the whole run",
+      (r.refused || {}).reason, "malformed-operation");
+    check("and the refusal names the survivor, the spelling used, and the fix",
+      [/Items-INDEX\.md/.test(detail), /items-index\.md/.test(detail),
+        /sources/.test(detail), /re-run/.test(detail)],
+      [true, true, true, true]);
+    check("nothing was touched: the project is byte-identical to the snapshot",
+      snapshotTree(root), before);
+    check("the survivor holds its own content once, not folded into itself",
+      occurrences(read(root, "settings/rolara/items/Items-INDEX.md"), "## Weapons"), 1);
+    check("the run did not commit, so HEAD is still the snapshot",
+      [r.committed, head(root)], [false, beforeHead]);
+  }
+);
+
+withRepo(
+  {
+    "settings/rolara/items/Items-INDEX.md": article("publish: false\ntype: Index", "## Weapons\n\n- [[Blade]]"),
+    "settings/rolara/items/Artifacts-INDEX.md": article(
+      "publish: false\ntype: Index",
+      "## Artifacts\n\nRelics of the first crown.\n\n- [[Crown]]"
+    ),
+    "settings/rolara/items/Blade.md": article("publish: false\ntype: Item", "x"),
+    "settings/rolara/items/Crown.md": article("publish: false\ntype: Item", "x"),
+  },
+  (root) => {
+    // Mixed: the case-varied self-reference alongside a genuinely different,
+    // individually valid source. At b579e69 this ran, and the valid co-source
+    // was the one file the merge actually managed to remove.
+    const before = snapshotTree(root);
+    const r = apply(
+      root,
+      [
+        {
+          op: "merge-index",
+          to: "settings/rolara/items/Items-INDEX.md",
+          sources: [
+            "settings/rolara/items/items-index.md",
+            "settings/rolara/items/Artifacts-INDEX.md",
+          ],
+          reason: "multi-index folder (survey named the survivor again, in a different case)",
+        },
+      ],
+      { commit: true }
+    );
+    check("the whole run refuses, rather than narrowing to the valid source",
+      (r.refused || {}).reason, "malformed-operation");
+    check("so the genuinely valid co-source is still on disk and still tracked",
+      [has(root, "settings/rolara/items/Artifacts-INDEX.md"),
+        lsFiles(root).filter((f) => /Artifacts-INDEX/.test(f))],
+      [true, ["settings/rolara/items/Artifacts-INDEX.md"]]);
+    check("with its own prose intact and not folded into the survivor",
+      [read(root, "settings/rolara/items/Artifacts-INDEX.md").includes("Relics of the first crown."),
+        read(root, "settings/rolara/items/Items-INDEX.md").includes("Relics of the first crown.")],
+      [true, false]);
+    check("nothing was touched: the project is byte-identical to the snapshot",
+      snapshotTree(root), before);
+    check("the run did not commit", r.committed, false);
+  }
+);
+
+withRepo(
+  {
+    "settings/rolara/items/Items-INDEX.md": article("publish: false\ntype: Index", "## Weapons\n\n- [[Blade]]"),
+    "settings/rolara/items/Blade.md": article("publish: false\ntype: Item", "x"),
+  },
+  (root) => {
+    // Path form, not case: a `./` prefix on an otherwise byte-identical path.
+    // toPosix does not fold it, which the module already calls out elsewhere as
+    // a path that compares equal to nothing else here.
+    const before = snapshotTree(root);
+    const r = apply(
+      root,
+      [
+        {
+          op: "merge-index",
+          to: "settings/rolara/items/Items-INDEX.md",
+          sources: ["./settings/rolara/items/Items-INDEX.md"],
+          reason: "multi-index folder (survivor named again with a ./ prefix)",
+        },
+      ],
+      { commit: true }
+    );
+    check("a self-reference carrying a ./ prefix refuses the whole run",
+      (r.refused || {}).reason, "malformed-operation");
+    check("and nothing was touched: byte-identical, no commit",
+      [snapshotTree(root) === before, r.committed], [true, false]);
+  }
+);
+
+withRepo(
+  {
+    "settings/rolara/items/Items-INDEX.md": article("publish: false\ntype: Index", "## Weapons\n\n- [[Blade]]"),
+    "settings/rolara/locations/Ashfall.md": article("publish: false\ntype: Location", "A quiet ford."),
+    "settings/rolara/items/Blade.md": article("publish: false\ntype: Item", "x"),
+  },
+  (root) => {
+    // Every spelling difference at once, which is what a Windows DM hand-editing
+    // a proposal actually produces: backslash separators, a leading `.\`, an
+    // interior `..` hop through a sibling folder, and a different letter case.
+    const before = snapshotTree(root);
+    const r = apply(
+      root,
+      [
+        {
+          op: "merge-index",
+          to: "settings/rolara/items/Items-INDEX.md",
+          sources: [".\\settings\\rolara\\locations\\..\\items\\items-index.md"],
+          reason: "multi-index folder (survivor named again, Windows spelling)",
+        },
+      ],
+      { commit: true }
+    );
+    check("a self-reference spelled with backslashes, a .. hop and a different case refuses too",
+      (r.refused || {}).reason, "malformed-operation");
+    check("and nothing was touched: byte-identical, no commit",
+      [snapshotTree(root) === before, r.committed], [true, false]);
+  }
+);
+
+withRepo(
+  {
+    "settings/rolara/items/Items-INDEX.md": article("publish: false\ntype: Index", "## Weapons\n\n- [[Blade]]"),
+    "settings/rolara/items/relics/items-index.md": article(
+      "publish: false\ntype: Index",
+      "## Relics\n\nRelics of the first crown.\n\n- [[Orb]]"
+    ),
+    "settings/rolara/items/Blade.md": article("publish: false\ntype: Item", "x"),
+    "settings/rolara/items/relics/Orb.md": article("publish: false\ntype: Item", "x"),
+  },
+  (root) => {
+    // The other half of the contract. This source shares the survivor's basename
+    // once case is folded, and sits in a different folder, so it is a genuinely
+    // different file and the merge is legitimate. A comparison that folded only
+    // basenames, or that folded case without keeping the directory, would refuse
+    // it and break a migration setup runs with no approval gate in front of it.
+    const before = head(root);
+    const r = apply(
+      root,
+      [
+        {
+          op: "merge-index",
+          to: "settings/rolara/items/Items-INDEX.md",
+          sources: ["settings/rolara/items/relics/items-index.md"],
+          reason: "multi-index folder",
+        },
+      ],
+      { commit: true }
+    );
+    const survivor = read(root, "settings/rolara/items/Items-INDEX.md");
+    check("a merge whose source is a different file in a different folder is not refused",
+      r.refused, null);
+    check("it runs, and reports applied", [r.applied.length, r.failed.length], [1, 0]);
+    check("the source is gone from the working tree and from the index",
+      [has(root, "settings/rolara/items/relics/items-index.md"),
+        lsFiles(root).filter((f) => /relics\/items-index/.test(f))],
+      [false, []]);
+    check("the survivor holds the source's prose exactly once",
+      occurrences(survivor, "Relics of the first crown."), 1);
+    check("beside its own", [survivor.includes("## Weapons"), survivor.includes("- [[Blade]]")], [true, true]);
+    check("the run reports ok, link integrity passes, and it commits",
+      [r.ok, links(r).ok, r.committed, head(root) !== before], [true, true, true, true]);
+  }
+);
+
 console.log("\nFrontmatter repair is a line move on raw text");
 
 withRepo(
@@ -1441,6 +1983,127 @@ withRepo(
   }
 );
 
+// The mirror of that disclosure: an operation that was SKIPPED rewrote nothing, so
+// its git-ignored referrers must not be reported as edited. merge-index is the shape
+// that breaks a filter keyed on `from`, because it HAS no from: its sources live in
+// `sources`, which is where the skip pass finds the ignored one, while
+// findIgnoredReferrers keys its rows by the sourceLinks key. Measured with the
+// filter keyed on from: the run told the DM that one git-ignored referring file had
+// its wikilinks "rewritten in place" and that restoring the snapshot would NOT undo
+// the edit, for a merge that never opened the file. merge-index is in
+// OPERATION_ORDER, so that false claim of unrecoverable damage is in the
+// after-action report of setup's unattended migration.
+withRepo(
+  {
+    ".gitignore": "settings/rolara/items/Old-INDEX.md\ndrafts/\n",
+    "settings/rolara/items/Sword.md": article("type: Item", "A blade."),
+    "settings/rolara/items/Items-INDEX.md": article("type: Index", "- [[Sword]]"),
+    "settings/rolara/items/Old-INDEX.md": article("type: Index", "- [[Sword]]"),
+    "drafts/Notes.md": "See [[Old-INDEX]].\n",
+  },
+  (root) => {
+    const before = snapshotTree(root);
+    const r = apply(root, [
+      {
+        op: "merge-index",
+        to: "settings/rolara/items/Items-INDEX.md",
+        sources: ["settings/rolara/items/Old-INDEX.md"],
+        sourceLinks: { "settings/rolara/items/Old-INDEX.md": ["drafts/Notes.md"] },
+        reason: "two indexes in one folder",
+      },
+    ]);
+    check("a merge whose source is git-ignored is skipped",
+      [r.skipped.length, r.applied.length], [1, 0]);
+    check("and no unrecoverable edit is claimed for a merge that rewrote nothing",
+      [r.ignoredEdits.length, r.messages.some((m) => /rewritten in place/.test(m))], [0, false]);
+    check("which is what the referring file itself says", read(root, "drafts/Notes.md"), "See [[Old-INDEX]].\n");
+    check("and the whole project is byte-identical", snapshotTree(root), before);
+  }
+);
+
+// The half that must keep working, which matters exactly as much: a merge that RAN
+// did rewrite its git-ignored referrer, and that edit is unrecoverable, so suppressing
+// the disclosure would be the mirror image of the defect above. The suppression is
+// keyed on the skip decision for the paths an operation names, and merge-index is the
+// kind whose keying was just changed, so the direction the change must NOT alter needs
+// its own case rather than a case about renames.
+withRepo(
+  {
+    ".gitignore": "drafts/\n",
+    "settings/rolara/items/Sword.md": article("type: Item", "A blade."),
+    "settings/rolara/items/Items-INDEX.md": article("type: Index", "- [[Sword]]"),
+    "settings/rolara/items/Old-INDEX.md": article("type: Index", "- [[Sword]]"),
+    "drafts/Notes.md": "See [[Old-INDEX]].\n",
+  },
+  (root) => {
+    const r = apply(root, [
+      {
+        op: "merge-index",
+        to: "settings/rolara/items/Items-INDEX.md",
+        sources: ["settings/rolara/items/Old-INDEX.md"],
+        sourceLinks: { "settings/rolara/items/Old-INDEX.md": ["drafts/Notes.md"] },
+        reason: "two indexes in one folder",
+      },
+    ]);
+    check("a merge whose sources are all tracked runs",
+      [r.applied.length, r.skipped.length, r.failed.length], [1, 0, 0]);
+    check("the git-ignored referrer really was rewritten, so the edit is unrecoverable",
+      read(root, "drafts/Notes.md"), "See [[Items-INDEX]].\n");
+    check("so the run names it rather than filtering it out with the skipped ones",
+      r.ignoredEdits.map((e) => [e.op, e.source, e.referrer]),
+      [["merge-index", "settings/rolara/items/Old-INDEX.md", "drafts/Notes.md"]]);
+    check("in a message the DM will see",
+      [r.messages.some((m) => /rewritten in place/.test(m)),
+       r.messages.some((m) => /drafts\/Notes\.md/.test(m))],
+      [true, true]);
+  }
+);
+
+// And `ranKeys` itself, which is the clause that makes the suppression a decision
+// about the PATH rather than about the kind. Two merges name one source; one is skipped
+// for an ignored source of its own, the other runs and does the rewrite. The row is
+// keyed by op kind and source path, so both operations claim the same key: without the
+// ran half the skipped one would suppress a disclosure the other one earned, which is
+// the same unrecoverable-edit-gone-unreported defect in a shape one operation cannot
+// produce.
+withRepo(
+  {
+    ".gitignore": "drafts/\nsettings/rolara/items/Hidden-INDEX.md\n",
+    "settings/rolara/items/Sword.md": article("type: Item", "A blade."),
+    "settings/rolara/items/Items-INDEX.md": article("type: Index", "- [[Sword]]"),
+    "settings/rolara/items/Spare-INDEX.md": article("type: Index", "- [[Sword]]"),
+    "settings/rolara/items/Old-INDEX.md": article("type: Index", "- [[Sword]]"),
+    "settings/rolara/items/Hidden-INDEX.md": article("type: Index", "- [[Sword]]"),
+    "drafts/Notes.md": "See [[Old-INDEX]].\n",
+  },
+  (root) => {
+    const r = apply(root, [
+      {
+        op: "merge-index",
+        to: "settings/rolara/items/Spare-INDEX.md",
+        sources: ["settings/rolara/items/Hidden-INDEX.md", "settings/rolara/items/Old-INDEX.md"],
+        sourceLinks: { "settings/rolara/items/Old-INDEX.md": ["drafts/Notes.md"] },
+        reason: "hand-edited plan, one source git-ignored",
+      },
+      {
+        op: "merge-index",
+        to: "settings/rolara/items/Items-INDEX.md",
+        sources: ["settings/rolara/items/Old-INDEX.md"],
+        sourceLinks: { "settings/rolara/items/Old-INDEX.md": ["drafts/Notes.md"] },
+        reason: "two indexes in one folder",
+      },
+    ]);
+    check("the merge carrying the git-ignored source is skipped and the other runs",
+      [r.skipped.length, r.applied.length, r.failed.length], [1, 1, 0]);
+    check("the one that ran rewrote the ignored referrer",
+      read(root, "drafts/Notes.md"), "See [[Items-INDEX]].\n");
+    check("and the row survives, because one operation naming that source DID run",
+      r.ignoredEdits.map((e) => e.referrer), ["drafts/Notes.md"]);
+    check("in a message the DM will see",
+      r.messages.some((m) => /rewritten in place/.test(m)), true);
+  }
+);
+
 console.log("\nThe snapshot precedes every mutation");
 
 withRepo(
@@ -1910,6 +2573,1988 @@ console.log("\nWikilink rewriting in isolation");
   // own it proved nothing about the folding.
   check("and matching folds case, the way Obsidian resolves",
     rewriteWikilinks("[[Items-Index]]", "items-index", "items-INDEX").text, "[[items-INDEX]]");
+}
+
+console.log("\n=== relocate-path ===");
+
+withRepo(
+  {
+    "settings/rolara/misc/Old-Note.md": article("type: Concept", "Body."),
+    "settings/rolara/notes/Keep-INDEX.md": article("type: Index", "- [[Old-Note]]"),
+  },
+  (root) => {
+    const r = apply(root, [
+      { op: "relocate-path", from: "settings/rolara/misc/Old-Note.md", to: "settings/rolara/notes/Old-Note.md", reason: "scope" },
+    ]);
+    check("relocate-path applies", [r.ok, first(r.applied).applied], [true, true]);
+    check("the file is at its destination", has(root, "settings/rolara/notes/Old-Note.md"), true);
+    check("and gone from its source", has(root, "settings/rolara/misc/Old-Note.md"), false);
+    // Obsidian resolves a wikilink by stem, so moving a file inside one vault
+    // does not break a link to it. This asserts the link was left ALONE, which
+    // is the correct behavior and easy to regress into a needless rewrite.
+    check("a wikilink to it is untouched",
+      read(root, "settings/rolara/notes/Keep-INDEX.md").includes("[[Old-Note]]"), true);
+    check("git recorded a rename, not a delete plus an untracked file",
+      porcelain(root).some((l) => l.startsWith("R")), true);
+  }
+);
+
+withRepo({ "settings/rolara/A.md": article("type: Person", "Body.") }, (root) => {
+  const r = apply(root, [
+    { op: "relocate-path", from: "settings/rolara/A.md", to: "settings/rolara/A.md", reason: "x" },
+  ]);
+  // r.applied is [] when the move is declined, and [] is truthy, so
+  // `r.applied || r.failed` would never fall through to r.failed. Chained off
+  // .applied instead, the same way line 872 chains .detail across both
+  // buckets: first({}).applied is undefined, which || correctly passes through
+  // to first(r.failed).applied.
+  check("a no-op move is reported, not applied",
+    first(r.applied).applied || first(r.failed).applied, false);
+});
+
+console.log("\n=== rebuild-index ===");
+
+withRepo(
+  {
+    "settings/rolara/items/Items-INDEX.md":
+      "---\ntype: Index\npublish: false\n---\n\n# Items\n\nThe DM's own note about how this index is organised.\n\n- [[Sword]]\n- [[Gone-Article]]\n",
+    "settings/rolara/items/Sword.md": article("type: Item", "Body."),
+    "settings/rolara/items/Shield.md": article("type: Item", "Body."),
+  },
+  (root) => {
+    const r = apply(root, [
+      { op: "rebuild-index", to: "settings/rolara/items/Items-INDEX.md", folder: "settings/rolara/items", reason: "scope" },
+    ]);
+    const text = read(root, "settings/rolara/items/Items-INDEX.md");
+    check("rebuild-index applies", [r.ok, first(r.applied).applied], [true, true]);
+    check("an article present on disk but missing from the index is added", text.includes("[[Shield]]"), true);
+    check("an article listed but no longer on disk is dropped", text.includes("[[Gone-Article]]"), false);
+    check("an article that was already correct survives", text.includes("[[Sword]]"), true);
+    // The DM's frontmatter and prose are not the index's link list and are not
+    // this operation's business. A rebuild that regenerated the whole file would
+    // silently delete publish: false and the note above the list, which is
+    // exactly the "silent index rewrite" CONTEXT.md's avoid list names.
+    check("the DM's frontmatter survives verbatim", text.includes("publish: false"), true);
+    check("the DM's prose survives verbatim",
+      text.includes("The DM's own note about how this index is organised."), true);
+    check("the entries are sorted", text.indexOf("[[Shield]]") < text.indexOf("[[Sword]]"), true);
+  }
+);
+
+withRepo(
+  {
+    "settings/rolara/items/Items-INDEX.md": article("type: Index", "# Items\n\n- [[Sword]]"),
+    "settings/rolara/items/Sword.md": article("type: Item", "Body."),
+    "settings/rolara/items/weapons/Weapons-INDEX.md": article("type: Index", "# Weapons"),
+  },
+  (root) => {
+    const r = apply(root, [
+      { op: "rebuild-index", to: "settings/rolara/items/Items-INDEX.md", folder: "settings/rolara/items", reason: "scope" },
+    ]);
+    const text = read(root, "settings/rolara/items/Items-INDEX.md");
+    check("a sibling index is not listed as an article", text.includes("[[Weapons-INDEX]]"), false);
+    // A subfolder is another index's territory, and listing its contents here
+    // would put the same article in two indexes, violating singleOwnership.
+    check("a subfolder's contents are not absorbed into the parent index",
+      text.includes("[[Weapons]]"), false);
+    check("the rebuild still applied", [r.ok, first(r.applied).applied], [true, true]);
+  }
+);
+
+withRepo({ "settings/rolara/items/Sword.md": article("type: Item", "Body.") }, (root) => {
+  const r = apply(root, [
+    { op: "rebuild-index", to: "settings/rolara/items/Items-INDEX.md", folder: "settings/rolara/items", reason: "scope" },
+  ]);
+  // create-index is the operation that creates. Rebuilding a file that is not
+  // there would quietly turn a stale plan into a new file the DM never approved.
+  check("rebuilding an index that does not exist is reported, not created",
+    [first(r.applied.concat(r.failed)).applied, has(root, "settings/rolara/items/Items-INDEX.md")],
+    [false, false]);
+});
+
+console.log("\n=== absorb-folder ===");
+
+withRepo(
+  {
+    "settings/rolara/Rolara-INDEX.md": article("type: Index", "- [[Misc-INDEX]]"),
+    "settings/rolara/misc/Misc-INDEX.md": article("type: Index", "- [[Odds]]"),
+    "settings/rolara/misc/Odds.md": article("type: Concept", "Body."),
+  },
+  (root) => {
+    // The fixture's parent index carries a real inbound [[Misc-INDEX]] link, the
+    // same shape the Step 1 plan fixture uses, and planAbsorbFolders always pairs
+    // an absorb-folder with a rebuild-index on the parent for exactly that link.
+    // Applying the absorb alone leaves it dangling and the link-integrity rail
+    // correctly blocks the commit on it, so the paired op rides along here too:
+    // this is what a real plan for this folder actually contains.
+    const r = apply(root, [
+      {
+        op: "absorb-folder",
+        from: "settings/rolara/misc",
+        to: "settings/rolara",
+        articles: [{ from: "settings/rolara/misc/Odds.md", to: "settings/rolara/Odds.md" }],
+        index: "settings/rolara/misc/Misc-INDEX.md",
+        reason: "scope",
+      },
+      { op: "rebuild-index", to: "settings/rolara/Rolara-INDEX.md", folder: "settings/rolara", reason: "scope" },
+    ]);
+    check("absorb-folder applies", [r.ok, first(r.applied).applied], [true, true]);
+    check("the article is in the parent", has(root, "settings/rolara/Odds.md"), true);
+    check("the folder's index is gone", has(root, "settings/rolara/misc/Misc-INDEX.md"), false);
+    check("the article moved by git mv, not copy plus delete",
+      porcelain(root).some((l) => l.startsWith("R")), true);
+    check("the folder itself is gone", has(root, "settings/rolara/misc"), false);
+  }
+);
+
+withRepo(
+  {
+    // A second, non-colliding article rides along so this case can actually
+    // tell a precheck-time refusal apart from git mv's own destination-exists
+    // refusal on Odds.md alone: with only one article, both mechanisms leave
+    // the project identically untouched and the test cannot distinguish them.
+    // Measured: with the precheck bypassed, applyAbsorbFolder moves Ends.md
+    // (no collision) before it reaches Odds.md and fails, so "nothing moved"
+    // catches that partial mutation while a single-article case would not.
+    "settings/rolara/misc/Odds.md": article("type: Concept", "Body."),
+    "settings/rolara/misc/Ends.md": article("type: Concept", "Body."),
+    "settings/rolara/Odds.md": article("type: Concept", "A different article that already lives here."),
+  },
+  (root) => {
+    const r = apply(root, [
+      {
+        op: "absorb-folder",
+        from: "settings/rolara/misc",
+        to: "settings/rolara",
+        articles: [
+          { from: "settings/rolara/misc/Ends.md", to: "settings/rolara/Ends.md" },
+          { from: "settings/rolara/misc/Odds.md", to: "settings/rolara/Odds.md" },
+        ],
+        index: null,
+        reason: "scope",
+      },
+    ]);
+    // runPrechecks catches this before anything moves. Asserting the refusal
+    // here as well as in the plan suite is deliberate: a hand-edited proposal
+    // reaches applyPlan without ever passing through the planner.
+    //
+    // The reason is asserted alongside, because "nothing moved" alone only
+    // discriminates the precheck refusal from git mv's own destination-exists
+    // refusal while Ends.md happens to be listed FIRST. Reverse the array and
+    // that assertion passes under a bypassed precheck again; the reason pins
+    // the mechanism directly and survives a reorder.
+    check("a basename collision in the parent refuses the whole run",
+      [r.ok, r.refused && r.refused.reason], [false, "collisions"]);
+    check("and nothing moved",
+      [has(root, "settings/rolara/misc/Odds.md"),
+       has(root, "settings/rolara/misc/Ends.md"),
+       read(root, "settings/rolara/Odds.md").includes("A different article")],
+      [true, true, true]);
+  }
+);
+
+withRepo(
+  {
+    "settings/rolara/Rolara-INDEX.md": article("type: Index", "- [[Misc-INDEX]]"),
+    "settings/rolara/misc/Misc-INDEX.md": article("type: Index", "- [[Odds]]"),
+    "settings/rolara/misc/Odds.md": article("type: Concept", "Body. ![[Map.png]]"),
+    "settings/rolara/misc/Map.png": "PNG",
+    "settings/rolara/misc/notes.txt": "Loose notes.\n",
+  },
+  (root) => {
+    const r = apply(root, [
+      {
+        op: "absorb-folder",
+        from: "settings/rolara/misc",
+        to: "settings/rolara",
+        articles: [
+          { from: "settings/rolara/misc/Map.png", to: "settings/rolara/Map.png" },
+          { from: "settings/rolara/misc/Odds.md", to: "settings/rolara/Odds.md" },
+          { from: "settings/rolara/misc/notes.txt", to: "settings/rolara/notes.txt" },
+        ],
+        index: "settings/rolara/misc/Misc-INDEX.md",
+        reason: "scope",
+      },
+      { op: "rebuild-index", to: "settings/rolara/Rolara-INDEX.md", folder: "settings/rolara", reason: "scope" },
+    ]);
+    check("a non-markdown file moves with the articles", [r.ok, r.applied.length], [true, 2]);
+    check("the image and the text file are in the parent",
+      [has(root, "settings/rolara/Map.png"), has(root, "settings/rolara/notes.txt")], [true, true]);
+    check("nothing is left behind to orphan",
+      [has(root, "settings/rolara/misc"), lsFiles(root).includes("settings/rolara/misc/Map.png")],
+      [false, false]);
+    // The embed still resolves: Obsidian matches ![[Map.png]] by filename, and
+    // both files moved into the same folder.
+    check("the embed rides along beside the article that carries it",
+      read(root, "settings/rolara/Odds.md").includes("![[Map.png]]"), true);
+    // The rebuilt parent index lists articles, and a PNG is not one. Listing it
+    // would put a [[Map]] wikilink in the index with no markdown behind it.
+    const index = read(root, "settings/rolara/Rolara-INDEX.md");
+    check("but the rebuilt parent index lists only the markdown",
+      [index.includes("[[Odds]]"), /\[\[Map/.test(index), /\[\[notes/.test(index)],
+      [true, false, false]);
+  }
+);
+
+// git mv EMPTIES a folder; it does not remove it. Measured in a scratch repo:
+// moving every tracked file out of misc/ leaves misc/ on disk, and adding a
+// `git rm` of the last tracked file is what prunes it. So the index-present case
+// above passes on a git side effect, and this shape, which planAbsorbFolders
+// produces whenever no file matches the index suffix or the setting has no
+// suffix, has no `git rm` in it at all.
+withRepo({ "settings/rolara/misc/Odds.md": article("type: Concept", "Body.") }, (root) => {
+  const r = apply(root, [
+    {
+      op: "absorb-folder",
+      from: "settings/rolara/misc",
+      to: "settings/rolara",
+      articles: [{ from: "settings/rolara/misc/Odds.md", to: "settings/rolara/Odds.md" }],
+      index: null,
+      reason: "scope",
+    },
+  ]);
+  check("an absorb with no index to remove still applies", [r.ok, first(r.applied).applied], [true, true]);
+  check("the file is in the parent", has(root, "settings/rolara/Odds.md"), true);
+  // Asserted as the executor's own end state rather than left to git's pruning:
+  // an empty folder left behind is content-free content the sweep flags, and it
+  // makes a later absorb of the PARENT decline as "holds a subfolder".
+  check("and the emptied folder is removed rather than left standing",
+    has(root, "settings/rolara/misc"), false);
+});
+
+withRepo(
+  {
+    "settings/rolara/misc/Odds.md": article("type: Concept", "Body."),
+    "settings/rolara/misc/Ends.md": article("type: Concept", "Body."),
+  },
+  (root) => {
+    const r = apply(root, [
+      {
+        op: "absorb-folder",
+        from: "settings/rolara/misc",
+        to: "settings/rolara",
+        articles: [{ from: "settings/rolara/misc/Odds.md", to: "settings/rolara/Odds.md" }],
+        index: null,
+        reason: "scope",
+      },
+    ]);
+    // A hand-edited plan can name fewer files than the folder holds. Emptiness
+    // is verified before the folder goes, because removing it recursively would
+    // delete a file the DM's approved proposal never named, and a half-absorbed
+    // folder reported as absorbed is the failure the one-entry accounting
+    // exists to prevent.
+    check("a folder still holding an unnamed file is reported, not emptied",
+      [r.ok, r.failed.length, has(root, "settings/rolara/misc/Ends.md")], [false, 1, true]);
+  }
+);
+
+withRepo(
+  {
+    "settings/rolara/Rolara-INDEX.md": article("type: Index", "- [[Misc-INDEX]]\n- [[Notes-INDEX]]"),
+    "settings/rolara/misc/Misc-INDEX.md": article("type: Index", "- [[Odds]]"),
+    "settings/rolara/misc/Odds.md": article("type: Concept", "Body."),
+    "settings/rolara/notes/Notes-INDEX.md": article("type: Index", "- [[Jot]]"),
+    "settings/rolara/notes/Jot.md": article("type: Concept", "Body."),
+  },
+  (root) => {
+    // The end-to-end half of the sibling-absorb case in the plan suite: two
+    // stub folders into one parent is the ordinary shape of this feature, and
+    // the DM approved ONE migration for it.
+    const r = apply(root, [
+      {
+        op: "absorb-folder",
+        from: "settings/rolara/misc",
+        to: "settings/rolara",
+        articles: [{ from: "settings/rolara/misc/Odds.md", to: "settings/rolara/Odds.md" }],
+        index: "settings/rolara/misc/Misc-INDEX.md",
+        reason: "scope",
+      },
+      {
+        op: "absorb-folder",
+        from: "settings/rolara/notes",
+        to: "settings/rolara",
+        articles: [{ from: "settings/rolara/notes/Jot.md", to: "settings/rolara/Jot.md" }],
+        index: "settings/rolara/notes/Notes-INDEX.md",
+        reason: "scope",
+      },
+      { op: "rebuild-index", to: "settings/rolara/Rolara-INDEX.md", folder: "settings/rolara", reason: "scope" },
+    ]);
+    check("two sibling absorbs into one parent apply in one run",
+      [r.ok, r.applied.length], [true, 3]);
+    check("both folders are gone",
+      [has(root, "settings/rolara/misc"), has(root, "settings/rolara/notes")], [false, false]);
+    check("and both files are in the parent",
+      [has(root, "settings/rolara/Odds.md"), has(root, "settings/rolara/Jot.md")], [true, true]);
+  }
+);
+
+withRepo(
+  {
+    ".gitignore": "settings/rolara/misc/Hidden.md\n",
+    "settings/rolara/misc/Misc-INDEX.md": article("type: Index", "- [[Odds]]"),
+    "settings/rolara/misc/Odds.md": article("type: Concept", "Body."),
+    "settings/rolara/misc/Hidden.md": article("type: Concept", "A draft the DM keeps out of git."),
+  },
+  (root) => {
+    const before = snapshotTree(root);
+    const r = apply(root, [
+      {
+        op: "absorb-folder",
+        from: "settings/rolara/misc",
+        to: "settings/rolara",
+        // Odds.md is listed FIRST deliberately. `git mv` on the ignored file
+        // hard-fails with "not under version control", exit 128, so with the
+        // skip missing the executor moves every PRECEDING file and then fails
+        // mid-dissolution. Listing the ignored file first would leave the
+        // project untouched by accident and hide that partial mutation.
+        articles: [
+          { from: "settings/rolara/misc/Odds.md", to: "settings/rolara/Odds.md" },
+          { from: "settings/rolara/misc/Hidden.md", to: "settings/rolara/Hidden.md" },
+        ],
+        index: "settings/rolara/misc/Misc-INDEX.md",
+        reason: "scope",
+      },
+    ]);
+    // WHOLE, not per file. An ignored file has no snapshot, so it cannot move;
+    // absorbing the rest would leave a half-dissolved folder holding one file
+    // and no index, which is the failure the one-entry-per-dissolution
+    // accounting exists to prevent.
+    check("an absorb carrying a git-ignored file is skipped whole",
+      [r.ok, r.skipped.length, r.applied.length, r.failed.length], [true, 1, 0, 0]);
+    check("and the folder is left byte-identical", snapshotTree(root), before);
+    // ignoredBeneath's reason says git mv carries them to the new path, which
+    // this kind never does: it moves file by file. The accurate disclosure is
+    // the skip above.
+    check("the disclosure is the skip, not the directory-move note",
+      r.ignoredMoved.length, 0);
+  }
+);
+
+console.log("\n=== split-folder ===");
+
+withRepo(
+  {
+    "settings/rolara/locations/Locations-INDEX.md": article("type: Index", "- [[Ashfall]]\n- [[Karsk]]"),
+    "settings/rolara/locations/Ashfall.md": article("type: Location", "Body."),
+    "settings/rolara/locations/Karsk.md": article("type: Location", "See [[Ashfall]]."),
+  },
+  (root) => {
+    const r = apply(root, [
+      {
+        op: "split-folder",
+        from: "settings/rolara/locations",
+        buckets: [
+          {
+            folder: "settings/rolara/locations/north",
+            name: "north",
+            articles: [{ from: "settings/rolara/locations/Ashfall.md", to: "settings/rolara/locations/north/Ashfall.md" }],
+          },
+        ],
+        reason: "scope",
+      },
+    ]);
+    check("split-folder applies", [r.ok, first(r.applied).applied], [true, true]);
+    check("the article is in its bucket", has(root, "settings/rolara/locations/north/Ashfall.md"), true);
+    check("and gone from the parent", has(root, "settings/rolara/locations/Ashfall.md"), false);
+    // Obsidian resolves by stem, so a link from a sibling that did not move
+    // still resolves after the move. Left alone deliberately.
+    check("a wikilink from an article that stayed is untouched",
+      read(root, "settings/rolara/locations/Karsk.md").includes("[[Ashfall]]"), true);
+    check("git recorded renames", porcelain(root).some((l) => l.startsWith("R")), true);
+  }
+);
+
+withRepo(
+  {
+    "settings/rolara/locations/Ashfall.md": article("type: Location", "Body."),
+    "settings/rolara/locations/Karsk.md": article("type: Location", "Body."),
+  },
+  (root) => {
+    const r = apply(root, [
+      {
+        op: "split-folder",
+        from: "settings/rolara/locations",
+        buckets: [
+          {
+            folder: "settings/rolara/locations/north",
+            name: "north",
+            articles: [
+              { from: "settings/rolara/locations/Ashfall.md", to: "settings/rolara/locations/north/Ashfall.md" },
+              { from: "settings/rolara/locations/Nope.md", to: "settings/rolara/locations/north/Nope.md" },
+            ],
+          },
+        ],
+        reason: "scope",
+      },
+    ]);
+    // One entry for the whole split, on the same principle a rename carries its
+    // link rewrite: a split reported as done with one article left behind is
+    // exactly what the per-operation accounting exists to prevent.
+    const e = first(r.applied.concat(r.failed));
+    check("a missing article fails the whole split entry", e.applied, false);
+    check("and the detail names how far it got", /1 of 2/.test(e.detail || ""), true);
+  }
+);
+
+// The bucket index the planner pairs with every split, applied in the same run.
+// A fresh bucket folder is populated by the split and read by create-index, in
+// that order, which is why APPLY_ORDER puts every index kind after the split.
+withRepo(
+  {
+    "settings/rolara/locations/Locations-INDEX.md": article("type: Index", "- [[Ashfall]]\n- [[Karsk]]"),
+    "settings/rolara/locations/Ashfall.md": article("type: Location", "Body."),
+    "settings/rolara/locations/Karsk.md": article("type: Location", "Body."),
+  },
+  (root) => {
+    const r = apply(root, [
+      {
+        op: "split-folder",
+        from: "settings/rolara/locations",
+        buckets: [
+          {
+            folder: "settings/rolara/locations/north",
+            name: "north",
+            articles: [{ from: "settings/rolara/locations/Ashfall.md", to: "settings/rolara/locations/north/Ashfall.md" }],
+          },
+          {
+            folder: "settings/rolara/locations/south",
+            name: "south",
+            articles: [{ from: "settings/rolara/locations/Karsk.md", to: "settings/rolara/locations/south/Karsk.md" }],
+          },
+        ],
+        reason: "scope",
+      },
+      { op: "create-index", to: "settings/rolara/locations/north/North-INDEX.md", reason: "scope" },
+      { op: "create-index", to: "settings/rolara/locations/south/South-INDEX.md", reason: "scope" },
+      {
+        op: "rebuild-index",
+        to: "settings/rolara/locations/Locations-INDEX.md",
+        folder: "settings/rolara/locations",
+        reason: "scope",
+      },
+    ]);
+    check("a split and its three paired index operations all apply",
+      [r.ok, r.applied.length], [true, 4]);
+    // The index has to list what the split just put in the folder. Written
+    // before the move it would list nothing, which is the ordering rule
+    // APPLY_ORDER encodes.
+    check("each bucket index lists the article the split moved in",
+      [read(root, "settings/rolara/locations/north/North-INDEX.md").includes("[[Ashfall]]"),
+       read(root, "settings/rolara/locations/south/South-INDEX.md").includes("[[Karsk]]")],
+      [true, true]);
+    // The parent index listed both articles and now holds neither: they live in
+    // subfolders, which are another index's territory. Leaving them would put
+    // each article in two indexes at once.
+    const parent = read(root, "settings/rolara/locations/Locations-INDEX.md");
+    check("and the parent index no longer claims the articles that left",
+      [/\[\[Ashfall\]\]/.test(parent), /\[\[Karsk\]\]/.test(parent)], [false, false]);
+  }
+);
+
+withRepo(
+  {
+    ".gitignore": "settings/rolara/locations/Hidden.md\n",
+    "settings/rolara/locations/Ashfall.md": article("type: Location", "Body."),
+    "settings/rolara/locations/Hidden.md": article("type: Location", "A draft the DM keeps out of git."),
+  },
+  (root) => {
+    const before = snapshotTree(root);
+    const r = apply(root, [
+      {
+        op: "split-folder",
+        from: "settings/rolara/locations",
+        buckets: [
+          {
+            // Ashfall.md is in the FIRST bucket deliberately. `git mv` on the
+            // ignored file hard-fails with "not under version control", exit 128,
+            // so with the skip blind to the bucket shape the executor moves every
+            // PRECEDING article and then fails mid-partition. Putting the ignored
+            // one first would leave the project untouched by accident and hide
+            // that partial mutation.
+            folder: "settings/rolara/locations/north",
+            name: "north",
+            articles: [{ from: "settings/rolara/locations/Ashfall.md", to: "settings/rolara/locations/north/Ashfall.md" }],
+          },
+          {
+            folder: "settings/rolara/locations/south",
+            name: "south",
+            articles: [{ from: "settings/rolara/locations/Hidden.md", to: "settings/rolara/locations/south/Hidden.md" }],
+          },
+        ],
+        reason: "scope",
+      },
+    ]);
+    // WHOLE, not one bucket. The operation is the unit of accounting and the unit
+    // the skip loop works in, and a split is one operation because the DM approved
+    // one partition: applying the buckets that happen to hold no ignored article
+    // would leave the tree matching neither the old shape nor the approved one,
+    // with no partial entry to report it with.
+    check("a split carrying a git-ignored article is skipped whole",
+      [r.ok, r.skipped.length, r.applied.length, r.failed.length], [true, 1, 0, 0]);
+    check("and the folder is left byte-identical", snapshotTree(root), before);
+    check("the skip names the ignored article rather than the folder",
+      String(first(r.skipped).detail).includes("settings/rolara/locations/Hidden.md"), true);
+  }
+);
+
+console.log("\n=== a skipped scope entry takes every operation it emitted with it ===");
+
+// The plan the PLANNER actually emits, not the bare operation. A split always
+// arrives with one create-index per bucket and a rebuild of the folder's own
+// index, and all four carry the split entry's group id. Measured before the
+// grouped skip: the split was skipped whole and correctly, and then its three
+// paired index operations ran anyway. applyCreateIndex writes through writeText,
+// whose recursive mkdirSync CREATED the two bucket folders the skipped split never
+// populated; the run reported ok true and committed them; and the planner then
+// declined the documented "unignore it and re-run the same scope" retry, because
+// those bucket folders now exist. The rebuild's reason also asserted that the
+// folder "was split into 2 subfolder(s)", which was false for that run.
+withRepo(
+  {
+    ".gitignore": "settings/rolara/locations/Hidden.md\n",
+    "settings/rolara/locations/Locations-INDEX.md": article("type: Index", "- [[Ashfall]]\n- [[Hidden]]"),
+    "settings/rolara/locations/Ashfall.md": article("type: Location", "Body."),
+    "settings/rolara/locations/Hidden.md": article("type: Location", "A draft the DM keeps out of git."),
+  },
+  (root) => {
+    const before = snapshotTree(root);
+    const group = ["splitFolders[0]"];
+    const r = apply(root, [
+      {
+        op: "split-folder",
+        from: "settings/rolara/locations",
+        buckets: [
+          {
+            folder: "settings/rolara/locations/north",
+            name: "north",
+            articles: [{ from: "settings/rolara/locations/Ashfall.md", to: "settings/rolara/locations/north/Ashfall.md" }],
+          },
+          {
+            folder: "settings/rolara/locations/south",
+            name: "south",
+            articles: [{ from: "settings/rolara/locations/Hidden.md", to: "settings/rolara/locations/south/Hidden.md" }],
+          },
+        ],
+        groups: group,
+        reason: "scope",
+      },
+      { op: "create-index", to: "settings/rolara/locations/north/North-INDEX.md", groups: group, reason: "scope" },
+      { op: "create-index", to: "settings/rolara/locations/south/South-INDEX.md", groups: group, reason: "scope" },
+      {
+        op: "rebuild-index",
+        to: "settings/rolara/locations/Locations-INDEX.md",
+        folder: "settings/rolara/locations",
+        groups: group,
+        reason: "scope",
+      },
+    ]);
+    check("a skipped split takes its paired index operations with it",
+      [r.ok, r.skipped.length, r.applied.length, r.failed.length], [true, 1, 0, 0]);
+    check("so no empty bucket folder is created and the documented retry stays possible",
+      [has(root, "settings/rolara/locations/north"), has(root, "settings/rolara/locations/south")],
+      [false, false]);
+    check("and the whole project is byte-identical", snapshotTree(root), before);
+    check("the one skip item accounts for every operation the entry emitted",
+      (first(r.skipped).ops || []).map((o) => o.op),
+      ["split-folder", "create-index", "create-index", "rebuild-index"]);
+    check("and the DM sees one item rather than four",
+      [r.skipped.length, /git-ignored/.test(String(first(r.skipped).detail))], [1, true]);
+  }
+);
+
+// The absorb-folder shape of the same defect, carried forward rather than
+// fixed there because the fix is this cross-cutting one. Measured before it: the
+// absorb was skipped whole, its paired parent rebuild ran anyway, and the parent
+// index lost [[Misc-INDEX]] while settings/rolara/misc was still sitting on disk
+// holding its own index. The rebuild's reason claimed the folder "was absorbed
+// into it", which was false for that run.
+withRepo(
+  {
+    ".gitignore": "settings/rolara/misc/Hidden.md\n",
+    "settings/rolara/Rolara-INDEX.md": article("type: Index", "- [[Misc-INDEX]]"),
+    "settings/rolara/misc/Misc-INDEX.md": article("type: Index", "- [[Odds]]"),
+    "settings/rolara/misc/Odds.md": article("type: Concept", "Body."),
+    "settings/rolara/misc/Hidden.md": article("type: Concept", "A draft the DM keeps out of git."),
+  },
+  (root) => {
+    const before = snapshotTree(root);
+    const group = ["absorbFolders[0]"];
+    const r = apply(root, [
+      {
+        op: "absorb-folder",
+        from: "settings/rolara/misc",
+        to: "settings/rolara",
+        articles: [
+          { from: "settings/rolara/misc/Odds.md", to: "settings/rolara/Odds.md" },
+          { from: "settings/rolara/misc/Hidden.md", to: "settings/rolara/Hidden.md" },
+        ],
+        index: "settings/rolara/misc/Misc-INDEX.md",
+        groups: group,
+        reason: "scope",
+      },
+      {
+        op: "rebuild-index",
+        to: "settings/rolara/Rolara-INDEX.md",
+        folder: "settings/rolara",
+        groups: group,
+        reason: "scope",
+      },
+    ]);
+    check("a skipped absorb takes its parent rebuild with it",
+      [r.ok, r.skipped.length, r.applied.length, r.failed.length], [true, 1, 0, 0]);
+    check("so the parent index still links the folder that survived",
+      read(root, "settings/rolara/Rolara-INDEX.md").includes("[[Misc-INDEX]]"), true);
+    check("and the whole project is byte-identical", snapshotTree(root), before);
+  }
+);
+
+// TWO sibling absorbs into one parent, one of them skipped. They share the deduped
+// parent rebuild, so it carries both ids and runs when EITHER entry does. That trade
+// is deliberate and argued at groupsOf: dropping it would leave the absorb that ran
+// with a parent index linking the index it just removed, which is a dead wikilink
+// that blocks the whole commit. Its cost is that a rebuild lists what the folder
+// holds NOW, so the folder whose own entry was skipped is still on disk and is no
+// longer linked from the parent index. The property the single-entry case above pins
+// therefore does NOT hold here, and before this note nothing said so: the skip item
+// reported the folder "left exactly where it is" and never mentioned its link.
+withRepo(
+  {
+    ".gitignore": "settings/rolara/misc/Hidden.md\n",
+    "settings/rolara/Rolara-INDEX.md": article("type: Index", "- [[Misc-INDEX]]\n- [[Notes-INDEX]]"),
+    "settings/rolara/misc/Misc-INDEX.md": article("type: Index", "- [[Odds]]"),
+    "settings/rolara/misc/Odds.md": article("type: Concept", "Body."),
+    "settings/rolara/misc/Hidden.md": article("type: Concept", "A draft the DM keeps out of git."),
+    "settings/rolara/notes/Notes-INDEX.md": article("type: Index", "- [[Jot]]"),
+    "settings/rolara/notes/Jot.md": article("type: Concept", "Body."),
+  },
+  (root) => {
+    const r = apply(root, [
+      {
+        op: "absorb-folder",
+        from: "settings/rolara/misc",
+        to: "settings/rolara",
+        articles: [
+          { from: "settings/rolara/misc/Odds.md", to: "settings/rolara/Odds.md" },
+          { from: "settings/rolara/misc/Hidden.md", to: "settings/rolara/Hidden.md" },
+        ],
+        index: "settings/rolara/misc/Misc-INDEX.md",
+        groups: ["absorbFolders[0]"],
+        reason: "scope",
+      },
+      {
+        op: "absorb-folder",
+        from: "settings/rolara/notes",
+        to: "settings/rolara",
+        articles: [{ from: "settings/rolara/notes/Jot.md", to: "settings/rolara/Jot.md" }],
+        index: "settings/rolara/notes/Notes-INDEX.md",
+        groups: ["absorbFolders[1]"],
+        reason: "scope",
+      },
+      {
+        op: "rebuild-index",
+        to: "settings/rolara/Rolara-INDEX.md",
+        folder: "settings/rolara",
+        groups: ["absorbFolders[0]", "absorbFolders[1]"],
+        reason: "scope",
+      },
+    ]);
+    check("the entry holding the ignored file is skipped and the sibling still runs",
+      [r.skipped.length, r.applied.length, r.failed.length], [1, 2, 0]);
+    check("the shared rebuild runs, and drops the link to the folder that stayed",
+      [has(root, "settings/rolara/misc/Misc-INDEX.md"),
+       read(root, "settings/rolara/Rolara-INDEX.md").includes("[[Misc-INDEX]]")],
+      [true, false]);
+    check("so the run discloses it rather than leaving the DM to find it in their index",
+      r.messages.some(
+        (m) => /rebuild-index settings\/rolara\/Rolara-INDEX\.md/.test(m) && /no longer linked/.test(m)
+      ),
+      true);
+    check("and the disclosure names the scope entry that was skipped",
+      r.messages.some((m) => /absorbFolders\[0\]/.test(m)), true);
+  }
+);
+
+// A hand-edited plan that LOST its group ids. The ids are plain JSON, so a DM can
+// delete them, and the decision is that a missing id degrades to per-operation
+// skipping, which is exactly the 1.6.0 behaviour, rather than widening a skip to
+// operations nothing connects it to.
+withRepo(
+  {
+    ".gitignore": "settings/rolara/locations/Hidden.md\n",
+    "settings/rolara/locations/Ashfall.md": article("type: Location", "Body."),
+    "settings/rolara/locations/Hidden.md": article("type: Location", "A draft the DM keeps out of git."),
+  },
+  (root) => {
+    const r = apply(root, [
+      {
+        op: "split-folder",
+        from: "settings/rolara/locations",
+        buckets: [
+          {
+            folder: "settings/rolara/locations/north",
+            name: "north",
+            articles: [{ from: "settings/rolara/locations/Hidden.md", to: "settings/rolara/locations/north/Hidden.md" }],
+          },
+        ],
+        reason: "hand-edited, group id deleted",
+      },
+      { op: "create-index", to: "settings/rolara/locations/north/North-INDEX.md", reason: "hand-edited" },
+    ]);
+    check("a plan whose group ids were edited away does not crash and does not widen the skip",
+      [r.refused, r.skipped.length, r.applied.length], [null, 1, 1]);
+  }
+);
+
+// A hand-edited plan that DUPLICATED a group id onto operations no scope entry
+// emitted together. That does widen the skip, because applyPlan cannot tell a
+// deliberate group from a duplicated id, so the widening is DISCLOSED instead: the
+// single report item names every operation it took with it.
+withRepo(
+  {
+    ".gitignore": "settings/rolara/editor-state/\n",
+    "settings/rolara/editor-state/scratch.md": article("type: Concept", "x"),
+    "settings/rolara/locations/Ashfall.md": article("type: Location", "Body."),
+  },
+  (root) => {
+    const before = snapshotTree(root);
+    const r = apply(root, [
+      {
+        op: "relocate-path",
+        from: "settings/rolara/editor-state/scratch.md",
+        to: "settings/rolara/notes/scratch.md",
+        groups: ["pathMoves[0]"],
+        reason: "hand-edited",
+      },
+      {
+        op: "relocate-path",
+        from: "settings/rolara/locations/Ashfall.md",
+        to: "settings/rolara/notes/Ashfall.md",
+        groups: ["pathMoves[0]"],
+        reason: "hand-edited, same id pasted twice",
+      },
+    ]);
+    check("a duplicated group id widens the skip rather than crashing",
+      [r.skipped.length, r.applied.length], [1, 0]);
+    check("and the report names every operation the widening took with it",
+      (first(r.skipped).ops || []).map((o) => o.to),
+      ["settings/rolara/notes/scratch.md", "settings/rolara/notes/Ashfall.md"]);
+    check("nothing moved", snapshotTree(root), before);
+  }
+);
+
+// A hand-edit can also put an operation in a group whose ignored source sits on an
+// operation reported under a DIFFERENT group of its own, which leaves the second
+// item with no ignored path of its own to name. It still has to say why it was
+// skipped: a skip that gives no reason is worse than one that reads unusually.
+withRepo(
+  {
+    ".gitignore": "settings/rolara/editor-state/\n",
+    "settings/rolara/editor-state/scratch.md": article("type: Concept", "x"),
+    "settings/rolara/locations/Ashfall.md": article("type: Location", "Body."),
+  },
+  (root) => {
+    const before = snapshotTree(root);
+    const r = apply(root, [
+      {
+        op: "relocate-path",
+        from: "settings/rolara/editor-state/scratch.md",
+        to: "settings/rolara/notes/scratch.md",
+        groups: ["pathMoves[0]", "pathMoves[1]"],
+        reason: "hand-edited",
+      },
+      {
+        op: "relocate-path",
+        from: "settings/rolara/locations/Ashfall.md",
+        to: "settings/rolara/notes/Ashfall.md",
+        groups: ["pathMoves[1]"],
+        reason: "hand-edited",
+      },
+    ]);
+    check("an operation skipped through a sibling's group is still skipped",
+      [r.skipped.length, r.applied.length], [2, 0]);
+    check("and its item explains why rather than naming an empty path list",
+      [/another operation from scope entry pathMoves\[1\]/.test(String(r.skipped[1].detail)),
+       /Skipped:  is git-ignored/.test(String(r.skipped[1].detail))],
+      [true, false]);
+    check("and nothing moved either way", snapshotTree(root), before);
+  }
+);
+
+console.log("\n=== a bucket article in the scope's own string syntax ===");
+
+// `buckets[].articles` is a bare string array in the SCOPE key and an object array
+// in the OPERATION, under the same field name, so a DM editing the proposal
+// between the two phases has a documented reason to write the string form.
+// Measured before this refusal: articleMovesOf dropped every string, the executor
+// fell out of its loop with moved 0 and set applied true, and the paired
+// create-index then created an empty bucket folder. "Split 0 article(s) across 2
+// subfolder(s)" with ok true is a success report for a no-op, which is the worst
+// outcome available here.
+withRepo(
+  {
+    "settings/rolara/locations/Ashfall.md": article("type: Location", "Body."),
+    "settings/rolara/locations/Karsk.md": article("type: Location", "Body."),
+  },
+  (root) => {
+    const before = snapshotTree(root);
+    const r = apply(root, [
+      {
+        op: "split-folder",
+        from: "settings/rolara/locations",
+        buckets: [{ folder: "settings/rolara/locations/north", name: "north", articles: ["Ashfall.md"] }],
+        reason: "hand-edited",
+      },
+      { op: "create-index", to: "settings/rolara/locations/north/North-INDEX.md", reason: "hand-edited" },
+    ]);
+    check("a bucket article written as a bare string refuses the run",
+      (r.refused || {}).reason, "malformed-operation");
+    const detail = String((r.refused || {}).detail);
+    check("and the refusal names the field and the shape it needs",
+      [/articles/.test(detail), /from/.test(detail), /to/.test(detail), /Ashfall\.md/.test(detail)],
+      [true, true, true, true]);
+    check("nothing was touched", snapshotTree(root), before);
+  }
+);
+
+withRepo(
+  {
+    "settings/rolara/locations/Ashfall.md": article("type: Location", "Body."),
+  },
+  (root) => {
+    const before = snapshotTree(root);
+    const r = apply(root, [
+      {
+        op: "split-folder",
+        from: "settings/rolara/locations",
+        buckets: [
+          {
+            folder: "settings/rolara/locations/north",
+            name: "north",
+            articles: [{ from: "settings/rolara/locations/Ashfall.md", to: "settings/rolara/locations/north/Ashfall.md" }],
+          },
+          null,
+        ],
+        reason: "hand-edited",
+      },
+    ]);
+    check("a bucket that is not an object refuses the run too",
+      (r.refused || {}).reason, "malformed-operation");
+    check("and nothing was touched for that one either", snapshotTree(root), before);
+  }
+);
+
+// The same silent drop by a different route: a field present but not an array reads
+// as empty through list(), so every entry it was meant to name is invisible to the
+// prechecks and to the executor alike, and the operation reports applied having
+// moved nothing.
+withRepo(
+  {
+    "settings/rolara/misc/Odds.md": article("type: Concept", "Body."),
+  },
+  (root) => {
+    const before = snapshotTree(root);
+    const r = apply(root, [
+      {
+        op: "absorb-folder",
+        from: "settings/rolara/misc",
+        to: "settings/rolara",
+        articles: "settings/rolara/misc/Odds.md",
+        reason: "hand-edited",
+      },
+    ]);
+    check("an articles field that is not an array refuses the run",
+      [(r.refused || {}).reason, /rather than an array/.test(String((r.refused || {}).detail))],
+      ["malformed-operation", true]);
+    check("and nothing was touched", snapshotTree(root), before);
+  }
+);
+
+{
+  // applyOperation is exported, so a caller can reach an executor without
+  // applyPlan's preflight in front of it. entry.buckets is a DM-facing field a
+  // later task renders, so a malformed bucket must not put a null in it.
+  const entry = applyOperation(
+    { op: "split-folder", from: "settings/rolara/locations", buckets: [null] },
+    { cwd: HERE }
+  );
+  check("a malformed bucket never renders null into the entry's bucket list", entry.buckets, []);
+}
+
+console.log("\n=== rename-entity ===");
+
+withRepo(
+  {
+    "settings/rolara/factions/Ashfall-Compact.md":
+      "---\ntype: Organization\nname: Ashfall Compact\npublish: false\n---\n\nThe Ashfall Compact holds the northern passes.\n",
+    "settings/rolara/factions/Factions-INDEX.md": article("type: Index", "- [[Ashfall-Compact]]"),
+    "settings/rolara/people/Thoric.md": article("type: Person", "Sworn to [[Ashfall-Compact|the Compact]]."),
+  },
+  (root) => {
+    const r = apply(root, [
+      {
+        op: "rename-entity",
+        from: "settings/rolara/factions/Ashfall-Compact.md",
+        to: "settings/rolara/factions/Cinder-Pact.md",
+        nameFrom: "Ashfall Compact",
+        nameTo: "Cinder Pact",
+        links: ["settings/rolara/factions/Factions-INDEX.md", "settings/rolara/people/Thoric.md"],
+        reason: "scope",
+      },
+    ]);
+    const entry = first(r.applied);
+    check("rename-entity applies", [r.ok, entry.applied], [true, true]);
+    check("the file is renamed", has(root, "settings/rolara/factions/Cinder-Pact.md"), true);
+    check("the frontmatter name is updated",
+      read(root, "settings/rolara/factions/Cinder-Pact.md").includes("name: Cinder Pact"), true);
+    check("a plain wikilink is rewritten",
+      read(root, "settings/rolara/factions/Factions-INDEX.md").includes("[[Cinder-Pact]]"), true);
+    check("a piped wikilink keeps its display text",
+      read(root, "settings/rolara/people/Thoric.md").includes("[[Cinder-Pact|the Compact]]"), true);
+    // The scope boundary, asserted rather than described. Renaming prose is
+    // chronicler's job; doing it here would rewrite the DM's sentences under a
+    // structural approval.
+    check("body prose naming the old entity is NOT rewritten",
+      read(root, "settings/rolara/factions/Cinder-Pact.md").includes("The Ashfall Compact holds"), true);
+    // The same boundary from the other side, so the case cannot pass because the
+    // whole file was left alone: the prose sentence survives while the frontmatter
+    // name on the line above it changed, and the old name appears nowhere else.
+    check("and the old name survives ONLY in the prose",
+      read(root, "settings/rolara/factions/Cinder-Pact.md").split("Ashfall Compact").length - 1, 1);
+    check("both link rewrites are counted", entry.linksRewritten, 2);
+  }
+);
+
+withRepo(
+  {
+    "settings/rolara/factions/Ashfall-Compact.md": article("type: Organization", "Body."),
+    "settings/rolara/factions/Factions-INDEX.md": article("type: Index", "- [[Ashfall-Compact]]"),
+  },
+  (root) => {
+    const r = apply(root, [
+      {
+        op: "rename-entity",
+        from: "settings/rolara/factions/Ashfall-Compact.md",
+        to: "settings/rolara/factions/Cinder-Pact.md",
+        nameFrom: "Ashfall Compact",
+        nameTo: "Cinder Pact",
+        links: ["settings/rolara/factions/Factions-INDEX.md", "settings/rolara/factions/Gone.md"],
+        reason: "scope",
+      },
+    ]);
+    // A rename and its link rewrites are ONE unit of work with one entry. A
+    // dead wikilink is valid markdown that fails silently in Obsidian, so a
+    // move reported as done while a rewrite was dropped is invisible without
+    // this.
+    const e = first(r.applied.concat(r.failed));
+    check("an unreachable link file fails the whole entry", e.applied, false);
+    check("even though the file did move", has(root, "settings/rolara/factions/Cinder-Pact.md"), true);
+    // The reachable referrer is still rewritten rather than abandoned at the
+    // first bad name, on the same terms applyRenameWithLinkRewrite collects its
+    // misses: the rename has already landed, so every referrer left unrewritten
+    // is one more dead wikilink.
+    check("and the referrer that COULD be read was rewritten anyway",
+      read(root, "settings/rolara/factions/Factions-INDEX.md").includes("[[Cinder-Pact]]"), true);
+    check("with the unreadable one named in the entry's detail",
+      /Gone\.md/.test(String(e.detail)), true);
+  }
+);
+
+withRepo(
+  { "settings/rolara/factions/Ashfall-Compact.md": article("type: Organization", "Body.") },
+  (root) => {
+    const r = apply(root, [
+      {
+        op: "rename-entity",
+        from: "settings/rolara/factions/Ashfall-Compact.md",
+        to: "settings/rolara/factions/Cinder-Pact.md",
+        nameFrom: "Ashfall Compact",
+        nameTo: "Cinder Pact",
+        links: [],
+        reason: "scope",
+      },
+    ]);
+    // No name field at all is normal: the base schema does not require one.
+    // Renaming the file is still the operation's job, so this must not fail.
+    check("a file with no name field still renames", [r.ok, first(r.applied).applied], [true, true]);
+    check("and nothing is inserted",
+      read(root, "settings/rolara/factions/Cinder-Pact.md").includes("name:"), false);
+    // Minor 2: the plan DID expect a name here (nameFrom is set), so its
+    // absence reads differently in the detail than a plan that never asked for
+    // one at all, even though both leave the entry applied and insert nothing.
+    check("and the detail names the name the plan expected, distinguishing it from a plan that never asked for one",
+      [first(r.applied).detail.includes("Ashfall Compact"), first(r.applied).detail.includes("there was no frontmatter name to update")],
+      [true, false]);
+  }
+);
+
+withRepo(
+  { "settings/rolara/factions/Ashfall-Compact.md": article("type: Organization", "Body.") },
+  (root) => {
+    // The contrasting half of Minor 2, same file, same missing field, but a
+    // plan that never expected a name at all (nameFrom: null). This is the
+    // genuinely ordinary case, and its wording must not borrow the other
+    // case's "the plan expected a name" language, since nothing here was ever
+    // stale.
+    const r = apply(root, [
+      {
+        op: "rename-entity",
+        from: "settings/rolara/factions/Ashfall-Compact.md",
+        to: "settings/rolara/factions/Cinder-Pact.md",
+        nameFrom: null,
+        nameTo: null,
+        links: [],
+        reason: "scope",
+      },
+    ]);
+    check("a plan that never expected a name reads as the plain ordinary case",
+      [r.ok, first(r.applied).detail.includes("there was no frontmatter name to update")], [true, true]);
+  }
+);
+
+withRepo(
+  {
+    "settings/rolara/factions/Ashfall-Compact.md":
+      "---\ntype: Organization\nname: Ashfall Compact\n---\n\nAlso called simply [[Ashfall-Compact]] in old records.\n",
+  },
+  (root) => {
+    // Minor 1: the plan names the entity's own `from` as one of its own
+    // referrers, because the article carries a self-referential wikilink to
+    // its own old name. Tolerated rather than declined: by the time the links
+    // loop runs, the move has already carried this file's content to `to`, so
+    // reading and writing the self-referential entry there (instead of at the
+    // now-gone `from` path) is the fix, not failing the whole entry over a
+    // shape the scope can legitimately produce.
+    const r = apply(root, [
+      {
+        op: "rename-entity",
+        from: "settings/rolara/factions/Ashfall-Compact.md",
+        to: "settings/rolara/factions/Cinder-Pact.md",
+        nameFrom: "Ashfall Compact",
+        nameTo: "Cinder Pact",
+        links: ["settings/rolara/factions/Ashfall-Compact.md"],
+        reason: "scope",
+      },
+    ]);
+    const e = first(r.applied);
+    check("a links entry naming the operation's own source does not fail the entry", [r.ok, e.applied], [true, true]);
+    check("and its own self-referential wikilink is rewritten at the new path",
+      read(root, "settings/rolara/factions/Cinder-Pact.md").includes("[[Cinder-Pact]]"), true);
+    check("counted like any other referrer", e.linksRewritten, 1);
+  }
+);
+
+withRepo(
+  {
+    "settings/rolara/factions/Ashfall-Compact.md":
+      '---\ntype: Organization\nname: "Ashfall Compact"  # the founding charter spells it thus\n---\n\nBody.\n',
+  },
+  (root) => {
+    // The frontmatter edit is a raw-line edit for the same reason
+    // applyNormalizeType's is: parsing and regenerating would strip the DM's
+    // quoting and drop the comment.
+    const r = apply(root, [
+      {
+        op: "rename-entity",
+        from: "settings/rolara/factions/Ashfall-Compact.md",
+        to: "settings/rolara/factions/Cinder-Pact.md",
+        nameFrom: "Ashfall Compact",
+        nameTo: "Cinder Pact",
+        links: [],
+        reason: "scope",
+      },
+    ]);
+    const text = read(root, "settings/rolara/factions/Cinder-Pact.md");
+    check("the new name keeps the quoting the DM used", text.includes('name: "Cinder Pact"'), true);
+    check("and the inline comment survives", text.includes("# the founding charter spells it thus"), true);
+    check("with no other line disturbed", text.split("\n").slice(1, 3),
+      ["type: Organization", 'name: "Cinder Pact"  # the founding charter spells it thus']);
+    check("and the rename is reported applied", [r.ok, first(r.applied).applied], [true, true]);
+  }
+);
+
+withRepo(
+  {
+    "settings/rolara/factions/Ashfall-Compact.md":
+      "---\ntype: Organization\nname: The Ashfall Concord\n---\n\nBody.\n",
+  },
+  (root) => {
+    // A stale plan is reported, never guessed at, exactly as applyNormalizeType
+    // reports a type that no longer matches typeFrom. Rewriting whatever is there
+    // would overwrite a name the DM changed after the plan was built. The name is
+    // checked BEFORE git mv runs, so a stale plan on this half is caught with the
+    // project untouched: nothing moves at all, rather than the file landing at
+    // its new path with the DM's own frontmatter intact and no way for a later
+    // reader of this entry to tell that from a clean rename.
+    const r = apply(root, [
+      {
+        op: "rename-entity",
+        from: "settings/rolara/factions/Ashfall-Compact.md",
+        to: "settings/rolara/factions/Cinder-Pact.md",
+        nameFrom: "Ashfall Compact",
+        nameTo: "Cinder Pact",
+        links: [],
+        reason: "scope",
+      },
+    ]);
+    const e = first(r.failed);
+    check("a name that no longer matches nameFrom fails the entry", [r.ok, e.applied], [false, false]);
+    check("nothing moved, so the file is still at its original path",
+      [has(root, "settings/rolara/factions/Ashfall-Compact.md"), has(root, "settings/rolara/factions/Cinder-Pact.md")],
+      [true, false]);
+    check("and the name on disk is left exactly as the DM left it",
+      read(root, "settings/rolara/factions/Ashfall-Compact.md").includes("name: The Ashfall Concord"), true);
+    check("with both names in the detail, so the DM can see which is which",
+      [/Ashfall Concord/.test(String(e.detail)), /Ashfall Compact/.test(String(e.detail))], [true, true]);
+  }
+);
+
+withRepo(
+  {
+    "settings/rolara/factions/Ashfall-Compact.md":
+      "---\ntype: Organization\nname: The Ashfall Concord\n---\n\nBody.\n",
+    // An unrelated, resolvable wikilink elsewhere in the same prong root, so
+    // link integrity's coverage reads "ok" rather than "no-links-checked" and
+    // the probe below is not dismissable as an accident of an empty walk. It
+    // names neither half of the rename, so it stays live regardless of the
+    // outcome here.
+    "settings/rolara/factions/Steadfast.md": article("type: Organization", "An unrelated faction."),
+    "settings/rolara/factions/Mentions.md": article("type: Concept", "See [[Steadfast]] elsewhere."),
+  },
+  (root) => {
+    // The exact reachable shape the review measured: a stale frontmatter name
+    // on an entity with `links: []`. With no referrer named, the rename orphans
+    // no wikilink, so the link-integrity rail has nothing to refuse on the
+    // stale name alone, and a run that moved the file first would commit a
+    // half-applied rename with no restore instruction printed, because no
+    // refusal path ran. Checking the name before git mv is what keeps this
+    // reachable shape from ever reaching the commit step at all.
+    const before = head(root);
+    const r = applyPlan(
+      {
+        operations: [
+          {
+            op: "rename-entity",
+            from: "settings/rolara/factions/Ashfall-Compact.md",
+            to: "settings/rolara/factions/Cinder-Pact.md",
+            nameFrom: "Ashfall Compact",
+            nameTo: "Cinder Pact",
+            links: [],
+            reason: "scope",
+          },
+        ],
+      },
+      { cwd: root, settings: SETTINGS, baseRules: BASE_RULES, commit: true }
+    );
+    check("a stale name with no named referrers still fails the entry", [r.ok, first(r.failed).applied], [false, false]);
+    check("the run does not commit", r.committed, false);
+    check("and HEAD did not move", head(root), before);
+    check("and the file never moved off its original path",
+      [has(root, "settings/rolara/factions/Ashfall-Compact.md"), has(root, "settings/rolara/factions/Cinder-Pact.md")],
+      [true, false]);
+  }
+);
+
+withRepo(
+  {
+    "settings/rolara/factions/Ashfall-Compact.md": article("type: Organization", "Body."),
+    // The plan names this file as a referrer and its only mention of the old
+    // stem is inside a fenced block, which rewriteWikilinks leaves alone by
+    // design. Zero rewrites in a named file is a stale plan, and both the other
+    // rename executors already treat it as a drop.
+    "settings/rolara/factions/Notes.md": article("type: Concept", "```\n- [[Ashfall-Compact]]\n```"),
+  },
+  (root) => {
+    const r = apply(root, [
+      {
+        op: "rename-entity",
+        from: "settings/rolara/factions/Ashfall-Compact.md",
+        to: "settings/rolara/factions/Cinder-Pact.md",
+        nameFrom: "Ashfall Compact",
+        nameTo: "Cinder Pact",
+        links: ["settings/rolara/factions/Notes.md"],
+        reason: "scope",
+      },
+    ]);
+    const e = first(r.failed);
+    check("a named referrer with no wikilink to rewrite is a drop, not a silent pass",
+      [r.applied.length, e.applied], [0, false]);
+    check("and the fenced example is left exactly as the DM wrote it",
+      read(root, "settings/rolara/factions/Notes.md").includes("- [[Ashfall-Compact]]"), true);
+  }
+);
+
+withRepo(
+  {
+    // Where the knowledge base actually is, and it holds a wikilink.
+    "kb/factions/Factions-INDEX.md": article("type: Index", "- [[Ashfall-Compact]]"),
+    "kb/factions/Ashfall-Compact.md": article("type: Organization", "Body."),
+    // The DECLARED prong root, holding nothing with a wikilink in it.
+    "settings/rolara/Placeholder.md": article("type: Concept", "No wikilinks here."),
+  },
+  (root) => {
+    // rename-entity orphans wikilinks for the same reason
+    // rename-with-link-rewrite does, so a rename-entity that rewrote one is
+    // evidence this knowledge base has them and arms the zero-link rail. Left
+    // out of LINK_BEARING_OPERATIONS, a /migrate run made entirely of entity
+    // renames would walk roots pointed away from the content and pass.
+    const before = head(root);
+    const r = applyPlan(
+      {
+        operations: [
+          {
+            op: "rename-entity",
+            from: "kb/factions/Ashfall-Compact.md",
+            to: "kb/factions/Cinder-Pact.md",
+            nameFrom: null,
+            nameTo: null,
+            links: ["kb/factions/Factions-INDEX.md"],
+            reason: "scope",
+          },
+        ],
+      },
+      { cwd: root, settings: SETTINGS, baseRules: BASE_RULES, commit: true }
+    );
+    check("the rewrite landed, so a wikilink demonstrably exists in this project",
+      first(r.applied).linksRewritten, 1);
+    check("so an entity rename arms the zero-link rail too",
+      [links(r).ok, links(r).coverage, links(r).linksChecked], [false, "no-links-checked", 0]);
+    check("and nothing is committed on it", [r.committed, head(root)], [false, before]);
+  }
+);
+
+// rename-entity's per-file move is FLAT: a `from` and a `to` on the operation
+// itself, not an `articles` list. The three shared precheck mechanisms read that
+// shape already, and the last three operation kinds added here each shipped with one
+// of them not seeing their per-file data, so it is pinned rather than assumed.
+withRepo(
+  {
+    ".gitignore": "settings/rolara/factions/Ashfall-Compact.md\n",
+    "settings/rolara/factions/Ashfall-Compact.md": article("type: Organization", "Body."),
+    "settings/rolara/factions/Factions-INDEX.md": article("type: Index", "- [[Ashfall-Compact]]"),
+  },
+  (root) => {
+    const before = snapshotTree(root);
+    const r = apply(root, [
+      {
+        op: "rename-entity",
+        from: "settings/rolara/factions/Ashfall-Compact.md",
+        to: "settings/rolara/factions/Cinder-Pact.md",
+        nameFrom: null,
+        nameTo: null,
+        links: ["settings/rolara/factions/Factions-INDEX.md"],
+        groups: ["entityRenames[0]"],
+        reason: "scope",
+      },
+    ]);
+    check("an entity rename whose source is git-ignored is skipped, not moved",
+      [r.skipped.length, r.applied.length, r.failed.length], [1, 0, 0]);
+    check("the skip item names the ignored path and the scope entry",
+      [first(r.skipped).ignored, first(r.skipped).group],
+      [["settings/rolara/factions/Ashfall-Compact.md"], "entityRenames[0]"]);
+    check("and nothing moved or was rewritten", snapshotTree(root), before);
+  }
+);
+
+withRepo(
+  {
+    "settings/rolara/factions/Ashfall-Compact.md": article("type: Organization", "Body."),
+    // The destination is already occupied, which is the likelier collision shape:
+    // it needs one file, not two operations.
+    "settings/rolara/factions/Cinder-Pact.md": article("type: Organization", "A different faction."),
+  },
+  (root) => {
+    const before = snapshotTree(root);
+    const r = apply(root, [
+      {
+        op: "rename-entity",
+        from: "settings/rolara/factions/Ashfall-Compact.md",
+        to: "settings/rolara/factions/Cinder-Pact.md",
+        nameFrom: null,
+        nameTo: null,
+        links: [],
+        reason: "scope",
+      },
+    ]);
+    check("an entity rename onto an occupied destination refuses the run",
+      (r.refused || {}).reason, "collisions");
+    check("before anything is touched", snapshotTree(root), before);
+  }
+);
+
+withRepo(
+  {
+    ".gitignore": "drafts/\n",
+    "settings/rolara/factions/Ashfall-Compact.md": article("type: Organization", "Body."),
+    "settings/rolara/factions/Factions-INDEX.md": article("type: Index", "- [[Ashfall-Compact]]"),
+    "drafts/Secret.md": "See [[Ashfall-Compact]].\n",
+  },
+  (root) => {
+    // A git-ignored REFERRER is rewritten rather than skipped, because the rename
+    // breaks its wikilink either way, and the run discloses the edit the snapshot
+    // will not undo. findIgnoredReferrers reads `links` for any kind, so this needs
+    // nothing of rename-entity's own; the case proves it rather than a grep.
+    const r = apply(root, [
+      {
+        op: "rename-entity",
+        from: "settings/rolara/factions/Ashfall-Compact.md",
+        to: "settings/rolara/factions/Cinder-Pact.md",
+        nameFrom: null,
+        nameTo: null,
+        links: ["settings/rolara/factions/Factions-INDEX.md", "drafts/Secret.md"],
+        reason: "scope",
+      },
+    ]);
+    check("an entity rename's git-ignored referrer is repaired rather than left dead",
+      [first(r.applied).applied, read(root, "drafts/Secret.md")], [true, "See [[Cinder-Pact]].\n"]);
+    check("and the run names it, because git reset --hard will not undo that edit",
+      r.ignoredEdits.map((e) => [e.op, e.referrer]), [["rename-entity", "drafts/Secret.md"]]);
+    check("with the tracked referrer rewritten and NOT reported as unrecoverable",
+      [read(root, "settings/rolara/factions/Factions-INDEX.md").includes("[[Cinder-Pact]]"),
+       links(r).ok],
+      [true, true]);
+  }
+);
+
+console.log("\n=== update-prose-paths ===");
+
+withRepo(
+  {
+    "CLAUDE.md":
+      "The knowledge base lives at `rolara-kb/`. Session reports go in rolara-kb/sessions/.\nSee rolara-kb/ for details.\n",
+    "settings/rolara/A.md": article("type: Person", "Body."),
+  },
+  (root) => {
+    const r = apply(root, [
+      {
+        op: "update-prose-paths",
+        from: "CLAUDE.md",
+        replacements: [
+          { from: "rolara-kb/sessions/", to: "session-reports/rolara/karsk/" },
+          { from: "rolara-kb/", to: "settings/rolara/" },
+        ],
+        reason: "scope",
+      },
+    ]);
+    const text = read(root, "CLAUDE.md");
+    check("update-prose-paths applies", [r.ok, first(r.applied).applied], [true, true]);
+    check("the longer path is replaced with its own destination",
+      text.includes("session-reports/rolara/karsk/"), true);
+    // Order matters and is the plan's, not this executor's: rolara-kb/ is a
+    // prefix of rolara-kb/sessions/, so replacing the short one first would
+    // turn the long one into settings/rolara/sessions/ and the second
+    // replacement would then match nothing. The plan lists them longest first
+    // and the executor applies them in the order given.
+    check("the prefix replacement did not eat the longer one",
+      text.includes("settings/rolara/sessions/"), false);
+    check("the bare path is still replaced elsewhere",
+      text.includes("See settings/rolara/ for details."), true);
+    check("the replacement count is reported", first(r.applied).replacements, 3);
+  }
+);
+
+withRepo({ "CLAUDE.md": "Nothing to see here.\n" }, (root) => {
+  const r = apply(root, [
+    { op: "update-prose-paths", from: "CLAUDE.md", replacements: [{ from: "rolara-kb/", to: "settings/rolara/" }], reason: "scope" },
+  ]);
+  // A stale reference the DM already fixed by hand is not a failure. Reporting
+  // zero rather than failing keeps a re-run of an approved proposal harmless.
+  check("a file with no match applies with a count of zero",
+    [first(r.applied).applied, first(r.applied).replacements], [true, 0]);
+});
+
+withRepo({ "settings/rolara/A.md": article("type: Person", "Body.") }, (root) => {
+  const r = apply(root, [
+    { op: "update-prose-paths", from: "docs/Missing.md", replacements: [{ from: "a", to: "b" }], reason: "scope" },
+  ]);
+  check("a file that is not there is reported, not created",
+    [first(r.applied.concat(r.failed)).applied, has(root, "docs/Missing.md")], [false, false]);
+});
+
+withRepo(
+  {
+    "CLAUDE.md": "Reports live in rolara-kb/sessions (see rolara-kb/sessions).\n",
+    "settings/rolara/A.md": article("type: Person", "Body."),
+  },
+  (root) => {
+    // A path is not a pattern. "rolara-kb/sessions" as a regular expression would
+    // still match this text, so the case that separates the two implementations is
+    // a source carrying a metacharacter that changes what a pattern matches: the
+    // literal below names a path that is not in the file at all, and only a regex
+    // reading of it would find one.
+    const r = apply(root, [
+      {
+        op: "update-prose-paths",
+        from: "CLAUDE.md",
+        replacements: [{ from: "rolara-kb/session(s)", to: "session-reports/rolara/" }],
+        reason: "scope",
+      },
+    ]);
+    check("a replacement source is a literal string, never a pattern",
+      [first(r.applied).replacements, read(root, "CLAUDE.md")],
+      [0, "Reports live in rolara-kb/sessions (see rolara-kb/sessions).\n"]);
+  }
+);
+
+// The same silent drop the articles/buckets cases above refuse: a field
+// present but not an array reads as empty through list(), so the loop in
+// applyUpdateProsePaths makes zero substitutions and reports the file left
+// byte for byte as it was, which is indistinguishable from a proposal that
+// genuinely found nothing stale. Without the guard this hand-edit would apply
+// true with replacements: 0 instead of refusing.
+withRepo(
+  { "CLAUDE.md": "The knowledge base lives at rolara-kb/.\n" },
+  (root) => {
+    const before = snapshotTree(root);
+    const r = apply(root, [
+      { op: "update-prose-paths", from: "CLAUDE.md", replacements: "rolara-kb/", reason: "hand-edited" },
+    ]);
+    check("a replacements field that is not an array refuses the run",
+      [(r.refused || {}).reason, /rather than an array/.test(String((r.refused || {}).detail))],
+      ["malformed-operation", true]);
+    check("and nothing was touched", snapshotTree(root), before);
+  }
+);
+
+console.log("\n=== plan-side decline and apply-side skip stay one rule ===");
+
+// ignoredSkipDecision is ONE function reached from two call sites:
+// buildScopedPlan's decline pass (declineIgnoredSources) and applyPlan's own
+// skip pass. Today they cannot disagree, because there is only one
+// implementation, but nothing beyond that fact enforces it: a future edit that
+// inlines the rule at one call site, or reads its result differently, would go
+// red at neither suite on its own.
+//
+// This does NOT call ignoredSkipDecision twice, which would pass even if one
+// call site stopped using it (it is not exported, and could not be reached
+// that way from a test file regardless). It goes through the two real entry
+// points and compares what each one selects for the SAME operations and the
+// SAME ignored set:
+//   - the operations come from one real planner run, against a directory with
+//     no repository at all, so nothing is declined there and the result is the
+//     planner's own pre-decline shape rather than a hand-built guess at it;
+//   - those exact operations are then handed to buildScopedPlan's decline pass
+//     (via a second planner run against a git-ignored copy of the same files)
+//     and to applyPlan's skip pass (directly, against that same copy), so both
+//     call sites answer the identical question.
+{
+  // Deliberately the SINGLE-group shape (one absorb, one rebuild, one shared
+  // group id) rather than the two-sibling shape used elsewhere in this file.
+  // The two-sibling shape's rebuild belongs to TWO groups and is not fully
+  // skipped either way, so it cannot tell the group-aware rule from a
+  // per-operation one apart; this shape can, because the correct rule drops
+  // the rebuild too (its only group is fully skipped) while a per-operation
+  // rule would leave it running. Proven below by mutating the plan-side call
+  // site to the per-operation rule and confirming this test goes red.
+  const files = {
+    "settings/rolara/Rolara-INDEX.md": article("type: Index", "- [[Misc-INDEX]]"),
+    "settings/rolara/misc/Misc-INDEX.md": article("type: Index", "- [[Odds]]"),
+    "settings/rolara/misc/Odds.md": article("type: Concept", "Body."),
+    "settings/rolara/misc/Hidden.md": article("type: Concept", "A draft the DM keeps out of git."),
+  };
+  const scope = { absorbFolders: [{ folder: "settings/rolara/misc" }] };
+  const key = (op, target) => `${op}::${target}`;
+
+  withBareDir(files, (cleanRoot) => {
+    const clean = buildScopedPlan({ projectRoot: cleanRoot, settings: SETTINGS, baseRules: BASE_RULES, scope });
+    withRepo({ ...files, ".gitignore": "settings/rolara/misc/Hidden.md\n" }, (ignoredRoot) => {
+      const planSide = buildScopedPlan({ projectRoot: ignoredRoot, settings: SETTINGS, baseRules: BASE_RULES, scope });
+      const applySide = applyPlan(
+        { operations: clean.operations },
+        { cwd: ignoredRoot, settings: SETTINGS, baseRules: BASE_RULES, commit: false }
+      );
+      const planSelected = planSide.declined.map((d) => key(d.op, d.target)).sort();
+      const applySelected = applySide.skipped
+        .flatMap((item) => item.ops)
+        .map((o) => key(o.op, o.from || o.to || "(unnamed)"))
+        .sort();
+      check("the plan-side decline and the apply-side skip select the same operations",
+        applySelected, planSelected);
+      // Guards against both sides trivially agreeing on nothing, which would
+      // pass even if this whole property were untested.
+      check("and the agreement is not the trivial empty one",
+        planSelected.length > 0, true);
+    });
+  });
+}
+
+console.log("\nAn applied entry carries the scope entry that emitted it");
+
+// The seam /migrate's Step 8 stands on. conventionsAfterScope is handed
+// result.applied and asks which scope entries actually ran; it can only ask that
+// if the group id survives the trip through applyPlan. Nothing else in this suite
+// would notice the id going missing, and the failure it would cause is silent:
+// every setting rename and retirement would stop updating conventions.json at all.
+withRepo(
+  {
+    "settings/rolara/items/Sword.md": article("publish: false\ntype: Item", "A blade."),
+    "settings/rolara/items/Items-INDEX.md": article("publish: false\ntype: Index", "- [[Sword]]"),
+    "homebrew/rolara/Spell.md": article("publish: false\ntype: Homebrew", "A cantrip."),
+  },
+  (root) => {
+    const r = apply(root, [
+      {
+        op: "relocate-prong",
+        from: "settings/rolara",
+        to: "settings/prime",
+        groups: ["settingRenames[0]"],
+        reason: "Setting rolara renamed to prime: its kbRoot moves with the name.",
+      },
+      // Setup's shape: the same kind, emitted by a planner that stamps no groups.
+      { op: "relocate-prong", from: "homebrew/rolara", to: "homebrew/prime", reason: "canonical layout" },
+    ]);
+    check("both relocations applied", [r.applied.length, r.failed.length, r.skipped.length], [2, 0, 0]);
+    check("the scoped one comes back naming the scope entry it belongs to",
+      r.applied[0].groups, ["settingRenames[0]"]);
+    // Setup's unattended migration emits this kind too, and its entries must be
+    // exactly what they were before the field existed: absent, not an empty array.
+    check("an operation with no group grows no field at all",
+      "groups" in r.applied[1], false);
+  }
+);
+
+console.log("\nThe link rail's roots follow the plan, not relocate-prong alone");
+
+// The rail's root resolution was written when relocate-prong was the only kind
+// that moved a whole path. relocate-path shares the executor and the mechanics,
+// planPathMoves puts no protectedFolders guard on its source, and it is the only
+// way to express a v1-to-v3 relayout of a prong root to a DIFFERENT parent: a
+// setting rename replaces the root's last component and keeps the parent, and a
+// retirement puts it under an archive. So a `pathMoves` entry may name a prong
+// root, and with relocate-prong alone in the rail's list it dropped out of the
+// walk entirely.
+//
+// RED before the fix, both halves from this one fixture: roots came back as
+// ["homebrew/rolara"], the one prong that did not move, with filesChecked 1 and
+// linksChecked 0 (so the zero-coverage rail did not fire either), ok true, and the
+// run committed the relocated knowledge base with its dead [[Nowhere]] never
+// opened. The same input also reported homebrew's perfectly good [[Keep]] as dead.
+withRepo(
+  {
+    "rolara-kb/Ashfall.md": article("publish: false\ntype: Location", "A city. [[Nowhere]]"),
+    "rolara-kb/Keep.md": article("publish: false\ntype: Location", "A keep."),
+    "homebrew/rolara/Sword.md": article("publish: false\ntype: Item", "A blade from the [[Keep]]."),
+  },
+  (root) => {
+    const settings = [
+      { name: "rolara", kbRoot: "rolara-kb", homebrewRoot: "homebrew/rolara", rules: {} },
+    ];
+    const before = head(root);
+    const r = applyPlan(
+      {
+        operations: [
+          {
+            op: "relocate-path",
+            from: "rolara-kb",
+            to: "settings/rolara",
+            groups: ["pathMoves[0]"],
+            reason: "v1 to v3 relayout",
+          },
+        ],
+      },
+      { cwd: root, settings, baseRules: BASE_RULES, commit: true }
+    );
+    check("the relocated prong root is walked at its post-migration path",
+      links(r).roots.slice().sort(), ["homebrew/rolara", "settings/rolara"]);
+    check("the dead wikilink inside it is caught rather than never opened",
+      [links(r).ok, links(r).dead.map((d) => `${d.file} -> ${d.target}`)],
+      [false, ["settings/rolara/Ashfall.md -> Nowhere"]]);
+    check("and the link INTO it from the prong that stayed still resolves",
+      links(r).linksChecked, 2);
+    check("so the run refuses and nothing is committed",
+      [r.committed, head(root)], [false, before]);
+  }
+);
+
+console.log("\nA setting split's approved crossings are not dead links to the rail");
+
+// planSettingSplits moves articles to the kbRoot of a world conventions.json does
+// not record, by construction: it declines outright if the name is already there.
+// So the destination sits under no prong root of any setting applyPlan is handed,
+// and every INCOMING crossing crossBoundaryLinks enumerated as the DM-approved cost
+// of the split read to the rail as a dead link. A conforming folder's index links
+// every article in it, so ANY split of an indexed article hit this.
+//
+// RED before the fix: one applied operation, linkIntegrity.ok false naming both
+// crossings, the restore instruction printed, and the articles left in a folder
+// conventions.json records nothing for, because /migrate writes conventions only
+// after the rail returns.
+withRepo(
+  {
+    "settings/rolara/Ashfall.md": article("publish: false\ntype: Location", "A city."),
+    "settings/rolara/Keep.md": article("publish: false\ntype: Location", "A keep near [[Ashfall]]."),
+    "settings/rolara/Rolara-INDEX.md": article("publish: false\ntype: Index", "- [[Ashfall]]\n- [[Keep]]"),
+  },
+  (root) => {
+    const settings = [
+      {
+        name: "rolara",
+        kbRoot: "settings/rolara",
+        homebrewRoot: "homebrew/rolara",
+        sessionReportsRoot: "session-reports/rolara",
+        rules: {},
+      },
+    ];
+    const plan = buildScopedPlan({
+      projectRoot: root,
+      settings,
+      baseRules: BASE_RULES,
+      scope: {
+        settingSplits: [
+          { from: "rolara", name: "karsk", kbRoot: "settings/karsk", files: ["settings/rolara/Ashfall.md"] },
+        ],
+      },
+    });
+    check("the planner enumerates two incoming crossings as the cost the DM approves",
+      plan.declined.filter((d) => d.op === "cross-boundary-link").map((d) => d.target),
+      ["settings/rolara/Keep.md -> [[Ashfall]]", "settings/rolara/Rolara-INDEX.md -> [[Ashfall]]"]);
+    const r = applyPlan(
+      { operations: plan.operations },
+      { cwd: root, settings, baseRules: BASE_RULES, commit: true }
+    );
+    check("the new world's kbRoot is walked, though no setting records it yet",
+      links(r).roots.slice().sort(), ["settings/karsk", "settings/rolara"]);
+    check("so the approved cost is not counted as dead links",
+      [links(r).ok, links(r).dead], [true, []]);
+    check("and the split can finish its run", [r.ok, r.committed], [true, true]);
+  }
+);
+
+// The other direction, which is what makes the widening a rail rather than an
+// excuse. The same split plus a rename in the same run whose referrer list is
+// empty, so the folder index keeps a [[Keep]] naming a file that is gone. Nobody
+// approved that one, and it must still refuse.
+withRepo(
+  {
+    "settings/rolara/Ashfall.md": article("publish: false\ntype: Location", "A city."),
+    "settings/rolara/Keep.md": article("publish: false\ntype: Location", "A keep near [[Ashfall]]."),
+    "settings/rolara/Rolara-INDEX.md": article("publish: false\ntype: Index", "- [[Ashfall]]\n- [[Keep]]"),
+  },
+  (root) => {
+    const settings = [
+      { name: "rolara", kbRoot: "settings/rolara", homebrewRoot: "homebrew/rolara", rules: {} },
+    ];
+    const before = head(root);
+    const r = applyPlan(
+      {
+        operations: [
+          {
+            op: "relocate-path",
+            from: "settings/rolara/Ashfall.md",
+            to: "settings/karsk/Ashfall.md",
+            groups: ["settingSplits[0]"],
+            reason: "Split out of rolara into karsk.",
+          },
+          {
+            op: "rename-with-link-rewrite",
+            from: "settings/rolara/Keep.md",
+            to: "settings/rolara/Bastion.md",
+            reason: "suffix, with its referrer list lost",
+          },
+        ],
+      },
+      { cwd: root, settings, baseRules: BASE_RULES, commit: true }
+    );
+    check("both operations applied", [r.applied.length, r.failed.length], [2, 0]);
+    check("a split that ALSO broke a link nobody approved still refuses",
+      [links(r).ok, links(r).dead.map((d) => `${d.file} -> ${d.target}`)],
+      [false, ["settings/rolara/Rolara-INDEX.md -> Keep"]]);
+    check("the approved crossing is not in that list, so the refusal names only the real break",
+      links(r).dead.some((d) => d.target === "Ashfall"), false);
+    check("and nothing is committed", [r.committed, head(root)], [false, before]);
+  }
+);
+
+console.log("\nA retired campaign's archive destination is walked too");
+
+// The same root cause, second instance. planCampaignRetirements moves
+// <sessionReportsRoot>/<campaign> under an archive, and scopeCandidates cannot help
+// even with every moving kind in it: it maps a ROOT, and here the moved path is a
+// sub-path of a root that itself stays put. RED before the fix: the knowledge base's
+// link to a report in the retired campaign read dead and refused the commit.
+withRepo(
+  {
+    "settings/rolara/Ashfall.md": article("publish: false\ntype: Location", "Burned in [[2026-01-01-One-REPORT]]."),
+    "session-reports/rolara/ashes/2026-01-01-One-REPORT.md": article("publish: false\ntype: Session Report", "Session one."),
+  },
+  (root) => {
+    const settings = [
+      {
+        name: "rolara",
+        kbRoot: "settings/rolara",
+        sessionReportsRoot: "session-reports/rolara",
+        campaigns: ["ashes"],
+        rules: {},
+      },
+    ];
+    const plan = buildScopedPlan({
+      projectRoot: root,
+      settings,
+      baseRules: BASE_RULES,
+      scope: { campaignRetirements: [{ setting: "rolara", campaign: "ashes" }] },
+    });
+    const r = applyPlan(
+      { operations: plan.operations },
+      { cwd: root, settings, baseRules: BASE_RULES, commit: true }
+    );
+    check("the archive destination is walked, though it is under no declared prong root",
+      links(r).roots.includes("archive/rolara/session-reports/ashes"), true);
+    check("so the link into the retired campaign still resolves",
+      [links(r).ok, links(r).dead, links(r).linksChecked], [true, [], 1]);
+    check("and the retirement can finish its run", [r.ok, r.committed], [true, true]);
+  }
+);
+
+console.log("\nWhat an absorb removes and what a split carries are sources too");
+
+// absorb-folder's `index` is git rm'd, and it reached no precheck: not
+// sourcePathsOf, not findIgnoredSources. So an index that happens to be git-ignored
+// left the absorb unskipped, `git rm` hard-failed on an untracked file, and the
+// entry reported applied false having already moved every article: a half-applied
+// absorb from a plan the prechecks approved.
+withRepo(
+  {
+    ".gitignore": "settings/rolara/misc/Misc-INDEX.md\n",
+    "settings/rolara/misc/Odds.md": article("publish: false\ntype: Concept", "Odds."),
+    "settings/rolara/Rolara-INDEX.md": article("publish: false\ntype: Index", "- [[Odds]]"),
+  },
+  (root) => {
+    writeInto(root, "settings/rolara/misc/Misc-INDEX.md", article("publish: false\ntype: Index", "- [[Odds]]"));
+    const r = apply(root, [
+      {
+        op: "absorb-folder",
+        from: "settings/rolara/misc",
+        to: "settings/rolara",
+        articles: [{ from: "settings/rolara/misc/Odds.md", to: "settings/rolara/Odds.md" }],
+        index: "settings/rolara/misc/Misc-INDEX.md",
+        groups: ["absorbFolders[0]"],
+        reason: "dissolve",
+      },
+    ]);
+    check("an absorb whose own index is git-ignored is skipped whole, not half-applied",
+      [r.applied.length, r.failed.length, r.skipped.length], [0, 0, 1]);
+    check("and the skip names the index rather than an article",
+      first(r.skipped).ignored, ["settings/rolara/misc/Misc-INDEX.md"]);
+    check("with the article still where it was",
+      [has(root, "settings/rolara/misc/Odds.md"), has(root, "settings/rolara/Odds.md")], [true, false]);
+  }
+);
+
+// findIgnoredWithinSources read `from`/`to` off the operation, and split-folder
+// carries no `to` at all, so not one of its per-file moves could reach the report.
+// planSplitFolders deliberately permits a bucket article that is a DIRECTORY, and
+// git mv on one carries its git-ignored contents out of the snapshot's reach.
+withRepo(
+  {
+    ".gitignore": "settings/rolara/locations/atlas/scratch.tmp\n",
+    "settings/rolara/locations/atlas/Map.md": article("publish: false\ntype: Location", "A map."),
+    "settings/rolara/locations/Karsk.md": article("publish: false\ntype: Location", "A city."),
+  },
+  (root) => {
+    writeInto(root, "settings/rolara/locations/atlas/scratch.tmp", "editor state");
+    const r = apply(root, [
+      {
+        op: "split-folder",
+        from: "settings/rolara/locations",
+        buckets: [
+          {
+            folder: "settings/rolara/locations/north",
+            name: "north",
+            articles: [{ from: "settings/rolara/locations/atlas", to: "settings/rolara/locations/north/atlas" }],
+          },
+        ],
+        groups: ["splitFolders[0]"],
+        reason: "partition",
+      },
+    ]);
+    check("the split applies", [r.applied.length, r.failed.length], [1, 0]);
+    check("and the git-ignored file it carried along is disclosed",
+      r.ignoredMoved.map((m) => `${m.from} -> ${m.to}: ${m.entries.join(",")}`),
+      ["settings/rolara/locations/atlas -> settings/rolara/locations/north/atlas: settings/rolara/locations/atlas/scratch.tmp"]);
+    check("with the message saying the snapshot will not put it back",
+      r.messages.some((m) => m.includes("restoring it will not put them back")), true);
+  }
+);
+
+// ---------------------------------------------------------------------------
+// A merged rebuild writes the same file whichever spelling survived the merge
+// ---------------------------------------------------------------------------
+//
+// foldDuplicateRebuilds merges two rebuild-index operations that name one index and
+// one folder, and the survivor keeps the FIRST occurrence's raw `folder` string. That
+// is only safe while applyRebuildIndex reads that field as a path. It did not:
+// settingOwning prefix-matched the raw string to find the setting whose indexSuffix
+// rule says which files are indexes rather than articles, so `./settings/karsk/locations`
+// matched no root, fell back to the base "-INDEX" under a setting declaring "-IDX",
+// and the rebuilt index listed ITSELF. Merged, that made the DM's applied content
+// depend on the order two redundant scope entries were written in: dotted first and
+// the index self-linked, plain first and it did not. Two orderings, because one
+// ordering cannot tell an order-dependent result from a wrong one.
+//
+// The suffix has to be a PER-SETTING one unlike the base default, or the case passes
+// whether or not the owning setting was resolved.
+{
+  const KARSK = [
+    {
+      name: "karsk",
+      kbRoot: "settings/karsk",
+      homebrewRoot: "homebrew/karsk",
+      sessionReportsRoot: "session-reports/karsk",
+      campaigns: [],
+      rules: {
+        structuralIndexParity: {
+          category: "structural",
+          check: "indexParity",
+          enforcement: "warn",
+          description: "Every folder with content has exactly one owning -IDX file.",
+          params: { indexSuffix: "-IDX" },
+        },
+      },
+    },
+  ];
+  const INDEX = "settings/karsk/locations/Locations-IDX.md";
+  const DOTTED = { index: INDEX, folder: "./settings/karsk/locations" };
+  const PLAIN = { index: INDEX, folder: "settings/karsk/locations" };
+
+  const run = (entries) =>
+    withRepo(
+      {
+        [INDEX]: article("type: Index", "# Locations\n\n- [[Ashfall]]"),
+        "settings/karsk/locations/Ashfall.md": article("type: Location", "Body."),
+        "settings/karsk/locations/Karsk.md": article("type: Location", "Body."),
+      },
+      (root) => {
+        const plan = buildScopedPlan({
+          projectRoot: root,
+          settings: KARSK,
+          baseRules: BASE_RULES,
+          scope: { rebuildIndexes: entries },
+        });
+        const r = applyPlan(
+          { operations: plan.operations },
+          { cwd: root, settings: KARSK, baseRules: BASE_RULES, commit: false }
+        );
+        const rebuilds = plan.operations.filter((o) => o.op === "rebuild-index");
+        return {
+          planned: plan.prechecks.ok,
+          merged: rebuilds.length,
+          groups: rebuilds.length === 1 ? rebuilds[0].groups.slice().sort() : [],
+          applied: r.ok,
+          links: read(root, INDEX)
+            .split(/\r?\n/)
+            .filter((l) => /^\s*[-*]\s+\[\[/.test(l))
+            .map((l) => l.trim()),
+        };
+      }
+    );
+
+  const dottedFirst = run([DOTTED, PLAIN]);
+  const plainFirst = run([PLAIN, DOTTED]);
+
+  check("two spellings of one rebuild fold into one operation carrying both entries",
+    [dottedFirst.merged, plainFirst.merged, dottedFirst.groups, plainFirst.groups],
+    [1, 1, ["rebuildIndexes[0]", "rebuildIndexes[1]"], ["rebuildIndexes[0]", "rebuildIndexes[1]"]]);
+  check("the merged plan is applicable rather than refused as an in-plan collision",
+    [dottedFirst.planned, dottedFirst.applied, plainFirst.planned, plainFirst.applied],
+    [true, true, true, true]);
+  check("the rebuilt index does not list itself when the dotted spelling survived",
+    dottedFirst.links, ["- [[Ashfall]]", "- [[Karsk]]"]);
+  check("nor when the plain spelling survived",
+    plainFirst.links, ["- [[Ashfall]]", "- [[Karsk]]"]);
+  check("so the applied content does not depend on the order the scope entries were listed in",
+    dottedFirst.links, plainFirst.links);
+}
+
+// The same defect without any merge at all: ONE rebuildIndexes entry, dotted. This
+// wrote the self-link at every commit before the settingOwning fix, and the merge is
+// what turned it from one DM's typo into an order-dependent coin flip. Pinned
+// separately so a future change that only re-hardens the fold cannot pass this file.
+withRepo(
+  {
+    "settings/karsk/locations/Locations-IDX.md": article("type: Index", "# Locations\n\n- [[Ashfall]]"),
+    "settings/karsk/locations/Ashfall.md": article("type: Location", "Body."),
+  },
+  (root) => {
+    const settings = [
+      {
+        name: "karsk",
+        kbRoot: "settings/karsk",
+        homebrewRoot: "homebrew/karsk",
+        sessionReportsRoot: "session-reports/karsk",
+        rules: {
+          structuralIndexParity: {
+            category: "structural",
+            check: "indexParity",
+            enforcement: "warn",
+            description: "Every folder with content has exactly one owning -IDX file.",
+            params: { indexSuffix: "-IDX" },
+          },
+        },
+      },
+    ];
+    const r = applyPlan(
+      {
+        operations: [
+          {
+            op: "rebuild-index",
+            to: "settings/karsk/locations/Locations-IDX.md",
+            folder: "./settings/karsk/locations",
+            groups: ["rebuildIndexes[0]"],
+            reason: "scope",
+          },
+        ],
+      },
+      { cwd: root, settings, baseRules: BASE_RULES, commit: false }
+    );
+    check("a single dotted rebuild resolves the owning setting's index suffix",
+      [r.ok, read(root, "settings/karsk/locations/Locations-IDX.md").includes("[[Locations-IDX]]")],
+      [true, false]);
+  }
+);
+
+// The SETUP-REACHABLE half of the same defect. settingOwning is reached from two
+// places in applyPlan: the per-operation rules lookup, and ctx.settingForPath, which
+// applyCreateIndex consults for the index suffix exactly as applyRebuildIndex does.
+// create-index is a setup kind, so an unattended migration whose survey spelled a
+// folder unlike the setting's declared root wrote an index listing the folder's OTHER
+// index as an article. The plain spelling is pinned alongside as the control: it
+// behaved correctly before this fix and must keep behaving identically after it.
+for (const [label, folder] of [
+  ["plain", "settings/karsk/lore"],
+  ["case-varied", "Settings/Karsk/lore"],
+  ["dotted", "./settings/karsk/lore"],
+]) {
+  withRepo(
+    {
+      "settings/karsk/lore/Ashfall.md": article("type: Concept", "Body."),
+      "settings/karsk/lore/Old-IDX.md": article("type: Index", "Body."),
+    },
+    (root) => {
+      const settings = [
+        {
+          name: "karsk",
+          kbRoot: "settings/karsk",
+          homebrewRoot: "homebrew/karsk",
+          sessionReportsRoot: "session-reports/karsk",
+          rules: {
+            structuralIndexParity: {
+              category: "structural",
+              check: "indexParity",
+              enforcement: "warn",
+              description: "Every folder with content has exactly one owning -IDX file.",
+              params: { indexSuffix: "-IDX" },
+            },
+          },
+        },
+      ];
+      const r = applyPlan(
+        { operations: [{ op: "create-index", to: `${folder}/Lore-IDX.md`, reason: "gap" }] },
+        { cwd: root, settings, baseRules: BASE_RULES, commit: false }
+      );
+      check(`create-index at a ${label} folder lists articles only, never the folder's other index`,
+        [r.ok, read(root, "settings/karsk/lore/Lore-IDX.md").includes("[[Old-IDX]]")],
+        [true, false]);
+    }
+  );
 }
 
 console.log(`\n${passed} passed, ${failures.length} failed`);

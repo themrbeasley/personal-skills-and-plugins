@@ -116,6 +116,11 @@ physically contains all three prongs, so `/scribe` and `/log` refuse rather than
 sweep the other two into a commit labelled for one. A command that spots
 uncommitted work in another lane names it and names the command that owns it, and
 touches nothing.
+`/migrate` is the one component outside this model, and deliberately: it
+restructures across prongs by nature, so it commits its own work in one commit
+rather than deferring to the three. It is bounded instead by a clean-tree
+requirement and its own snapshot, which fix the same problem the lane split
+fixes, that a commit should contain one intelligible change.
 _Avoid_: auto-committing on write, one commit spanning two prongs
 
 **scribe command**:
@@ -139,7 +144,21 @@ section is set aside by name while the rest of the lane still commits: a report
 written across two sittings is ordinary, not an error to interrupt over.
 _Avoid_: committing a half-written report, fanning out across campaigns
 
-**folder–index parity**:
+**migrate command**:
+The `/migrate` capture step for DM-scoped structural change: resolves a scope the
+DM states, or one of setup's deferred items or the validation sweep's
+needs-judgment findings, into a concrete plan, writes it to
+`.professor-orb/proposals/` for DM review and edit, and executes exactly what the
+approved file says. Performs structural operations only (moves, renames, splits,
+absorbs, index rebuilds, retypes, frontmatter repairs, path reference updates);
+never rewrites body prose, which stays `chronicler`'s job. Not a lane command: it
+restructures across prongs by nature and commits its own work rather than
+deferring to `/scribe`, `/log`, or `/catalog`. Shares `workflows/migrate.mjs` with
+setup's onboarding migration.
+_Avoid_: executing anything the approved proposal does not carry, rewriting body
+prose, running on a dirty tree
+
+**folder-index parity**:
 The structural convention professor-orb introduces (amending Rolara's current,
 sloppier practice via the resync flow): exactly one index per folder; subfolders
 each carry their own. An article's owning index is thereby derivable from its
@@ -155,14 +174,15 @@ sub-index files today): snapshot commit, unattended execution, after-action repo
 _Avoid_: free-floating thematic indexes without a folder, multiple indexes per folder
 
 **index maintenance**:
-Absorbed into the plugin; the DM's ad-hoc Python rebuild scripts retire. Driven
-entirely by the consumer's conventions file (suffixes, required index structure,
-split threshold, parity), never hardcoded. The validation sweep detects index
-violations; regenerating them is not yet built. Phase 2 ships that rebuild step as
-a migration executor, propose-then-execute like chronicler. The setup skill applies
-the same index system to new consumers, whether they arrive with an established KB
-or none at all. The most consumer-specific logic in the plugin: expect a
-Rolara-tested iteration before it generalizes cleanly.
+Driven entirely by the consumer's conventions file (suffixes, required index
+structure, split threshold, parity), never hardcoded. The validation sweep detects
+index violations; `/migrate`'s `rebuild-index` operation regenerates an index's
+link list from the articles actually in its folder, preserving the DM's
+frontmatter and any prose already in that index. The DM's ad-hoc Python rebuild
+scripts retire. The setup skill applies the same index system to new consumers,
+whether they arrive with an established KB or none at all. The most
+consumer-specific logic in the plugin: expect a Rolara-tested iteration before it
+generalizes cleanly.
 _Avoid_: hardcoding Rolara's index rules, silent index rewrites
 
 **pipeline state**:

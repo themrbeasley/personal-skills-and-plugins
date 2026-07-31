@@ -96,6 +96,40 @@ tag registry exists and where to find it; it does not embed the tag list.
       // see the note below.
       "campaigns": ["ashes-of-the-first-crown"],
 
+      // Written by /migrate, never by setup, and absent until a /migrate run
+      // retires or merges something. All three are shown here so this document
+      // describes the whole shape a file on disk can have; see the note below on
+      // preserving them across a resync.
+      //
+      // true once /migrate has taken this world out of service, which happens
+      // two ways and the roots above do NOT read the same in both. A RETIREMENT
+      // moves the world's three prongs under the archive root and rewrites the
+      // roots to point there. A MERGE moves the world's material into another
+      // world's prongs and leaves these roots exactly where they are, still
+      // naming the folders the material was moved out of; "mergedInto" is what
+      // tells the two cases apart. Either way the entry is MARKED rather than
+      // deleted, so the record that the world existed, and how it left
+      // service, survives the retirement or merge itself and every resync
+      // afterward. A retirement repoints these roots into the archive; it
+      // does not remove the entry from "settings", so the lane commands
+      // still resolve this setting there. (A retired CAMPAIGN is different:
+      // its folder moves out from under sessionReportsRoot entirely, and
+      // /log enumerates the filesystem rather than this array, so that case
+      // genuinely does stop being offered.)
+      "retired": true,
+      // The setting this world was merged into, written alongside "retired" when
+      // /migrate folds this world's three prongs into another world's. Absent on
+      // a world that was retired rather than merged. It is the ONLY record of
+      // where the material ended up: the roots above still name where it came
+      // from, and a merge deliberately does not repoint them, because two
+      // entries on one folder would hand the merged vault's articles to
+      // whichever entry came first.
+      "mergedInto": "rolara",
+      // The campaigns /migrate has retired out of "campaigns", in the order it
+      // retired them. Their session reports still exist under the archive and
+      // still belong to this setting.
+      "retiredCampaigns": ["the-hollow-year"],
+
       // Where this setting's companion tag registry lives. The hook reads
       // this path when running any "tagVocabulary" check against an article
       // in this setting; conventions.json never embeds the tag list itself.
@@ -133,6 +167,25 @@ identical in every setting's `rules`; only `extendedBy` and the project rules di
 
 **`campaigns` is a cache, not the authority.** Lane resolution enumerates the
 filesystem under `sessionReportsRoot`; the array disambiguates and orders.
+
+**`retired`, `mergedInto`, and `retiredCampaigns` are written by `/migrate`, and a
+resync must carry them forward rather than regenerate them away.** Setup never
+authors any of the three: they appear only after a `/migrate` setting retirement,
+setting merge, or campaign retirement has moved the corresponding folders, and all
+three are absent on a setting that has never been retired or merged. None of them
+is optional to preserve. A retirement and a merge both MARK and never delete,
+precisely so the record that a world or a campaign existed survives; a resync that
+rewrote the settings entry from scratch would silently un-retire the setting, lose
+which world a merged one's material ended up in, drop the list of retired
+campaigns, and leave everything that moved belonging to no setting at all, which is
+unattributed to the validation sweep and unresolvable to `/scribe` and `/log`.
+`mergedInto` is the one with no second copy anywhere: `retired` survives on its own
+as a mark, but which world absorbed this one is recorded here and nowhere else, and
+it is the whole reason the entry is marked rather than deleted. When resyncing a
+file that carries any of them, copy it across unchanged, alongside the prong roots,
+which are equally not setup's to recompute: after a retirement they point into the
+archive, and after a merge they still point at the folders the material was moved
+out of.
 
 A file with a bare top-level `kbRoot` and no `settings` array (versions 1 and 2) is
 still read, as a single unnamed setting whose other prong roots are unknown. That is

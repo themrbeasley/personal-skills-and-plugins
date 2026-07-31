@@ -122,7 +122,7 @@ If more than one setting was committed, name each one and its commit hash; do no
 - **Mode is `changelog`, or no `versioning.json` (and no legacy marker to convert).** Nothing to do. Say so and point at setup.
 - **Repository state blocks committing** (a merge in progress, a detached HEAD). Report and stop.
 - **A lane path does not exist yet.** Nothing outstanding, not an error.
-- **A file moved between the KB lane and another prong.** Each command sees only its own lane, so the move lands in two separate commits, one from each command. Acceptable: the alternative is reaching outside the lane.
+- **A file moved between the KB lane and another prong.** Each lane command sees only its own lane, so a move the DM makes by hand lands in two separate commits, one from each command. Acceptable: the alternative is reaching outside the lane. `/migrate` is the exception: it restructures across prongs by design and lands a cross-prong move in one commit of its own (see `commands/migrate.md`).
 
 ## How this command connects to the others
 
