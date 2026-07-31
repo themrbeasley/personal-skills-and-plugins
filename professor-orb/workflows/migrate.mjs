@@ -462,13 +462,14 @@ function findDestinationCollisions(operations, projectRoot, ignored) {
   // destination the plan does free. The on-disk half never had the gap: it
   // resolves through path.resolve, which normalizes.
   //
-  // The two keys agree on every path carrying none of those segments. `dir::base`
-  // and `dir/base` sort the same paths into the same classes, and both fold case
-  // over the whole path, so a case difference in the DIRECTORY half is still
-  // caught. They part on one shape besides the gap, and samePathKey is the right
-  // answer there too: a filename containing `::`, legal on a filesystem that is
-  // not Windows, made `a/b::c.md` and `a::b/c.md` one key. That is a false
-  // collision in the in-plan half, and false vacate credit in the half below.
+  // The two keys agree on every path carrying none of those segments AND no `::`
+  // inside a name. On those paths `dir::base` and `dir/base` sort into the same
+  // classes, and both fold case over the whole path, so a case difference in the
+  // DIRECTORY half is still caught. That `::` exclusion is the one shape they
+  // part on besides the gap, and samePathKey is the right answer there too: a
+  // filename containing `::`, legal on a filesystem that is not Windows, made
+  // `a/b::c.md` and `a::b/c.md` one key. That is a false collision in the in-plan
+  // half, and false vacate credit in the half below.
   //
   // The two halves do not run the same risk on an over-broad fold, which is why
   // this is worth stating rather than assuming. In the in-plan half, folding too
@@ -1553,14 +1554,36 @@ export function buildScopedPlan({ projectRoot, settings, baseRules, scope }) {
 // a rebuild carrying no folder and one naming the directory it would have
 // defaulted to are correctly read as one rebuild.
 //
-// Case-folded on the same terms as findDestinationCollisions' own destination key,
-// which is what makes the fold exactly as wide as the collision it removes and
-// never wider: a pair that key would call one destination is a pair this key can
-// merge, and any pair it would not is a pair this leaves alone to be refused.
+// BOTH HALVES GO THROUGH samePathKey, the very helper findDestinationCollisions
+// keys its own destinations on, which is what makes the fold exactly as wide as
+// the collision it removes and never wider. The `to` half IS that key, so a pair
+// that check would call one destination is a pair this key can merge; the
+// `folder` half is an extra conjunct on top of it, so any pair that check would
+// call two destinations is a pair this leaves alone to be refused.
+//
+// Sharing the helper rather than restating its terms is the point. This key used
+// to build its own toPosix-and-lowercase fold, which was the same fold that check
+// then used; correcting only that one silently broke the pair, because samePathKey
+// folds a leading `./`, a doubled separator, and an interior `.` or `..` segment
+// and the local fold folded none of them. A scope naming one parent index once
+// through an absorb and once with a `./` prefix then produced two rebuilds this
+// fold no longer merged and the widened check correctly read as one destination,
+// so applyPlan refused the whole run over a path spelling. Two keys stated
+// separately drift the moment either is touched; one helper cannot.
+//
+// The two halves are JOINED THROUGH JSON rather than concatenated around a
+// separator, because a separator that is legal inside a filename cannot say which
+// half it came from. Under a `::` join, `to`=`a` with `folder`=`b::c` and
+// `to`=`a::b` with `folder`=`c` share the string `a::b::c`, and merging those two
+// would drop a rebuild writing different content to a different path, which is the
+// one thing this fold must never do and the one thing findDestinationCollisions
+// would not have caught either, since the survivor carries only one `to`. JSON's
+// array encoding of two strings is injective, so key equality is exactly agreement
+// on both halves, on any filesystem that allows `::` in a name.
 function rebuildFoldKey(o) {
   const to = toPosix(o.to);
   const folder = toPosix(o.folder) || path.posix.dirname(to);
-  return `${to.toLowerCase()}::${folder.toLowerCase()}`;
+  return JSON.stringify([samePathKey(to), samePathKey(folder)]);
 }
 
 // Fold rebuilds of ONE index that several scope entries asked for into one

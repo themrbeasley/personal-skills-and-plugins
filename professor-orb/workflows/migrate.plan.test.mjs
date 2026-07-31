@@ -2506,6 +2506,97 @@ const inPlanAt = (r, to) =>
   rmSync(root, { recursive: true, force: true });
 }
 
+// THE FOLD AND findDestinationCollisions HAVE TO AGREE ON WHAT ONE DESTINATION IS.
+// The four shapes above are spelled plainly on both sides, so they pass under any
+// key the two happen to share. The pairs below spell ONE of the two paths with a
+// `./` prefix or a `..` hop, which is what separates a shared key from two keys
+// that merely look alike: findDestinationCollisions folds those away, so if this
+// fold does not, it leaves two rebuild-index operations that check then correctly
+// reads as one destination and applyPlan refuses the whole run over a path
+// spelling. Measured on exactly this shape when the two keys were stated
+// separately. A `./` prefix is an ordinary spelling of a project-relative path,
+// and the absorb pair shows it need only appear on a FOLDER, with the index path
+// derived from it, so the DM never types an index path at all.
+{
+  // SHAPE 3 again, with the DM's rebuildIndexes entry spelling the parent index
+  // `./`. The absorb derives the same index plainly from the folder it dissolves.
+  const root = absorbFixture();
+  const to = "settings/rolara/Rolara-INDEX.md";
+  const r = scoped(
+    { absorbFolders: [{ folder: "settings/rolara/misc" }], rebuildIndexes: [{ index: `./${to}` }] },
+    root
+  );
+  check("an absorb and a DOTTED rebuildIndexes entry naming one parent index plan ONE rebuild",
+    [kindsOf(r.operations), writersOf(r, to).length], [["absorb-folder", "rebuild-index"], 1]);
+  check("and that rebuild is still traceable to BOTH scope entries",
+    find(r.operations, "rebuild-index").groups, ["absorbFolders[0]", "rebuildIndexes[0]"]);
+  check("and the plan is not refused over the spelling of an index path",
+    [r.prechecks.ok, r.prechecks.collisions, r.declined.length], [true, [], 0]);
+  rmSync(root, { recursive: true, force: true });
+}
+
+{
+  // The same pair from the other side: the DOTTED spelling is on the absorbed
+  // FOLDER, and the parent index the absorb rebuilds is derived from it, so the
+  // dotted path is one no scope entry ever names. The absorb runs first, so the
+  // merged operation keeps ITS spelling of the destination, which the executor
+  // resolves through path.resolve like every other path it is handed.
+  const root = absorbFixture();
+  const derived = "./settings/rolara/Rolara-INDEX.md";
+  const r = scoped(
+    {
+      absorbFolders: [{ folder: "./settings/rolara/misc" }],
+      rebuildIndexes: [{ index: "settings/rolara/Rolara-INDEX.md" }],
+    },
+    root
+  );
+  check("a DOTTED absorb folder and a plain rebuildIndexes entry plan ONE rebuild",
+    [kindsOf(r.operations), writersOf(r, derived).length], [["absorb-folder", "rebuild-index"], 1]);
+  check("carrying both entries there too",
+    find(r.operations, "rebuild-index").groups, ["absorbFolders[0]", "rebuildIndexes[0]"]);
+  check("and that plan is not refused either",
+    [r.prechecks.ok, r.prechecks.collisions, r.declined.length], [true, [], 0]);
+  rmSync(root, { recursive: true, force: true });
+}
+
+{
+  // The fold on its own, with nothing else in the scope: one index named twice,
+  // the second spelling only a `./` apart from the first. This is the pair that
+  // isolates the key, since no planner-derived path is involved on either side.
+  const root = splitFixture();
+  const to = "settings/rolara/locations/Locations-INDEX.md";
+  const r = scoped({ rebuildIndexes: [{ index: to }, { index: `./${to}` }] }, root);
+  check("one index named twice, the second spelled ./, plans ONE rebuild",
+    [kindsOf(r.operations), r.prechecks.ok, inPlanAt(r, to)], [["rebuild-index"], true, []]);
+  check("and the merged rebuild carries both entries",
+    find(r.operations, "rebuild-index").groups, ["rebuildIndexes[0]", "rebuildIndexes[1]"]);
+  check("and reads the folder both spellings resolve to",
+    find(r.operations, "rebuild-index").folder, "settings/rolara/locations");
+  rmSync(root, { recursive: true, force: true });
+}
+
+{
+  // The same, through a `..` hop rather than a `./` prefix, because the two reach
+  // path.posix.normalize by different routes and only the second changes the number
+  // of segments in the string.
+  const root = splitFixture();
+  const to = "settings/rolara/locations/Locations-INDEX.md";
+  const r = scoped(
+    {
+      rebuildIndexes: [
+        { index: to },
+        { index: "settings/rolara/locations/../locations/Locations-INDEX.md" },
+      ],
+    },
+    root
+  );
+  check("one index named twice, the second through a .. hop, plans ONE rebuild",
+    [kindsOf(r.operations), r.prechecks.ok, inPlanAt(r, to)], [["rebuild-index"], true, []]);
+  check("carrying both entries through the hop as well",
+    find(r.operations, "rebuild-index").groups, ["rebuildIndexes[0]", "rebuildIndexes[1]"]);
+  rmSync(root, { recursive: true, force: true });
+}
+
 {
   // SHAPE 2, AND IT IS NOT THE SAME SHAPE AS THE OTHER TWO. A rebuildIndexes entry
   // naming a split bucket's own fresh index pairs a rebuild-index with a
