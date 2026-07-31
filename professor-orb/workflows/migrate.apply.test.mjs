@@ -1120,6 +1120,221 @@ withRepo(
   }
 );
 
+// ---------------------------------------------------------------------------
+// The same refusal, when the survivor and its self-reference are spelled
+// differently but still name one file
+// ---------------------------------------------------------------------------
+//
+// The guard above compared the two paths as strings. Letter case is not the
+// only way two strings name one file, and on this project's own platform it is
+// not even a hypothetical one: measured on Windows with core.ignorecase true,
+// `sources: [".../items-index.md"]` against `to: ".../Items-INDEX.md"` was NOT
+// refused. readText found the file (the filesystem does not care about case),
+// the survivor was folded into itself and written back doubled, `git rm`'s
+// pathspec then missed it because a pathspec IS case-sensitive, and the run
+// committed the self-duplicated survivor while the entry reported applied
+// false. In the mixed shape the genuinely valid co-source was removed anyway.
+//
+// A leading `./`, a doubled separator and an interior `.` or `..` segment are
+// the same class of bypass by a different spelling, and the module already
+// documents `./` as a form toPosix does not fold. So the comparison is
+// samePath, which folds separator style, a trailing separator, `./`, `.` and
+// `..` segments, and letter case. The last case below is the other half of the
+// contract: a merge whose source is genuinely a different file, sharing the
+// survivor's basename under a different case in a different folder, must still
+// run, because setup emits merge-index unattended and a false refusal stops a
+// real DM's migration outright.
+
+console.log("\nThe survivor guard folds case and path form, and only those");
+
+withRepo(
+  {
+    "settings/rolara/items/Items-INDEX.md": article("publish: false\ntype: Index", "## Weapons\n\n- [[Blade]]"),
+    "settings/rolara/items/Blade.md": article("publish: false\ntype: Item", "x"),
+  },
+  (root) => {
+    // Solo: the self-reference is the only source, spelled in a different case.
+    // commit:true, because the measured failure committed.
+    const before = snapshotTree(root);
+    const beforeHead = head(root);
+    const r = apply(
+      root,
+      [
+        {
+          op: "merge-index",
+          to: "settings/rolara/items/Items-INDEX.md",
+          sources: ["settings/rolara/items/items-index.md"],
+          reason: "multi-index folder (survivor named as its own source, different case)",
+        },
+      ],
+      { commit: true }
+    );
+    const detail = String((r.refused || {}).detail);
+    check("a self-reference spelled in a different letter case refuses the whole run",
+      (r.refused || {}).reason, "malformed-operation");
+    check("and the refusal names the survivor, the spelling used, and the fix",
+      [/Items-INDEX\.md/.test(detail), /items-index\.md/.test(detail),
+        /sources/.test(detail), /re-run/.test(detail)],
+      [true, true, true, true]);
+    check("nothing was touched: the project is byte-identical to the snapshot",
+      snapshotTree(root), before);
+    check("the survivor holds its own content once, not folded into itself",
+      occurrences(read(root, "settings/rolara/items/Items-INDEX.md"), "## Weapons"), 1);
+    check("the run did not commit, so HEAD is still the snapshot",
+      [r.committed, head(root)], [false, beforeHead]);
+  }
+);
+
+withRepo(
+  {
+    "settings/rolara/items/Items-INDEX.md": article("publish: false\ntype: Index", "## Weapons\n\n- [[Blade]]"),
+    "settings/rolara/items/Artifacts-INDEX.md": article(
+      "publish: false\ntype: Index",
+      "## Artifacts\n\nRelics of the first crown.\n\n- [[Crown]]"
+    ),
+    "settings/rolara/items/Blade.md": article("publish: false\ntype: Item", "x"),
+    "settings/rolara/items/Crown.md": article("publish: false\ntype: Item", "x"),
+  },
+  (root) => {
+    // Mixed: the case-varied self-reference alongside a genuinely different,
+    // individually valid source. At b579e69 this ran, and the valid co-source
+    // was the one file the merge actually managed to remove.
+    const before = snapshotTree(root);
+    const r = apply(
+      root,
+      [
+        {
+          op: "merge-index",
+          to: "settings/rolara/items/Items-INDEX.md",
+          sources: [
+            "settings/rolara/items/items-index.md",
+            "settings/rolara/items/Artifacts-INDEX.md",
+          ],
+          reason: "multi-index folder (survey named the survivor again, in a different case)",
+        },
+      ],
+      { commit: true }
+    );
+    check("the whole run refuses, rather than narrowing to the valid source",
+      (r.refused || {}).reason, "malformed-operation");
+    check("so the genuinely valid co-source is still on disk and still tracked",
+      [has(root, "settings/rolara/items/Artifacts-INDEX.md"),
+        lsFiles(root).filter((f) => /Artifacts-INDEX/.test(f))],
+      [true, ["settings/rolara/items/Artifacts-INDEX.md"]]);
+    check("with its own prose intact and not folded into the survivor",
+      [read(root, "settings/rolara/items/Artifacts-INDEX.md").includes("Relics of the first crown."),
+        read(root, "settings/rolara/items/Items-INDEX.md").includes("Relics of the first crown.")],
+      [true, false]);
+    check("nothing was touched: the project is byte-identical to the snapshot",
+      snapshotTree(root), before);
+    check("the run did not commit", r.committed, false);
+  }
+);
+
+withRepo(
+  {
+    "settings/rolara/items/Items-INDEX.md": article("publish: false\ntype: Index", "## Weapons\n\n- [[Blade]]"),
+    "settings/rolara/items/Blade.md": article("publish: false\ntype: Item", "x"),
+  },
+  (root) => {
+    // Path form, not case: a `./` prefix on an otherwise byte-identical path.
+    // toPosix does not fold it, which the module already calls out elsewhere as
+    // a path that compares equal to nothing else here.
+    const before = snapshotTree(root);
+    const r = apply(
+      root,
+      [
+        {
+          op: "merge-index",
+          to: "settings/rolara/items/Items-INDEX.md",
+          sources: ["./settings/rolara/items/Items-INDEX.md"],
+          reason: "multi-index folder (survivor named again with a ./ prefix)",
+        },
+      ],
+      { commit: true }
+    );
+    check("a self-reference carrying a ./ prefix refuses the whole run",
+      (r.refused || {}).reason, "malformed-operation");
+    check("and nothing was touched: byte-identical, no commit",
+      [snapshotTree(root) === before, r.committed], [true, false]);
+  }
+);
+
+withRepo(
+  {
+    "settings/rolara/items/Items-INDEX.md": article("publish: false\ntype: Index", "## Weapons\n\n- [[Blade]]"),
+    "settings/rolara/locations/Ashfall.md": article("publish: false\ntype: Location", "A quiet ford."),
+    "settings/rolara/items/Blade.md": article("publish: false\ntype: Item", "x"),
+  },
+  (root) => {
+    // Every spelling difference at once, which is what a Windows DM hand-editing
+    // a proposal actually produces: backslash separators, a leading `.\`, an
+    // interior `..` hop through a sibling folder, and a different letter case.
+    const before = snapshotTree(root);
+    const r = apply(
+      root,
+      [
+        {
+          op: "merge-index",
+          to: "settings/rolara/items/Items-INDEX.md",
+          sources: [".\\settings\\rolara\\locations\\..\\items\\items-index.md"],
+          reason: "multi-index folder (survivor named again, Windows spelling)",
+        },
+      ],
+      { commit: true }
+    );
+    check("a self-reference spelled with backslashes, a .. hop and a different case refuses too",
+      (r.refused || {}).reason, "malformed-operation");
+    check("and nothing was touched: byte-identical, no commit",
+      [snapshotTree(root) === before, r.committed], [true, false]);
+  }
+);
+
+withRepo(
+  {
+    "settings/rolara/items/Items-INDEX.md": article("publish: false\ntype: Index", "## Weapons\n\n- [[Blade]]"),
+    "settings/rolara/items/relics/items-index.md": article(
+      "publish: false\ntype: Index",
+      "## Relics\n\nRelics of the first crown.\n\n- [[Orb]]"
+    ),
+    "settings/rolara/items/Blade.md": article("publish: false\ntype: Item", "x"),
+    "settings/rolara/items/relics/Orb.md": article("publish: false\ntype: Item", "x"),
+  },
+  (root) => {
+    // The other half of the contract. This source shares the survivor's basename
+    // once case is folded, and sits in a different folder, so it is a genuinely
+    // different file and the merge is legitimate. A comparison that folded only
+    // basenames, or that folded case without keeping the directory, would refuse
+    // it and break a migration setup runs with no approval gate in front of it.
+    const before = head(root);
+    const r = apply(
+      root,
+      [
+        {
+          op: "merge-index",
+          to: "settings/rolara/items/Items-INDEX.md",
+          sources: ["settings/rolara/items/relics/items-index.md"],
+          reason: "multi-index folder",
+        },
+      ],
+      { commit: true }
+    );
+    const survivor = read(root, "settings/rolara/items/Items-INDEX.md");
+    check("a merge whose source is a different file in a different folder is not refused",
+      r.refused, null);
+    check("it runs, and reports applied", [r.applied.length, r.failed.length], [1, 0]);
+    check("the source is gone from the working tree and from the index",
+      [has(root, "settings/rolara/items/relics/items-index.md"),
+        lsFiles(root).filter((f) => /relics\/items-index/.test(f))],
+      [false, []]);
+    check("the survivor holds the source's prose exactly once",
+      occurrences(survivor, "Relics of the first crown."), 1);
+    check("beside its own", [survivor.includes("## Weapons"), survivor.includes("- [[Blade]]")], [true, true]);
+    check("the run reports ok, link integrity passes, and it commits",
+      [r.ok, links(r).ok, r.committed, head(root) !== before], [true, true, true, true]);
+  }
+);
+
 console.log("\nFrontmatter repair is a line move on raw text");
 
 withRepo(

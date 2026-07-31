@@ -627,6 +627,39 @@ function findDestinationCollisions(operations, projectRoot, ignored) {
 const slash = (p) => String(p == null ? "" : p).replace(/\\/g, "/");
 const toPosix = (p) => slash(p).replace(/(.)\/+$/, "$1");
 
+// "Do these two path strings name the same file?", which is a different question
+// from "are they the same string". A plan is hand-editable between the two
+// phases, and its paths also come from a survey the model writes, so one file
+// can arrive spelled several ways in one operation.
+//
+// samePathKey folds every difference this module can settle without asking a
+// disk, by composing what is already here rather than adding a third notion of
+// path equality:
+//
+//   - separator style, and a trailing separator, from toPosix directly above;
+//   - a leading `./`, a doubled separator, and an interior `.` or `..` segment,
+//     from path.posix.normalize. posix specifically, so the answer does not
+//     change with the platform the migration runs on, plan paths having already
+//     been made posix by the line above;
+//   - letter case, the same unconditional fold caseRenames and
+//     findDestinationCollisions's foldKey already apply, because the filesystem
+//     this module documents is case-insensitive.
+//
+// What it does NOT resolve, and must not be read as covering: a symlink, a hard
+// link, or a Windows 8.3 short name. Each is genuinely two names for one file,
+// and no comparison of strings can see it; settling those means asking the
+// filesystem, and the caller runs deliberately before the snapshot exists,
+// touching no disk at all. A plan naming one path through a link and the other
+// directly is out of reach here, and is left named rather than implied closed.
+//
+// The case fold is unconditional rather than probed per filesystem, matching the
+// two prechecks above. On a case-sensitive filesystem that can call two
+// genuinely distinct files one file. That is the safe direction for the caller
+// below, where reading one file as two destroys its content and reading two as
+// one costs a refusal message the DM can act on.
+const samePathKey = (p) => path.posix.normalize(toPosix(p)).toLowerCase();
+const samePath = (a, b) => samePathKey(a) === samePathKey(b);
+
 function planOperation(opKind, ctx) {
   switch (opKind) {
     case "relocate-prong":
@@ -4927,10 +4960,16 @@ export function gitMove(ctx, from, to) {
 //
 // The merge survivor invariant is enforced, but not here: malformedShapeOf
 // refuses the whole run, before the snapshot, when a merge-index operation's
-// `sources` contains its own `to` (see the check there for the reasoning this
-// helper does not repeat). So by the time a merge-index operation reaches this
-// call, that shape has already been declined and neither caller can be handed
-// it. This function does not check it itself; it trusts the refusal upstream.
+// `sources` NAMES its own `to` (see the check there for the reasoning this
+// helper does not repeat). Names, not "contains as a string": that check
+// compares with samePath, so a self-reference spelled in a different letter case
+// or with a `./` prefix is refused too, which matters here because `git rm`'s
+// pathspec is case-sensitive while the filesystem underneath it is not, so a
+// case-varied source is one the fold reaches and this removal then misses.
+//
+// So by the time a merge-index operation reaches this call, that shape has
+// already been declined and neither caller can be handed it. This function does
+// not check it itself; it trusts the refusal upstream.
 // The snapshot is the backstop for both callers' ordinary paths, and it still
 // is: measured, in every state above, `git reset --hard <snapshot>` restored
 // both the survivor's original content and the removed file, with an empty
@@ -6899,14 +6938,42 @@ function malformedShapeOf(o) {
   // self-reference and merging the rest: naming the survivor among its own
   // sources is a survey error worth surfacing to the DM, not one worth quietly
   // correcting on their behalf.
+  //
+  // Compared with samePath, NOT with string equality, because letter case is not
+  // the only way two strings name one file and on this project's own platform it
+  // is not even a rare one. Measured on Windows with core.ignorecase true and a
+  // byte-equality test here: `sources: [".../items-index.md"]` against
+  // `to: ".../Items-INDEX.md"` was not refused, readText found the file because
+  // the filesystem does not care about case, the survivor was folded into itself
+  // and written back doubled, and only then did `git rm` miss it, because a
+  // pathspec IS case-sensitive. The run committed the self-duplicated survivor
+  // with the entry reporting applied false, and in the mixed shape it removed the
+  // genuinely valid co-source on the way. A leading `./` is the same bypass by a
+  // different spelling, and one this module already documents as a form toPosix
+  // leaves alone (see the rootRenamedTo comment). samePath folds both, plus the
+  // remaining path forms; what it cannot fold is named at its own definition.
   if (o.op === "merge-index") {
     const to = toPosix(o.to || "");
     const sources = list(o.sources).map((s) => toPosix(s || ""));
-    if (to !== "" && sources.includes(to)) {
+    // An empty source is skipped rather than compared: samePathKey reads "" as
+    // ".", and a blank entry left in a hand-edited `sources` is not a claim
+    // about the survivor.
+    const self = to === "" ? undefined : sources.find((s) => s !== "" && samePath(s, to));
+    if (self !== undefined) {
+      // Only when the two are spelled differently, so the exact-string case
+      // reads exactly as it did before this widening. When they differ, the DM
+      // is looking at two strings that do not match by eye, and the message has
+      // to say why the run treated them as one file or the instruction to remove
+      // the entry names something they cannot find.
+      const alias =
+        self === to
+          ? ""
+          : ` The plan spells that source ${JSON.stringify(self)}, which names the same file as ` +
+            `${JSON.stringify(to)} once letter case and path form are folded.`;
       return (
-        `${where} names its own survivor as one of its own \`sources\`. Folding ` +
+        `${where} names its own survivor as one of its own \`sources\`.${alias} Folding ` +
         `${JSON.stringify(to)} into itself and then removing it as a folded source would destroy its ` +
-        `content, leaving no copy anywhere, while the run reports success. Remove ${JSON.stringify(to)} ` +
+        `content, leaving no copy anywhere, while the run reports success. Remove ${JSON.stringify(self)} ` +
         "from `sources` and re-run."
       );
     }
