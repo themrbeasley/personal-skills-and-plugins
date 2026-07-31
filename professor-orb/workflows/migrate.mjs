@@ -1554,6 +1554,17 @@ export function buildScopedPlan({ projectRoot, settings, baseRules, scope }) {
 // a rebuild carrying no folder and one naming the directory it would have
 // defaulted to are correctly read as one rebuild.
 //
+// THAT REST ON A PREMISE ABOUT THE EXECUTOR, and the premise is stated here
+// because this key is what makes it load-bearing: applyRebuildIndex must read
+// `folder` as a PATH and never as a spelling, or two rebuilds this key calls one
+// write different files and the survivor's spelling decides which. It did not, for
+// one release: settingOwning prefix-matched the raw string to pick the index
+// suffix, so a `./` spelling resolved to no setting, took the base suffix instead
+// of the owning setting's, and the rebuilt index listed itself. Both of the
+// executor's readers of `folder` now go through a normalizing path, articleStemsIn
+// through path.resolve and settingOwning through samePathKey, which is what this
+// key is entitled to assume and is argued at settingOwning itself.
+//
 // BOTH HALVES GO THROUGH samePathKey, the very helper findDestinationCollisions
 // keys its own destinations on, which is what makes the fold exactly as wide as
 // the collision it removes and never wider. The `to` half IS that key, so a pair
@@ -1626,6 +1637,14 @@ function rebuildFoldKey(o) {
 // and are still refused. A rebuild-index and a create-index at one path are two
 // kinds, never merged here, and planRebuildIndexes handles that pair on its own
 // terms.
+//
+// "AGREE ON THE FOLDER" IS A PATH QUESTION, and the sentence above is only true
+// while the executor reads it as one. It was false for one release: two rebuilds
+// naming one directory with different spellings merged here and applyRebuildIndex
+// wrote a different file for each spelling, because settingOwning picked the index
+// suffix by raw prefix match. That is fixed at settingOwning rather than worked
+// around here, so the survivor's spelling no longer decides anything, and this
+// paragraph is a claim about two functions rather than about this one alone.
 function foldDuplicateRebuilds(operations) {
   const byKey = new Map();
   const out = [];
@@ -1876,8 +1895,24 @@ function planRebuildIndexes(items, ctx, key) {
     // list from. A rebuild naming a different folder writes DIFFERENT content to that
     // path, which is two operations that genuinely must not both write it, and
     // findDestinationCollisions goes on refusing that pair untouched.
+    //
+    // SAME as samePath reads it, not as a case fold reads it. This compared
+    // `folder.toLowerCase()` against the destination's dirname lowercased, which
+    // folds letter case and nothing else, and the shape that reaches past it is the
+    // one planResolve documents above: a pathMoves entry carries a folder away and a
+    // split then claims the freed name for a bucket, so the bucket folder IS on disk
+    // at plan time. Both guards above then pass a `./`, `//`, or `..` spelling,
+    // because namedPathSatisfies falls through to statSync on a path.resolve'd path
+    // and path.resolve normalizes what planResolve's own case-sensitive string
+    // equality would not. The spelling reached this line, missed the decline, and
+    // emitted a second writer at the create-index's destination, which
+    // findDestinationCollisions correctly reads as an in-plan collision and applyPlan
+    // turns into a refusal of the whole run. A `./` on a folder was the difference
+    // between a helpful decline and an aborted migration. samePath is the module's
+    // own helper and is a strict widening of the case fold this replaces, so it
+    // cannot turn a decline this already took into one it skips.
     const at = planResolve(ctx, index, "rebuild-index", operations);
-    if (at.creates === "file" && folder.toLowerCase() === path.posix.dirname(index).toLowerCase()) {
+    if (at.creates === "file" && samePath(folder, path.posix.dirname(index))) {
       declined.push({
         op: "rebuild-index",
         target: index,
@@ -3771,14 +3806,33 @@ export function retypeExtensions(scope) {
 // The setting whose kbRoot, homebrewRoot, or sessionReportsRoot contains this
 // folder, or null. Longest matching root wins, so a nested prong resolves to
 // the setting that actually owns it rather than to whichever came first.
+//
+// THE PLAN HALF'S settingOwning, and it answers on the same terms, through the same
+// samePathKey, for the same measured reason. Read that function's comment for the
+// argument; this note records only what the raw prefix match cost HERE, because it
+// is not the same cost. Both callers turn the answer into an index suffix, and the
+// suffix is what tells planAbsorbFolders and planSplitFolders which enumerated file
+// is a folder's own INDEX rather than one of its articles. Measured on a setting
+// declaring "-IDX": absorbing `settings/karsk/misc` planned `index:
+// settings/karsk/misc/Misc-IDX.md` and one article move; absorbing the same folder
+// spelled `./settings/karsk/misc` matched no root, took the base "-INDEX", planned
+// `index: null`, and moved Misc-IDX.md into the parent AS AN ARTICLE, next to the
+// parent's own index, with no rebuild-index emitted for the parent at all. A `./`
+// changed which files the operation moves.
+//
+// Leaving this raw while settingOwning normalized would also have been worse than
+// leaving both raw: one run's plan half and apply half would then disagree about
+// which setting owns one folder, so a split could stage buckets under one suffix
+// and the rebuild that follows it read them under another.
 function settingForFolder(settings, folder) {
+  const target = samePathKey(folder);
   let best = null;
   let bestLen = -1;
   for (const setting of list(settings)) {
     for (const root of prongRootsOf(setting)) {
-      const r = toPosix(root);
+      const r = samePathKey(root);
       if (!r) continue;
-      if ((folder === r || folder.startsWith(`${r}/`)) && r.length > bestLen) {
+      if ((target === r || target.startsWith(`${r}/`)) && r.length > bestLen) {
         best = setting;
         bestLen = r.length;
       }
@@ -7703,13 +7757,46 @@ function findOutOfOrder(operations) {
 
 // The setting whose prong roots contain a path. By declared position, never by
 // name: two settings may share a name or both omit one.
+//
+// AS PATHS, NOT AS SPELLINGS. Both sides go through samePathKey, the same helper
+// findDestinationCollisions keys its destinations on and rebuildFoldKey keys the
+// rebuild fold on, so "contains" means what a filesystem would say it means rather
+// than what the DM happened to type. This used to prefix-match the two raw
+// strings, and the caller that made that load-bearing is applyRebuildIndex: it
+// hands the operation's `folder` field over VERBATIM and turns the answer into an
+// index suffix, which is the one thing that keeps index files out of the article
+// list it writes. A `./`-spelled folder therefore matched no root at all, fell back
+// to the base "-INDEX" under a setting declaring "-IDX", and the rebuilt index
+// listed ITSELF. foldDuplicateRebuilds made that worse than a one-off, because it
+// merges two rebuilds whose folders name one directory: whichever spelling came
+// first in the scope was the one the executor read, so the DM's applied content
+// depended on the order two redundant scope entries happened to be written in.
+// articleStemsIn was never the problem; it resolves the directory through
+// path.resolve and always read the right folder.
+//
+// OWNS means the normalized path IS the normalized root, or sits strictly beneath
+// it a whole segment at a time. The `${r}/` guard is what makes it segment-wise, so
+// settings/karska is not owned by settings/karsk; normalizing first is what makes
+// that guard reliable, since a trailing separator or an interior `..` on either
+// side defeated it before it could be applied.
+//
+// UNAMBIGUOUS BY DEPTH, THEN BY DECLARED POSITION. The longest matching root wins,
+// and it is now the longest NORMALIZED root, so specificity is measured in path
+// depth rather than in characters typed: `./settings/rolara` used to outrank
+// `settings/rolara` by two characters and take a folder it is no more specific
+// about. Two roots that normalize to one string ARE one directory, and the first
+// declared wins, which is the same declared-position rule stated above. That case
+// is a settings file naming one directory as two settings' prong root, which this
+// module has no rail against and which no choice here could make right; it is not
+// a pick between two candidates that differ, because after normalization the two
+// candidates are the same path.
 function settingOwning(settings, rel) {
-  const target = toPosix(rel || "");
+  const target = samePathKey(rel || "");
   let best = null;
   let bestLength = -1;
   for (const setting of list(settings)) {
     for (const root of prongRootsOf(setting)) {
-      const r = toPosix(root);
+      const r = samePathKey(root);
       if (target !== r && !target.startsWith(`${r}/`)) continue;
       if (r.length > bestLength) {
         best = setting;

@@ -4624,6 +4624,100 @@ const MERGE_KARSK = { settingMerges: [{ from: "karsk", into: "rolara" }] };
   rmSync(root, { recursive: true, force: true });
 }
 
+// ---------------------------------------------------------------------------
+// A folder spelling never decides whether a run is declined or refused
+// ---------------------------------------------------------------------------
+//
+// planRebuildIndexes declines an entry whose index an earlier create-index in the
+// same plan already builds from the same folder, and that gate compared the two
+// folder strings lowercased and nothing else. The shape that reaches past a case
+// fold is the one planResolve documents: a pathMoves entry carries a folder away and
+// a split claims the freed name for a bucket, so the bucket folder IS on disk at plan
+// time. Both guards ahead of the gate then pass a dotted spelling, because
+// namedPathSatisfies falls through to statSync on a path.resolve'd path, and the
+// entry reached the gate, missed the decline, and emitted a second writer at the
+// create-index's destination. findDestinationCollisions reads that as an in-plan
+// collision and applyPlan turns it into "Nothing was touched": a whole migration
+// refused over a `./`, the exact failure this cluster of fixes exists to remove.
+//
+// All five spellings, plain and default included, because the plain rows are what
+// show the gate still DOES decline; a fix that simply stopped declining would pass a
+// dotted-only case.
+{
+  const root = mkdtempSync(path.join(os.tmpdir(), "orb-rebuild-spelling-"));
+  const w = (rel, body) => writeAt(root, rel, body);
+  w("settings/rolara/locations/Locations-INDEX.md", "---\ntype: Index\n---\n\n- [[Ashfall]]\n");
+  w("settings/rolara/locations/Ashfall.md", "---\ntype: Location\n---\n\nBody.\n");
+  w("settings/rolara/locations/Karsk.md", "---\ntype: Location\n---\n\nBody.\n");
+  // The folder the move vacates and the split then re-claims as a bucket name.
+  w("settings/rolara/locations/north/Nordhal.md", "---\ntype: Location\n---\n\nBody.\n");
+
+  const rowFor = (folder) => {
+    const entry = { index: "settings/rolara/locations/north/North-INDEX.md" };
+    if (folder !== undefined) entry.folder = folder;
+    const r = scoped(
+      {
+        pathMoves: [{ from: "settings/rolara/locations/north", to: "settings/rolara/attic", reason: "x" }],
+        splitFolders: [
+          { folder: "settings/rolara/locations", buckets: [{ name: "north", articles: ["Ashfall.md"] }] },
+        ],
+        rebuildIndexes: [entry],
+      },
+      root
+    );
+    return [r.prechecks.ok, r.declined.filter((d) => d.op === "rebuild-index").length];
+  };
+
+  const expected = [true, 1];
+  check("plain: the redundant rebuild is declined and the run stands",
+    rowFor("settings/rolara/locations/north"), expected);
+  check("no folder at all: the default dirname declines the same way",
+    rowFor(undefined), expected);
+  check("a leading ./ declines rather than refusing the whole run",
+    rowFor("./settings/rolara/locations/north"), expected);
+  check("a doubled separator declines rather than refusing the whole run",
+    rowFor("settings/rolara/locations//north"), expected);
+  check("an interior .. hop declines rather than refusing the whole run",
+    rowFor("settings/rolara/locations/sub/../north"), expected);
+  rmSync(root, { recursive: true, force: true });
+}
+
+// ---------------------------------------------------------------------------
+// A folder spelling never decides which setting owns a folder
+// ---------------------------------------------------------------------------
+//
+// settingForFolder is settingOwning's plan-half twin and picks the indexSuffix rule
+// that tells an absorb which enumerated file is the folder's own INDEX rather than
+// one of its articles. It prefix-matched the two raw strings, so under karsk, which
+// declares "-IDX", a dotted folder matched no root, took the base "-INDEX", and
+// planned the folder's index as an ARTICLE to be moved into the parent, with no
+// rebuild for the parent whose link to it just died.
+{
+  const root = mkdtempSync(path.join(os.tmpdir(), "orb-owner-spelling-"));
+  const w = (rel, body) => writeAt(root, rel, body);
+  w("settings/karsk/Karsk-IDX.md", "---\ntype: Index\n---\n\n- [[Misc-IDX]]\n");
+  w("settings/karsk/misc/Misc-IDX.md", "---\ntype: Index\n---\n\n- [[Odds]]\n");
+  w("settings/karsk/misc/Odds.md", "---\ntype: Concept\n---\n\nBody.\n");
+
+  const rowFor = (folder) => {
+    const r = scoped({ absorbFolders: [{ folder }] }, root);
+    const absorb = find(r.operations, "absorb-folder");
+    return [
+      kindsOf(r.operations),
+      Boolean(absorb.index),
+      list(absorb.articles).map((a) => path.posix.basename(a.from)),
+    ];
+  };
+  const expected = [["absorb-folder", "rebuild-index"], true, ["Odds.md"]];
+  check("plain: the folder's own -IDX index is recognised as the index",
+    rowFor("settings/karsk/misc"), expected);
+  check("a leading ./ resolves the same owner, so the index is not moved as an article",
+    rowFor("./settings/karsk/misc"), expected);
+  check("and a doubled separator resolves it too",
+    rowFor("settings/karsk//misc"), expected);
+  rmSync(root, { recursive: true, force: true });
+}
+
 console.log(`\n${passed} passed, ${failures.length} failed`);
 if (failures.length > 0) {
   for (const f of failures) console.log(`  FAILED: ${f}`);

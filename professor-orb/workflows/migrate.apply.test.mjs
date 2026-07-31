@@ -4375,6 +4375,188 @@ withRepo(
   }
 );
 
+// ---------------------------------------------------------------------------
+// A merged rebuild writes the same file whichever spelling survived the merge
+// ---------------------------------------------------------------------------
+//
+// foldDuplicateRebuilds merges two rebuild-index operations that name one index and
+// one folder, and the survivor keeps the FIRST occurrence's raw `folder` string. That
+// is only safe while applyRebuildIndex reads that field as a path. It did not:
+// settingOwning prefix-matched the raw string to find the setting whose indexSuffix
+// rule says which files are indexes rather than articles, so `./settings/karsk/locations`
+// matched no root, fell back to the base "-INDEX" under a setting declaring "-IDX",
+// and the rebuilt index listed ITSELF. Merged, that made the DM's applied content
+// depend on the order two redundant scope entries were written in: dotted first and
+// the index self-linked, plain first and it did not. Two orderings, because one
+// ordering cannot tell an order-dependent result from a wrong one.
+//
+// The suffix has to be a PER-SETTING one unlike the base default, or the case passes
+// whether or not the owning setting was resolved.
+{
+  const KARSK = [
+    {
+      name: "karsk",
+      kbRoot: "settings/karsk",
+      homebrewRoot: "homebrew/karsk",
+      sessionReportsRoot: "session-reports/karsk",
+      campaigns: [],
+      rules: {
+        structuralIndexParity: {
+          category: "structural",
+          check: "indexParity",
+          enforcement: "warn",
+          description: "Every folder with content has exactly one owning -IDX file.",
+          params: { indexSuffix: "-IDX" },
+        },
+      },
+    },
+  ];
+  const INDEX = "settings/karsk/locations/Locations-IDX.md";
+  const DOTTED = { index: INDEX, folder: "./settings/karsk/locations" };
+  const PLAIN = { index: INDEX, folder: "settings/karsk/locations" };
+
+  const run = (entries) =>
+    withRepo(
+      {
+        [INDEX]: article("type: Index", "# Locations\n\n- [[Ashfall]]"),
+        "settings/karsk/locations/Ashfall.md": article("type: Location", "Body."),
+        "settings/karsk/locations/Karsk.md": article("type: Location", "Body."),
+      },
+      (root) => {
+        const plan = buildScopedPlan({
+          projectRoot: root,
+          settings: KARSK,
+          baseRules: BASE_RULES,
+          scope: { rebuildIndexes: entries },
+        });
+        const r = applyPlan(
+          { operations: plan.operations },
+          { cwd: root, settings: KARSK, baseRules: BASE_RULES, commit: false }
+        );
+        const rebuilds = plan.operations.filter((o) => o.op === "rebuild-index");
+        return {
+          planned: plan.prechecks.ok,
+          merged: rebuilds.length,
+          groups: rebuilds.length === 1 ? rebuilds[0].groups.slice().sort() : [],
+          applied: r.ok,
+          links: read(root, INDEX)
+            .split(/\r?\n/)
+            .filter((l) => /^\s*[-*]\s+\[\[/.test(l))
+            .map((l) => l.trim()),
+        };
+      }
+    );
+
+  const dottedFirst = run([DOTTED, PLAIN]);
+  const plainFirst = run([PLAIN, DOTTED]);
+
+  check("two spellings of one rebuild fold into one operation carrying both entries",
+    [dottedFirst.merged, plainFirst.merged, dottedFirst.groups, plainFirst.groups],
+    [1, 1, ["rebuildIndexes[0]", "rebuildIndexes[1]"], ["rebuildIndexes[0]", "rebuildIndexes[1]"]]);
+  check("the merged plan is applicable rather than refused as an in-plan collision",
+    [dottedFirst.planned, dottedFirst.applied, plainFirst.planned, plainFirst.applied],
+    [true, true, true, true]);
+  check("the rebuilt index does not list itself when the dotted spelling survived",
+    dottedFirst.links, ["- [[Ashfall]]", "- [[Karsk]]"]);
+  check("nor when the plain spelling survived",
+    plainFirst.links, ["- [[Ashfall]]", "- [[Karsk]]"]);
+  check("so the applied content does not depend on the order the scope entries were listed in",
+    dottedFirst.links, plainFirst.links);
+}
+
+// The same defect without any merge at all: ONE rebuildIndexes entry, dotted. This
+// wrote the self-link at every commit before the settingOwning fix, and the merge is
+// what turned it from one DM's typo into an order-dependent coin flip. Pinned
+// separately so a future change that only re-hardens the fold cannot pass this file.
+withRepo(
+  {
+    "settings/karsk/locations/Locations-IDX.md": article("type: Index", "# Locations\n\n- [[Ashfall]]"),
+    "settings/karsk/locations/Ashfall.md": article("type: Location", "Body."),
+  },
+  (root) => {
+    const settings = [
+      {
+        name: "karsk",
+        kbRoot: "settings/karsk",
+        homebrewRoot: "homebrew/karsk",
+        sessionReportsRoot: "session-reports/karsk",
+        rules: {
+          structuralIndexParity: {
+            category: "structural",
+            check: "indexParity",
+            enforcement: "warn",
+            description: "Every folder with content has exactly one owning -IDX file.",
+            params: { indexSuffix: "-IDX" },
+          },
+        },
+      },
+    ];
+    const r = applyPlan(
+      {
+        operations: [
+          {
+            op: "rebuild-index",
+            to: "settings/karsk/locations/Locations-IDX.md",
+            folder: "./settings/karsk/locations",
+            groups: ["rebuildIndexes[0]"],
+            reason: "scope",
+          },
+        ],
+      },
+      { cwd: root, settings, baseRules: BASE_RULES, commit: false }
+    );
+    check("a single dotted rebuild resolves the owning setting's index suffix",
+      [r.ok, read(root, "settings/karsk/locations/Locations-IDX.md").includes("[[Locations-IDX]]")],
+      [true, false]);
+  }
+);
+
+// The SETUP-REACHABLE half of the same defect. settingOwning is reached from two
+// places in applyPlan: the per-operation rules lookup, and ctx.settingForPath, which
+// applyCreateIndex consults for the index suffix exactly as applyRebuildIndex does.
+// create-index is a setup kind, so an unattended migration whose survey spelled a
+// folder unlike the setting's declared root wrote an index listing the folder's OTHER
+// index as an article. The plain spelling is pinned alongside as the control: it
+// behaved correctly before this fix and must keep behaving identically after it.
+for (const [label, folder] of [
+  ["plain", "settings/karsk/lore"],
+  ["case-varied", "Settings/Karsk/lore"],
+  ["dotted", "./settings/karsk/lore"],
+]) {
+  withRepo(
+    {
+      "settings/karsk/lore/Ashfall.md": article("type: Concept", "Body."),
+      "settings/karsk/lore/Old-IDX.md": article("type: Index", "Body."),
+    },
+    (root) => {
+      const settings = [
+        {
+          name: "karsk",
+          kbRoot: "settings/karsk",
+          homebrewRoot: "homebrew/karsk",
+          sessionReportsRoot: "session-reports/karsk",
+          rules: {
+            structuralIndexParity: {
+              category: "structural",
+              check: "indexParity",
+              enforcement: "warn",
+              description: "Every folder with content has exactly one owning -IDX file.",
+              params: { indexSuffix: "-IDX" },
+            },
+          },
+        },
+      ];
+      const r = applyPlan(
+        { operations: [{ op: "create-index", to: `${folder}/Lore-IDX.md`, reason: "gap" }] },
+        { cwd: root, settings, baseRules: BASE_RULES, commit: false }
+      );
+      check(`create-index at a ${label} folder lists articles only, never the folder's other index`,
+        [r.ok, read(root, "settings/karsk/lore/Lore-IDX.md").includes("[[Old-IDX]]")],
+        [true, false]);
+    }
+  );
+}
+
 console.log(`\n${passed} passed, ${failures.length} failed`);
 if (failures.length > 0) {
   for (const f of failures) console.log(`  FAILED: ${f}`);
