@@ -4884,12 +4884,58 @@ export function gitMove(ctx, from, to) {
 // neither substitutes for the other. Same fix and same reasoning as the lane
 // pathspecs in `commands/`.
 //
+// `-f` is REQUIRED here, and it is not a way of forcing past a check that was
+// protecting something. Without it this helper half-applies both of its callers,
+// measured on a disposable repository against three different git refusals, each
+// of which arrives AFTER the caller has already written its side of the work:
+//
+//   "has changes staged in the index"  A `git mv` earlier in the SAME plan
+//   staged the rename of this path, so HEAD does not carry it at this name.
+//   APPLY_ORDER puts relocate-prong and relocate-path ahead of both callers, and
+//   OPERATION_ORDER puts relocate-prong ahead of merge-index, so setup's own
+//   unattended migration emits this pairing whenever a prong moves and a folder
+//   folds sub-indexes. The reference consumer's items/ folds six.
+//
+//   "has local modifications"  An earlier operation rewrote a wikilink inside
+//   this file on disk. rename-with-link-rewrite and rename-entity both precede
+//   merge-index in APPLY_ORDER, and a sub-index is exactly the kind of file that
+//   links to the article being renamed. This one needs no move at all to reach.
+//
+//   "has staged content different from both the file and the HEAD"  Both of the
+//   above at once, which is the ordinary shape once a prong move and a rename
+//   land on the same sub-index.
+//
+// In each case the caller had already merged the source into the survivor, or
+// already moved every article out of the folder, so the refusal left the tree
+// holding the content TWICE with the run reporting failed. `git rm --cached`
+// plus a filesystem delete was measured as the alternative and rejected: it
+// clears the first two states but still refuses on the third, so it would leave
+// the same half-apply reachable by the longer route, and it needs a second,
+// separately failable step to do what one call does here.
+//
+// What `-f` costs is bounded by what each caller has already decided. It skips
+// git's local-modification check, which exists to stop `git rm` discarding
+// content that survives nowhere else. Neither caller is in that position:
+// applyMergeIndex reads each source's current on-disk bytes and folds them into
+// the survivor immediately before this call, so a local modification is already
+// preserved there, and applyAbsorbFolder's `op.index` is the one file a
+// dissolution DISCARDS by definition, so a modification to it goes either way.
+// The snapshot is the backstop for both, and it still is: measured, in every
+// state above, `git reset --hard <snapshot>` restored both the survivor's
+// original content and the removed file, with an empty `git status --porcelain`.
+//
+// `-f` does NOT widen what the pathspec matches, and it does not make an
+// UNTRACKED path removable: measured, `git rm -f` on one still fails with
+// "pathspec did not match any files", exactly as the bare form does. That is
+// load-bearing, because the git-ignored-index precheck declines an absorb on
+// the stated grounds that this removal "on an untracked file fails outright".
+//
 // ctx.git never throws (see makeGit); it reports failure through `.ok`. Checked
 // that way here too, on the same terms as gitMove, rather than a try/catch that a
 // non-throwing call would never trip. `error` carries firstLine(stderr), which is
 // the shape both callers report to the DM.
 export function gitRemove(ctx, target) {
-  const removed = ctx.git(["rm", "-q", "--", `:(literal)${target}`]);
+  const removed = ctx.git(["rm", "-q", "-f", "--", `:(literal)${target}`]);
   if (!removed.ok) return { ok: false, error: firstLine(removed.stderr) };
   return { ok: true };
 }

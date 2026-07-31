@@ -794,6 +794,202 @@ withRepo(
   }
 );
 
+// ---------------------------------------------------------------------------
+// A removal still happens when an earlier operation left the path unclean
+// ---------------------------------------------------------------------------
+//
+// gitRemove is the one `git rm` in the module and it has two callers, so these
+// cases cover both. Each one puts the removal target into a state git's
+// local-modification check refuses, using nothing but operations the SAME plan
+// already ran, and every one of them was measured RED at 6732bef: the survivor
+// held the merged content, the source index was still on disk holding it too,
+// and the run reported ok false with the operation failed. That is a half-apply,
+// and it is on setup's unattended path, not just /migrate's.
+//
+// The assertions are on the END STATE rather than the return code, because the
+// return code was the only thing a bare `-f` could be accused of buying: the
+// source has to be gone from disk AND from the index, and the content has to
+// exist exactly once.
+
+console.log("\nA merge removes its sources even when an earlier operation left them unclean");
+
+const occurrences = (haystack, needle) => haystack.split(needle).length - 1;
+
+withRepo(
+  {
+    "kb/items/Items-INDEX.md": article("publish: false\ntype: Index", "## Weapons\n\n- [[Blade]]"),
+    "kb/items/Artifacts-INDEX.md": article(
+      "publish: false\ntype: Index",
+      "## Artifacts\n\nRelics of the first crown.\n\n- [[Crown]]"
+    ),
+    "kb/items/Blade.md": article("publish: false\ntype: Item", "x"),
+    "kb/items/Crown.md": article("publish: false\ntype: Item", "x"),
+  },
+  (root) => {
+    // The pairing setup itself emits. relocate-prong precedes merge-index in
+    // OPERATION_ORDER, so any project whose prong moves AND whose folder folds
+    // sub-indexes gets both in one plan; the reference consumer's items/ folds
+    // six. The prong move stages a rename for every path under it, which leaves
+    // each merge source staged at a name HEAD does not carry.
+    const before = head(root);
+    const r = apply(
+      root,
+      [
+        { op: "relocate-prong", from: "kb", to: "settings/rolara", reason: "prong move" },
+        {
+          op: "merge-index",
+          to: "settings/rolara/items/Items-INDEX.md",
+          sources: ["settings/rolara/items/Artifacts-INDEX.md"],
+          reason: "multi-index folder",
+        },
+      ],
+      { commit: true }
+    );
+    const survivor = read(root, "settings/rolara/items/Items-INDEX.md");
+    check("both operations report applied", [r.applied.length, r.failed.length], [2, 0]);
+    check("the merge itself is the one reporting applied, not just the move",
+      (r.applied.find((e) => e.op === "merge-index") || {}).applied, true);
+    check("the merged-away source is gone from the working tree",
+      has(root, "settings/rolara/items/Artifacts-INDEX.md"), false);
+    check("and gone from the index, so the removal was staged and not merely unlinked",
+      lsFiles(root).filter((f) => /Artifacts-INDEX/.test(f)), []);
+    check("the survivor holds the source's prose exactly once, not once per copy",
+      occurrences(survivor, "Relics of the first crown."), 1);
+    check("the survivor's own content is still there beside it",
+      [survivor.includes("## Weapons"), survivor.includes("- [[Blade]]")], [true, true]);
+    check("the run reports ok rather than a half-applied merge", r.ok, true);
+    check("link integrity passes and the migration reaches its commit",
+      [links(r).ok, r.committed], [true, true]);
+    check("so HEAD moved off the snapshot", head(root) !== before, true);
+  }
+);
+
+withRepo(
+  {
+    "settings/rolara/items/Items-INDEX.md": article("publish: false\ntype: Index", "## Weapons\n\n- [[Blade]]"),
+    "settings/rolara/items/Artifacts-INDEX.md": article(
+      "publish: false\ntype: Index",
+      "## Artifacts\n\nRelics of the first crown.\n\n- [[Crown]]"
+    ),
+    "settings/rolara/items/Blade.md": article("publish: false\ntype: Item", "x"),
+    "settings/rolara/items/Crown.md": article("publish: false\ntype: Item", "x"),
+  },
+  (root) => {
+    // No move anywhere in this plan. rename-with-link-rewrite precedes
+    // merge-index in APPLY_ORDER and rewrites its referring files ON DISK, and a
+    // sub-index is exactly the kind of file that links to the article being
+    // renamed. So the merge source carries an unstaged local modification, which
+    // is a second, independent route to the same half-apply.
+    const r = apply(root, [
+      {
+        op: "rename-with-link-rewrite",
+        from: "settings/rolara/items/Crown.md",
+        to: "settings/rolara/items/Crown-ITEM.md",
+        links: ["settings/rolara/items/Artifacts-INDEX.md"],
+        reason: "suffix rule",
+      },
+      {
+        op: "merge-index",
+        to: "settings/rolara/items/Items-INDEX.md",
+        sources: ["settings/rolara/items/Artifacts-INDEX.md"],
+        reason: "multi-index folder",
+      },
+    ]);
+    const survivor = read(root, "settings/rolara/items/Items-INDEX.md");
+    check("a locally modified merge source is still removed",
+      [r.applied.length, r.failed.length, has(root, "settings/rolara/items/Artifacts-INDEX.md")],
+      [2, 0, false]);
+    check("the survivor carries the source's MODIFIED text, so the edit was folded in rather than dropped",
+      [survivor.includes("[[Crown-ITEM]]"), survivor.includes("[[Crown]]")], [true, false]);
+    check("and it carries that prose exactly once",
+      occurrences(survivor, "Relics of the first crown."), 1);
+    check("the run reports ok and link integrity passes", [r.ok, links(r).ok], [true, true]);
+  }
+);
+
+withRepo(
+  {
+    "kb/items/Items-INDEX.md": article("publish: false\ntype: Index", "## Weapons\n\n- [[Blade]]"),
+    "kb/items/Artifacts-INDEX.md": article(
+      "publish: false\ntype: Index",
+      "## Artifacts\n\nRelics of the first crown.\n\n- [[Crown]]"
+    ),
+    "kb/items/Blade.md": article("publish: false\ntype: Item", "x"),
+    "kb/items/Crown.md": article("publish: false\ntype: Item", "x"),
+  },
+  (root) => {
+    // Both at once, which is the ordinary shape once a prong move and a rename
+    // land on the same sub-index. This is the state that decided the fix: `git
+    // rm --cached` plus a filesystem delete clears the two cases above but still
+    // refuses here, so it would have left the half-apply reachable by this route.
+    const r = apply(root, [
+      { op: "relocate-prong", from: "kb", to: "settings/rolara", reason: "prong move" },
+      {
+        op: "rename-with-link-rewrite",
+        from: "settings/rolara/items/Crown.md",
+        to: "settings/rolara/items/Crown-ITEM.md",
+        links: ["settings/rolara/items/Artifacts-INDEX.md"],
+        reason: "suffix rule",
+      },
+      {
+        op: "merge-index",
+        to: "settings/rolara/items/Items-INDEX.md",
+        sources: ["settings/rolara/items/Artifacts-INDEX.md"],
+        reason: "multi-index folder",
+      },
+    ]);
+    const survivor = read(root, "settings/rolara/items/Items-INDEX.md");
+    check("a source that is both staged-renamed and locally modified is still removed",
+      [r.applied.length, r.failed.length, has(root, "settings/rolara/items/Artifacts-INDEX.md")],
+      [3, 0, false]);
+    check("gone from the index too", lsFiles(root).filter((f) => /Artifacts-INDEX/.test(f)), []);
+    check("the survivor holds the source's prose exactly once",
+      occurrences(survivor, "Relics of the first crown."), 1);
+    check("with the rename's rewrite carried across", survivor.includes("[[Crown-ITEM]]"), true);
+    check("the run reports ok and link integrity passes", [r.ok, links(r).ok], [true, true]);
+  }
+);
+
+withRepo(
+  {
+    "kb/items/Items-INDEX.md": article("publish: false\ntype: Index", "## Items\n\n- [[Orb]]"),
+    "kb/items/relics/Relics-INDEX.md": article("publish: false\ntype: Index", "## Relics\n\n- [[Orb]]"),
+    "kb/items/relics/Orb.md": article("publish: false\ntype: Item", "x"),
+  },
+  (root) => {
+    // The absorb caller of the same helper. APPLY_ORDER puts relocate-prong and
+    // relocate-path ahead of absorb-folder, so the folder's own index is staged
+    // at a name HEAD does not carry by the time the dissolution removes it, and
+    // at 6732bef the articles had already moved when the removal refused: a
+    // folder half-dissolved, which is precisely what the one-entry-per-operation
+    // accounting exists to prevent.
+    const r = apply(root, [
+      { op: "relocate-prong", from: "kb", to: "settings/rolara", reason: "prong move" },
+      {
+        op: "absorb-folder",
+        from: "settings/rolara/items/relics",
+        to: "settings/rolara/items",
+        index: "settings/rolara/items/relics/Relics-INDEX.md",
+        articles: [
+          { from: "settings/rolara/items/relics/Orb.md", to: "settings/rolara/items/Orb.md" },
+        ],
+        reason: "under threshold",
+      },
+    ]);
+    check("both operations report applied", [r.applied.length, r.failed.length], [2, 0]);
+    check("the dissolution counts its one file",
+      (r.applied.find((e) => e.op === "absorb-folder") || {}).moved, 1);
+    check("the article landed in the parent", has(root, "settings/rolara/items/Orb.md"), true);
+    check("the folder's own index is gone from disk and from the index",
+      [has(root, "settings/rolara/items/relics/Relics-INDEX.md"),
+        lsFiles(root).some((f) => /Relics-INDEX/.test(f))],
+      [false, false]);
+    check("and the emptied folder does not outlive its own dissolution",
+      has(root, "settings/rolara/items/relics"), false);
+    check("the run reports ok and link integrity passes", [r.ok, links(r).ok], [true, true]);
+  }
+);
+
 console.log("\nFrontmatter repair is a line move on raw text");
 
 withRepo(
