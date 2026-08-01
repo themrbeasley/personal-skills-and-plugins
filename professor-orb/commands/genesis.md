@@ -31,7 +31,7 @@ If the DM gave an argument, that is the proposed name. Otherwise ask for one. It
 
 professor-orb's base rule layer always comes along, identical in every setting by design. What varies is the rest.
 
-If `conventions.json` holds another setting carrying `extendedBy` custom article types or project-provenance rule tweaks, name them and ask whether the new world should copy them or start with the base layer only. A second world in the same genre usually wants them; one in a different genre usually does not. If no other setting exists, or none carries extras, take the base layer and say so in one line.
+If `conventions.json` holds another setting carrying `extendedBy` custom article types or project-provenance rule tweaks, name them and ask whether the new world should copy them or start with the base layer only. A second world in the same genre usually wants them; one in a different genre usually does not. If no other setting exists, or none carries extras, take the base layer only, sourced per Step 9, and say so in one line.
 
 ## Step 3: Establish the first campaign
 
@@ -91,7 +91,7 @@ Verify the tree is clean afterward and **print the hash**. This is the DM's undo
 
 Call `applyPlan` with the plan and its options: `cwd`, `settings`, `baseRules`, and `"commit": false`, because Step 10 makes the single commit.
 
-**`settings` is the on-disk `settings[]` array plus one more entry: the new world's own, the same entry Step 9 will write to `conventions.json`.** The executor resolves a `tag-registry` operation's owner by matching its `to` against `ctx.settings`, and resolves each `create-index` operation's suffix the same way, through `ctx.settingForPath`. A world absent from `settings` owns nothing under either lookup: the registry operation reports "No setting declares ... as its tagRegistryPath" and lands in `result.failed` on every run, and every index silently falls back to the base suffix even when the new world was meant to carry a sibling's custom one. This is an in-memory argument to `applyPlan` only. It is not writing `conventions.json` before the executor runs; that stays Step 9's job, done afterward and only from what actually applied.
+**`settings` is the on-disk `settings[]` array plus one more entry: the new world's own, the entry Step 9 will write to `conventions.json`, subject to Step 9's own rule about recording only what actually applied.** The two are the same object only when every operation applies. This one must carry all three prong roots regardless, because that is what the executor resolves against; what Step 9 writes is governed by Step 9. The executor resolves a `tag-registry` operation's owner by matching its `to` against `ctx.settings`, and resolves each `create-index` operation's suffix the same way, through `ctx.settingForPath`. A world absent from `settings` owns nothing under either lookup: the registry operation reports "No setting declares ... as its tagRegistryPath" and lands in `result.failed` on every run, and every index silently falls back to the base suffix even when the new world was meant to carry a sibling's custom one. This is an in-memory argument to `applyPlan` only. It is not writing `conventions.json` before the executor runs; that stays Step 9's job, done afterward and only from what actually applied.
 
 If `result.refused` is set, the run touched nothing. Report `refused.detail` verbatim and stop.
 
