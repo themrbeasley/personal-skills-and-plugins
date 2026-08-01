@@ -4954,6 +4954,68 @@ const MERGE_KARSK = { settingMerges: [{ from: "karsk", into: "rolara" }] };
   rmSync(root, { recursive: true, force: true });
 }
 
+// ---------------------------------------------------------------------------
+// folderContentsAfterPlan's own plan-aware filter, not just the plain lookup
+// ---------------------------------------------------------------------------
+//
+// Every case above builds a plan holding a single split-folder entry, so
+// `pending` is empty every time folderContentsAfterPlan runs and its filter
+// loop, the one that drops a child an earlier operation carries OUT of the
+// destination, never has anything to drop. These two combine a pathMoves
+// entry (rank 1) with the splitFolders entry (rank 3) so the move is a
+// preceding operation the split can see, and pin both directions the loop
+// has to get right.
+
+{
+  const root = splitFixture();
+  writeAt(root, "settings/rolara/locations/north/Emberwatch.md", "---\ntype: Location\n---\n\nBody.\n");
+  writeAt(root, "settings/rolara/locations/north/Frosthollow.md", "---\ntype: Location\n---\n\nBody.\n");
+  const r = scoped(
+    {
+      pathMoves: [
+        {
+          from: "settings/rolara/locations/north/Emberwatch.md",
+          to: "settings/rolara/notes/Emberwatch.md",
+          reason: "x",
+        },
+      ],
+      splitFolders: [
+        { folder: "settings/rolara/locations", buckets: [{ name: "north", articles: ["Ashfall.md"] }] },
+      ],
+    },
+    root
+  );
+  check("a preceding move carrying a file out of the bucket destination drops it from existing",
+    obj(list(find(r.operations, "split-folder").buckets)[0]).existing,
+    ["Frosthollow.md"]);
+  rmSync(root, { recursive: true, force: true });
+}
+
+{
+  // The other direction: an earlier move carries the WHOLE bucket destination
+  // folder in from somewhere else. The folder never physically exists at
+  // settings/rolara/locations/north on disk here, only at its pre-move name,
+  // so this pins that the enumeration rewinds through the move to find it
+  // rather than reading nothing.
+  const root = splitFixture();
+  writeAt(root, "settings/rolara/oldnorth/Silvermere.md", "---\ntype: Location\n---\n\nBody.\n");
+  const r = scoped(
+    {
+      pathMoves: [
+        { from: "settings/rolara/oldnorth", to: "settings/rolara/locations/north", reason: "x" },
+      ],
+      splitFolders: [
+        { folder: "settings/rolara/locations", buckets: [{ name: "north", articles: ["Ashfall.md"] }] },
+      ],
+    },
+    root
+  );
+  check("a preceding move carrying the bucket destination in reads its pre-move contents",
+    obj(list(find(r.operations, "split-folder").buckets)[0]).existing,
+    ["Silvermere.md"]);
+  rmSync(root, { recursive: true, force: true });
+}
+
 console.log(`\n${passed} passed, ${failures.length} failed`);
 if (failures.length > 0) {
   for (const f of failures) console.log(`  FAILED: ${f}`);

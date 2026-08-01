@@ -4552,7 +4552,7 @@ export function renderProposal({ scope, plan, projectRoot, settings }) {
     for (const m of merges) {
       const n = m.existing.length;
       lines.push("");
-      lines.push(`**${m.folder}** (${n} ${n === 1 ? "entry" : "entries"} already there):`);
+      lines.push(`**${m.folder || "(unknown folder)"}** (${n} ${n === 1 ? "entry" : "entries"} already there):`);
       lines.push("");
       lines.push(m.existing.join(", "));
       lines.push("");
