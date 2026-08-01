@@ -518,19 +518,64 @@ function findDestinationCollisions(operations, projectRoot, ignored) {
   // nothing for a planned plan; it keeps the comparison honest for a hand-edited
   // one, where a Windows DM's backslash would otherwise miss the match and hand
   // back the credit this is withholding.
+  //
+  // A SECOND question, orthogonal to the one above, is WHEN a vacate happens
+  // relative to the entry it is being asked to excuse. Ignore-status alone
+  // decides IF an entry ever frees its source; this decides whether that free
+  // has already happened by the time the checked entry runs. Credit is given
+  // only when the vacating entry sits STRICTLY EARLIER in `entries` than the
+  // entry being checked, recorded as the vacating entry's INDEX rather than as
+  // a boolean, so the check below can compare positions rather than presence.
+  //
+  // POSITION, not APPLY_ORDER rank. Two entries of the SAME kind carry the
+  // SAME rank, so a rank comparison cannot order them at all, and this module
+  // ships a legal chain built from exactly that shape: two rename-with-
+  // link-rewrite entries, `A -> B` then `B -> C`, both rank 5, legal only
+  // because the free is written first. `entries` itself already arrives in
+  // apply order by the time it reaches here: buildScopedPlan sorts operations
+  // into APPLY_ORDER before calling runPrechecks, and applyPlan checks that
+  // same order (findOutOfOrder) before it re-runs these prechecks against
+  // whatever a hand-edited plan actually carries. Ties within one rank are
+  // preserved by that sort and are the order the executor actually applies,
+  // so the index into `entries` is the one signal that answers both the
+  // cross-rank and the same-rank question with a single comparison.
+  //
+  // This closes a real gap, not a hypothetical one. Without the position
+  // check, a later-ranked operation was credited with vacating a destination
+  // an EARLIER operation also targets: measured with a split-folder entry
+  // (rank 3) merging into a folder that already held a same-named file, and an
+  // entityRenames entry (rank 6, applied after) renaming that file away.
+  // Prechecks reported ok with zero collisions; apply then failed partway
+  // through the split, one article moved and the next refused with "git mv
+  // failed ... destination exists", a partition half-applied after the
+  // snapshot. absorb-folder shares the identical exposure for the same reason:
+  // its per-file entries are checked on the same terms as split-folder's.
+  //
+  // The fix also changes behavior in a case that was never the reported bug:
+  // a same-rank chain written in the DANGEROUS order, `A -> B` listed BEFORE
+  // `B -> C` with B on disk, used to pass these prechecks and would have
+  // overwritten B at apply time, because the global set below granted credit
+  // with no notion of order at all. It now correctly refuses. That is a
+  // second, separate hazard this same fix happens to close, not a widening of
+  // scope: the invariant was always "the free must already have happened",
+  // and the fill-before-free chain never satisfied it.
   const ignoredFroms =
     ignored === null ? null : new Set(list(ignored).map((i) => toPosix(i.from)).filter(Boolean));
-  const vacated = new Set();
-  for (const e of entries) {
+  const vacatedAt = new Map();
+  for (const [i, e] of entries.entries()) {
     if (!e.from || !e.to) continue;
     const from = toPosix(e.from);
     if (ignoredFroms === null || ignoredFroms.has(from)) continue;
-    vacated.add(samePathKey(from));
+    const key = samePathKey(from);
+    // First write wins: entries.entries() walks forward, so the first entry
+    // that vacates a given key IS the earliest one, and that is the only index
+    // any later entry ever needs to compare itself against.
+    if (!vacatedAt.has(key)) vacatedAt.set(key, i);
   }
 
   const byDir = new Map();
   const hits = [];
-  for (const e of entries) {
+  for (const [i, e] of entries.entries()) {
     if (!e.to) continue;
     const to = toPosix(e.to);
     const key = samePathKey(to);
@@ -547,7 +592,17 @@ function findDestinationCollisions(operations, projectRoot, ignored) {
     }
 
     if (!rootUsable || e.mayExist) continue;
-    if (vacated.has(key)) continue;
+    // <= rather than <: an entry with a case-only from/to (Items-INDEX.md to
+    // items-INDEX.md) has ONE index that both vacates and fills the same
+    // samePathKey, because the fold that makes them "the same destination"
+    // also makes them "the same source". That entry has to be able to credit
+    // ITSELF, or a case-only rename would refuse over a file it is itself
+    // renaming, on a filesystem that reads the two spellings as one path. No
+    // OTHER entry can ever produce vacatedIndex === i, since each index in
+    // `entries` names exactly one entry, so widening to <= only reaches this
+    // self case and does not let a later, different entry back in.
+    const vacatedIndex = vacatedAt.get(key);
+    if (vacatedIndex !== undefined && vacatedIndex <= i) continue;
     if (!existsSync(path.resolve(projectRoot, to))) continue;
     hits.push({
       kind: "on-disk",
@@ -2263,18 +2318,16 @@ function planSplitFolders(items, ctx, key) {
       // collision and aborts the run in the plan phase, before the snapshot.
       // migrate.plan.test.mjs pinned that from a hand-edited plan precisely
       // because this guard made it unreachable from the planner; it is now
-      // reachable from both sides and pinned from both.
-      //
-      // THE EXCEPTION: findDestinationCollisions builds its vacated set from
-      // every entry carrying both a from and a to, without comparing APPLY_ORDER
-      // ranks. A later-ranked operation (an entityRenames entry, rank 6, run
-      // after this split's rank 3) can therefore be credited with vacating a
-      // destination this split also targets, so prechecks report ok and the run
-      // reaches apply before failing partway through the split, one article
-      // moved and the next refused. git mv refusing rather than overwriting, and
-      // the pre-migration snapshot, are what keep that from losing anything;
-      // this guard's own guarantee is narrower than "aborts before the
-      // snapshot" in that one shape.
+      // reachable from both sides and pinned from both. This used to carry an
+      // exception: findDestinationCollisions credited a later-ranked operation
+      // (an entityRenames entry, rank 6, run after this split's rank 3) with
+      // vacating a destination this split also targets, purely because rank
+      // could not order two same-rank entries and the vacate set carried no
+      // position at all. findDestinationCollisions now keys vacate credit on
+      // each entry's position in apply order rather than on rank, so a later
+      // entry can no longer be credited with a free that has not happened yet
+      // by the time this split runs. See the position comment inside that
+      // function for the fix and for the same-rank chain it also corrects.
       //
       // WHAT EXISTENCE CANNOT COVER is a destination that is not a directory, so
       // that is what this refuses now. `git mv locations/Ashfall.md

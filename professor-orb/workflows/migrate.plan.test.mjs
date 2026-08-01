@@ -727,45 +727,62 @@ try {
   }
 
   {
-    // The safe direction, and the one that cost a legitimate migration a rerun.
-    // The vacate lookup asks its question with the DESTINATION's key and answers
-    // it from the vacating operation's `from`, so a dotted destination missed a
-    // path the plan genuinely frees and the run refused an A -> B, B -> C chain
-    // the module's own comment names as legal.
+    // NOT "the safe direction" because of the order these two are listed in;
+    // that phrase used to describe this case and had it backwards. What makes
+    // this legal is that the FREEING rename is listed first, exactly like the
+    // canonical A -> B, B -> C chain above: op0 frees Vault-Of-Secrets.md, op1
+    // fills it. That ordering is deliberate and load-bearing, not incidental,
+    // and it must not be flipped back: measured against real applyPlan with
+    // the two swapped (fill listed before free, both plain-spelled), prechecks
+    // reported ok true and the run then half-applied, one git mv succeeding and
+    // the other refusing with "fatal: destination exists" on the still-occupied
+    // path. See "A same-rank chain that fills before it frees" below, which
+    // pins that exact measurement.
+    //
+    // What THIS case actually exists to pin, now that the order is fixed, is
+    // the dotted spelling: the vacate lookup asks its question with the
+    // DESTINATION's key and answers it from the vacating operation's `from`, so
+    // a dotted destination (op1's `to` here) has to fold to the same key as the
+    // plain-spelled path op0 frees, or a dotted spelling would miss a path the
+    // plan genuinely frees ahead of it and the run would refuse a legal chain.
     const p = plan(
       {
         renames: [
+          {
+            file: "settings/rolara/Vault-Of-Secrets.md",
+            to: "settings/rolara/Vault-Of-Secrets-LOCATION.md",
+            ruleId: "filenameSuffixByType",
+          },
           {
             file: "settings/rolara/Ashfall-Compact.md",
             to: "./settings/rolara/Vault-Of-Secrets.md",
             ruleId: "filenameCharset",
           },
-          {
-            file: "settings/rolara/Vault-Of-Secrets.md",
-            to: "settings/rolara/Vault-Of-Secrets-LOCATION.md",
-            ruleId: "filenameSuffixByType",
-          },
         ],
       },
       repo
     );
-    check("a dotted destination still gets the vacate credit its plain spelling earns: A -> ./B, B -> C is legal",
+    check("freeing B first, then filling it under a dotted spelling (./B), still gets the vacate credit its plain spelling would earn",
       [p.prechecks.ok, p.prechecks.collisions], [true, []]);
   }
 
   {
     // Pin one: the ordinary chain, no dotted spelling anywhere, on the same two
-    // files as the case above. Widening the fold must not have changed this, and
-    // the pair together is the differential.
+    // files as the case above and in the same deliberate order: the freeing
+    // rename listed first, the filling rename second. Widening the fold must
+    // not have changed this, and the pair together is the differential. Do not
+    // swap the order to "test the other direction": that different case, with a
+    // measured apply-time failure, is pinned on its own below rather than by
+    // editing this one.
     const p = plan(
       {
         renames: [
-          { file: "settings/rolara/Ashfall-Compact.md", to: "settings/rolara/Vault-Of-Secrets.md", ruleId: "filenameCharset" },
           {
             file: "settings/rolara/Vault-Of-Secrets.md",
             to: "settings/rolara/Vault-Of-Secrets-LOCATION.md",
             ruleId: "filenameSuffixByType",
           },
+          { file: "settings/rolara/Ashfall-Compact.md", to: "settings/rolara/Vault-Of-Secrets.md", ruleId: "filenameCharset" },
         ],
       },
       repo
@@ -818,6 +835,46 @@ try {
       [plain.prechecks.ok, plain.prechecks.collisions.map((c) => c.kind)], [false, ["on-disk"]]);
     check("and still refuses spelled with a leading ./",
       [dotted.prechecks.ok, dotted.prechecks.collisions.map((c) => c.kind)], [false, ["on-disk"]]);
+  }
+
+  console.log("\nVacate credit is keyed on position, not on APPLY_ORDER rank");
+
+  {
+    // The mirror image of the two legal chains pinned above (both entries
+    // share one rank, so rank alone cannot order them; only their position in
+    // the plan can). Those list the freeing rename FIRST and the fill second,
+    // which is legal: Vault-Of-Secrets.md is empty by the time the fill runs.
+    // This is the same two files renamed in the DANGEROUS order, fill before
+    // free, and it must refuse.
+    //
+    // Measured against real applyPlan on this exact plan, on the pre-fix code,
+    // rather than assumed: prechecks reported ok true, and the run then
+    // half-applied. `applied: 1, failed: 1`. The first rename (Ashfall-Compact.md
+    // -> Vault-Of-Secrets.md) failed with "git mv failed: fatal: destination
+    // exists, source=settings/rolara/Ashfall-Compact.md,
+    // destination=settings/rolara/Vault-Of-Secrets.md", because the second
+    // rename had not run yet to free it. The second rename (Vault-Of-Secrets.md
+    // -> Vault-Of-Secrets-LOCATION.md) ran anyway and succeeded, since nothing
+    // stops the loop after one operation fails. After: Ashfall-Compact.md still
+    // there, Vault-Of-Secrets.md gone, Vault-Of-Secrets-LOCATION.md created.
+    // That is a plan half-applied after the snapshot with `prechecks.ok: true`,
+    // exactly the failure mode the plan phase exists to prevent, so a vacate
+    // credited without regard to order is wrong here even though nothing was
+    // actually overwritten: `git mv` refuses rather than silently overwriting,
+    // but a refusal mid-run is still the outcome this check exists to catch
+    // before anything moves.
+    const p = plan(
+      {
+        renames: [
+          { file: "settings/rolara/Ashfall-Compact.md", to: "settings/rolara/Vault-Of-Secrets.md", ruleId: "filenameCharset" },
+          { file: "settings/rolara/Vault-Of-Secrets.md", to: "settings/rolara/Vault-Of-Secrets-LOCATION.md", ruleId: "filenameSuffixByType" },
+        ],
+      },
+      repo
+    );
+    check("a same-rank chain that fills before it frees refuses, even though the free is in the same plan",
+      [p.prechecks.ok, p.prechecks.collisions.map((c) => [c.kind, c.to])],
+      [false, [["on-disk", "settings/rolara/Vault-Of-Secrets.md"]]]);
   }
 
   console.log("\nAn ignored source does not vacate its destination");
@@ -1725,6 +1782,35 @@ function commitFixture(root) {
 }
 
 {
+  // absorb-folder has the identical shape as the split-folder case above and
+  // was confirmed to mis-approve it the same way before the position fix: an
+  // absorbed file's destination in the parent collides with a same-named file
+  // already there, and a same-plan entityRenames entry (rank 6, applied after
+  // absorb-folder's rank 2) renames the blocker away. destinationEntriesOf
+  // drops absorb-folder's own folder-level from/to (see the comment above that
+  // function), so this is entirely the per-file half of the check: the
+  // absorbed Ashfall.md's entry, not the folder's.
+  const root = absorbFixture();
+  writeAt(root, "settings/rolara/misc/Ashfall.md", "---\ntype: Location\n---\n\nThe article being absorbed.\n");
+  writeAt(root, "settings/rolara/Ashfall.md", "---\ntype: Location\n---\n\nA different article already in the parent.\n");
+  commitFixture(root);
+  const r = scoped(
+    {
+      absorbFolders: [{ folder: "settings/rolara/misc" }],
+      entityRenames: [{ file: "settings/rolara/Ashfall.md", to: "settings/rolara/Ashfall-OLD.md" }],
+    },
+    root
+  );
+  check("both entries plan; the absorbed article's own destination is what collides",
+    [kindsOf(r.operations), r.declined.length],
+    [["absorb-folder", "rename-entity", "rebuild-index"], 0]);
+  check("a later-ranked rename in the same plan does not excuse the absorb's on-disk collision",
+    [r.prechecks.ok, list(r.prechecks.collisions).map((c) => [c.kind, c.op, c.to])],
+    [false, [["on-disk", "absorb-folder", "settings/rolara/Ashfall.md"]]]);
+  rmSync(root, { recursive: true, force: true });
+}
+
+{
   const root = absorbFixture();
   writeAt(root, "settings/rolara/misc/Hidden.md", "---\ntype: Concept\n---\n\nA draft kept out of git.\n");
   writeAt(root, "settings/rolara/Spare.md", "---\ntype: Concept\n---\n\nBody.\n");
@@ -1926,6 +2012,49 @@ function splitFixture() {
     root
   );
   check("an article merging onto a same-named existing file aborts the run",
+    [r.prechecks.ok, list(r.prechecks.collisions).map((c) => [c.kind, c.op, c.to])],
+    [false, [["on-disk", "split-folder", "settings/rolara/locations/north/Ashfall.md"]]]);
+  rmSync(root, { recursive: true, force: true });
+}
+
+{
+  // The exact shape measured in a real repository: the same collision as the
+  // case just above, but with a same-plan entityRenames entry (rank 6) that
+  // renames the blocking file away. It runs AFTER the split (rank 3) in apply
+  // order, whatever order the two entries were written in the scope, because
+  // SCOPED_PLANNERS runs planners in declared rank order. Before
+  // findDestinationCollisions compared position instead of rank, a later
+  // entry of a DIFFERENT kind could still be credited with vacating a
+  // destination an earlier one targets, purely because it carried a matching
+  // `from`; prechecks reported ok with zero collisions, and apply reached the
+  // split before failing partway through it with "git mv failed ...
+  // destination exists", one article moved and the next refused. This must
+  // still refuse in the plan phase, before anything moves.
+  //
+  // A real, git-committed repository, not the plain temp dir splitFixture()
+  // builds: findIgnoredSources answers null (undetermined) with no repository
+  // underneath, and the vacate-credit loop withholds credit unconditionally
+  // for an undetermined answer. That would refuse this case for the ignored
+  // reason rather than the position one, which is not what this pins.
+  const root = splitFixture();
+  writeAt(root, "settings/rolara/locations/north/Ashfall.md",
+    "---\ntype: Location\n---\n\nA different article that already lives here.\n");
+  commitFixture(root);
+  const r = scoped(
+    {
+      splitFolders: [
+        { folder: "settings/rolara/locations", buckets: [{ name: "north", articles: ["Ashfall.md"] }] },
+      ],
+      entityRenames: [
+        { file: "settings/rolara/locations/north/Ashfall.md", to: "settings/rolara/locations/north/Ashfall-OLD.md" },
+      ],
+    },
+    root
+  );
+  check("both entries plan; the split's own bucket article is what collides",
+    [kindsOf(r.operations), r.declined.length],
+    [["split-folder", "rename-entity", "create-index", "rebuild-index"], 0]);
+  check("a later-ranked rename in the same plan does not excuse the split's on-disk collision",
     [r.prechecks.ok, list(r.prechecks.collisions).map((c) => [c.kind, c.op, c.to])],
     [false, [["on-disk", "split-folder", "settings/rolara/locations/north/Ashfall.md"]]]);
   rmSync(root, { recursive: true, force: true });
