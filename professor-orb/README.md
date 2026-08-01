@@ -4,7 +4,7 @@ A Claude Code plugin for D&D Dungeon Masters managing a campaign knowledge base.
 
 ## Architecture overview
 
-Professor Orb ships as a standard Claude Code plugin: skills, agents, four commands, a pair of hooks, and two workflow scripts, declared in `.claude-plugin/plugin.json`.
+Professor Orb ships as a standard Claude Code plugin: skills, agents, five commands, a pair of hooks, and two workflow scripts, declared in `.claude-plugin/plugin.json`.
 
 Two facts govern everything else in this plugin:
 
@@ -31,6 +31,7 @@ Setup also produces the rest of `.professor-orb/`: `pipeline-state.json` (a brea
 | /catalog | Command | Captures one finalized, DM-confirmed piece of homebrew as a type-specific, versioned catalog entry, and maintains it across its playtest life | `/catalog` with the finalized homebrew pasted or referenced, or a name/type to catalog |
 | /scribe | Command | Commits the setting KB lane (`settings/<setting>/`): what `chronicler` and `timeline` wrote, plus the DM's own Obsidian edits. Authors no KB content itself | `/scribe`, "commit the lore," "commit the KB changes" |
 | /log | Command | Commits the session-reports lane (`session-reports/<setting>/<campaign>/`): reports, prep briefs, recaps, and handouts. Sets an unfinished report aside by name and commits the rest | `/log`, "commit the session report," "commit the recap" |
+| /genesis | Command | Creates a new setting: three prong folders scaffolded to professor-orb's layout, a vault, a tag registry, and a conventions.json entry. Adopts a folder tree that already exists rather than refusing it | `/genesis`, "start a second world", "new setting", "new campaign world" |
 | /migrate | Command | Restructures the knowledge base to a DM-stated scope, or to setup's deferred items and the sweep's needs-judgment findings. Writes a proposal the DM may edit, then executes exactly what the approved file says, landing a preparation commit and a migration commit whose combined undo is two git reverts | `/migrate`, "clean up items/", "rename X to Y everywhere", "retire the Karsk campaign" |
 | migrate | Workflow | Migration executor shared by setup's onboarding migration and `/migrate`: a mutation-free plan phase, then an apply phase that moves files with `git mv` and asserts link integrity before committing | Via the Workflow tool, from `.claude/workflows/migrate.mjs` (copied there by `setup`); run during setup's onboarding migration and by `/migrate` |
 | validation-sweep | Workflow | Whole-KB convention audit at scale: a read-only scan phase, then an approved fix phase | Via the Workflow tool, from `.claude/workflows/validation-sweep.mjs` (copied there by `setup`) |

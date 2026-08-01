@@ -159,6 +159,15 @@ setup's onboarding migration.
 _Avoid_: executing anything the approved proposal does not carry, rewriting body
 prose, running on a dirty tree
 
+**starter layout**:
+The folder tree /genesis lays down for a new world: one folder per knowledge-base
+article type (people, locations, organizations, items, creatures, concepts), one
+per homebrew artifact type (spells, magic-items, feats, features, monsters, npcs,
+species, subclasses, classes, other), each with its own index. Derived from the
+base type enum, applied rather than discovered, and pinned by a case in
+migrate.plan.test.mjs so a type added to the enum without a folder fails there.
+_Avoid_: calling it a template, or describing it as a default the consumer overrides
+
 **folder-index parity**:
 The structural convention professor-orb introduces (amending Rolara's current,
 sloppier practice via the resync flow): exactly one index per folder; subfolders
