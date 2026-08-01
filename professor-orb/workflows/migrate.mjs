@@ -1332,8 +1332,10 @@ function planVacates(o, target) {
 // and declined the split-folder entry over a bucket name that will be free by the
 // time the rank-3 split runs. See planVacates. That guard has since been narrowed
 // to fire only when the destination is also not a folder, but namedPathPresent is
-// still one of its two conditions, so a bucket path an earlier operation vacates
-// must still resolve to free here, or the narrowed guard would wrongly refuse it too.
+// still one of its two conditions. The kind check answers false for a directory
+// whether or not frees resolves it, so it is only when a FILE sits at the pre-vacate
+// path that a bucket an earlier operation vacates must still resolve to free here,
+// or the narrowed guard would wrongly refuse it too.
 //
 // NEITHER DIRECTION MODELS THE SKIP, and that is a limit rather than an oversight.
 // findDestinationCollisions withholds vacate credit from an operation whose source is

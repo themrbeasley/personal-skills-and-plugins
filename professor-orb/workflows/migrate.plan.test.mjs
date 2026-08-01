@@ -2330,11 +2330,17 @@ console.log("\n=== scoped plans: every path a scope names is checked at plan tim
 // the split-folder entry over a path that will be empty by the time the split runs.
 // The relocate is rank 1 and the split rank 3, so the order is not in doubt.
 // namedPathPresent still gates the split guard today, now paired with a kind check
-// that only narrows what it refuses, so a vacated path must still resolve free here
-// or the narrowed guard refuses it too.
+// that answers false for a directory whether or not frees resolves it, so only a
+// FILE at the vacated path exercises the frees model. Both cases below put a file
+// there for exactly that reason: a directory would pass whether planVacates works
+// or not, which is the discrimination a directory fixture would silently lose.
 {
   const root = splitFixture();
-  writeAt(root, "settings/rolara/locations/north/Old.md", "---\ntype: Location\n---\n\nBody.\n");
+  // A FILE at the vacated path, not a directory. namedPathNotAFolder answers true
+  // for a directory regardless of whether planVacates runs, so a directory here
+  // would pass this check even with the frees model removed; a file is what makes
+  // the case depend on planVacates.
+  writeAt(root, "settings/rolara/locations/north", "not a folder\n");
   const r = scoped(
     {
       pathMoves: [
@@ -2358,8 +2364,13 @@ console.log("\n=== scoped plans: every path a scope names is checked at plan tim
   // settings/rolara/misc/odds, which is on disk, so a bucket name that was correctly
   // accepted before the rewind existed started being declined. Both moves rank 1 and
   // the second empties the path, so the name is free at rank 3.
+  //
+  // A FILE at that rewound path, not a directory, for the same reason as the case
+  // above: the guard's kind check exempts a directory whether or not planVacates
+  // runs, so a file is what makes this pin the chain of moves rather than the kind
+  // check alone.
   const root = absorbFixture();
-  writeAt(root, "settings/rolara/misc/odds/Keep.md", "---\ntype: Concept\n---\n\nBody.\n");
+  writeAt(root, "settings/rolara/misc/odds", "not a folder\n");
   const r = scoped(
     {
       pathMoves: [
