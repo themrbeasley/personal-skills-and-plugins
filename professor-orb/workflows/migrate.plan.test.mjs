@@ -1874,8 +1874,60 @@ function splitFixture() {
     },
     root
   );
-  check("a bucket whose folder already exists is declined",
+  // Merging unorganized material into organized material is the ordinary use of
+  // a split, not a hazard. The overwrite this used to refuse for is caught per
+  // file by findDestinationCollisions, which is the check that actually protects
+  // the DM's files; see the case below that exercises it from the planner.
+  check("a bucket whose folder already exists merges into it",
+    [kindsOf(r.operations), r.declined.length, r.prechecks.ok],
+    [["split-folder", "create-index", "rebuild-index"], 0, true]);
+  check("and the bucket index is created inside the folder it merged into",
+    find(r.operations, "create-index").to,
+    "settings/rolara/locations/north/North-INDEX.md");
+  rmSync(root, { recursive: true, force: true });
+}
+
+{
+  const root = splitFixture();
+  // A FILE where the bucket names a folder. git mv into it fails at apply time,
+  // and the per-article collision check cannot catch it, because the article's
+  // own destination path (north/Ashfall.md) does not exist either.
+  writeAt(root, "settings/rolara/locations/north", "not a folder\n");
+  const r = scoped(
+    {
+      splitFolders: [
+        { folder: "settings/rolara/locations", buckets: [{ name: "north", articles: ["Ashfall.md"] }] },
+      ],
+    },
+    root
+  );
+  check("a bucket whose destination holds a file is declined",
     [r.operations.length, r.declined.length], [0, 1]);
+  check("and the reason names the path and says it is a file",
+    [String(obj(r.declined[0]).target), /is a file, not a folder/.test(String(obj(r.declined[0]).reason))],
+    ["settings/rolara/locations/north", true]);
+  rmSync(root, { recursive: true, force: true });
+}
+
+{
+  const root = splitFixture();
+  // The protection the old guard stood in for, now reachable from the PLANNER
+  // rather than only from a hand-edited plan. An article merging onto a
+  // same-named file in the destination is an on-disk collision, and a collision
+  // aborts the whole run before anything moves.
+  writeAt(root, "settings/rolara/locations/north/Ashfall.md",
+    "---\ntype: Location\n---\n\nA different article that already lives here.\n");
+  const r = scoped(
+    {
+      splitFolders: [
+        { folder: "settings/rolara/locations", buckets: [{ name: "north", articles: ["Ashfall.md"] }] },
+      ],
+    },
+    root
+  );
+  check("an article merging onto a same-named existing file aborts the run",
+    [r.prechecks.ok, list(r.prechecks.collisions).map((c) => [c.kind, c.op, c.to])],
+    [false, [["on-disk", "split-folder", "settings/rolara/locations/north/Ashfall.md"]]]);
   rmSync(root, { recursive: true, force: true });
 }
 
@@ -2274,9 +2326,12 @@ console.log("\n=== scoped plans: every path a scope names is checked at plan tim
 
 // The plan is a model of FILLS and of FREES, because the checks ask in both
 // directions. namedPathPresent is the one that wants a path ABSENT, and with frees
-// unmodelled it refused a bucket name an earlier operation carries away, with "That
-// subfolder already exists" about a path that will be empty by the time the split
-// runs. The relocate is rank 1 and the split rank 3, so the order is not in doubt.
+// unmodelled it refused a bucket name an earlier operation carries away, declining
+// the split-folder entry over a path that will be empty by the time the split runs.
+// The relocate is rank 1 and the split rank 3, so the order is not in doubt.
+// namedPathPresent still gates the split guard today, now paired with a kind check
+// that only narrows what it refuses, so a vacated path must still resolve free here
+// or the narrowed guard refuses it too.
 {
   const root = splitFixture();
   writeAt(root, "settings/rolara/locations/north/Old.md", "---\ntype: Location\n---\n\nBody.\n");

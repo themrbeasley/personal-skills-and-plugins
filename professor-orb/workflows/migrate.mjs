@@ -1329,8 +1329,11 @@ function planVacates(o, target) {
 // it refused a bucket name an earlier operation vacates. Reachable, and a false refusal
 // the fills half introduced: `pathMoves [{A -> B}, {B/x -> D}]` plus `splitFolders
 // {folder: B, buckets: [{name: x}]}` had the rewind map B/x back to A/x, which exists,
-// and declined the entry with "That subfolder already exists" about a path that will be
-// free by the time the rank-3 split runs. See planVacates.
+// and declined the split-folder entry over a bucket name that will be free by the
+// time the rank-3 split runs. See planVacates. That guard has since been narrowed
+// to fire only when the destination is also not a folder, but namedPathPresent is
+// still one of its two conditions, so a bucket path an earlier operation vacates
+// must still resolve to free here, or the narrowed guard would wrongly refuse it too.
 //
 // NEITHER DIRECTION MODELS THE SKIP, and that is a limit rather than an oversight.
 // findDestinationCollisions withholds vacate credit from an operation whose source is
@@ -2214,12 +2217,36 @@ function planSplitFolders(items, ctx, key) {
         break;
       }
       const dest = `${folder}/${name}`;
-      if (namedPathPresent(ctx, dest, "split-folder", operations)) {
+      // A BUCKET MAY LAND IN A FOLDER THAT ALREADY EXISTS. Merging unorganized
+      // material into organized material is the ordinary use of a split, and this
+      // used to refuse it outright with "That subfolder already exists".
+      //
+      // The hazard that decline named, an article silently overwriting a file the
+      // proposal never showed, is covered per file and always was:
+      // destinationEntriesOf gives every bucket article its own entry with
+      // mayExist false, so an article landing on an existing file is an on-disk
+      // collision and aborts the run in the plan phase, before the snapshot.
+      // migrate.plan.test.mjs pinned that from a hand-edited plan precisely
+      // because this guard made it unreachable from the planner; it is now
+      // reachable from both sides and pinned from both.
+      //
+      // WHAT EXISTENCE CANNOT COVER is a destination that is not a directory, so
+      // that is what this refuses now. `git mv locations/Ashfall.md
+      // locations/north/Ashfall.md` with a FILE at locations/north fails at apply
+      // time, and the per-article check cannot see it: that article's destination
+      // path genuinely does not exist, so nothing on disk collides. Declining a
+      // plan that cannot execute is the plan phase's own stated posture.
+      //
+      // Both predicates are plan-aware and both answer false when the root is
+      // unusable, so an unanswerable question plans rather than declines.
+      if (
+        namedPathPresent(ctx, dest, "split-folder", operations) &&
+        namedPathNotAFolder(ctx, dest, "split-folder", operations)
+      ) {
         declined.push({
           op: "split-folder",
           target: dest,
-          reason:
-            "That subfolder already exists. Moving articles into it would merge the split into an existing folder whose contents the proposal never listed.",
+          reason: `${dest} is a file, not a folder, so articles cannot be moved into it. Rename the bucket, or move that file aside first.`,
         });
         refused = true;
         break;
