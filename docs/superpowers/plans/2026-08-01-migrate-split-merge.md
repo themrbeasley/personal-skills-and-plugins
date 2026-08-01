@@ -361,9 +361,13 @@ In `migrate.mjs`, immediately after the `rebuilds` Map declaration and its comme
   const bucketIndexes = new Map();
 ```
 
-- [ ] **Step 4: Replace the bucket index loop**
+- [ ] **Step 4: Replace the bucket index loop, and move it ABOVE the split-folder push**
 
-Replace lines 2287 through 2294 (the `for (const bucket of buckets)` loop that pushes `create-index`) with:
+Replace the `for (const bucket of buckets)` loop that pushes `create-index` with the block below, and place it **before** the `operations.push({ op: "split-folder", ... })` call rather than after it.
+
+The placement is load-bearing and was proven by test. With the loop after the push, `existingIndexIn` is handed an `operations` list containing this entry's own `split-folder` operation. `planCreatesOutright` iterates `o.buckets` and returns `"directory"` when a bucket's `folder` matches the target, so `planResolve` answers `{creates: "directory"}` and `existingIndexIn` returns null for every bucket. An index genuinely on disk would never be found and every merged bucket would take the create path, which is the exact bug this task exists to fix. Measured: three cases fail permanently under the later placement. `precedingOperations` already states the rule this honours: "No planner pushes its own item's operations before checking them, so a check never sees its own."
+
+The key is `samePathKey(bucket.folder)`, not the index path. Keying on the index path only dedupes when two entries compute the same path, and they do not always: entry 2's `existingIndexIn` is blinded by entry 1's operation and falls back to the default stem, so when entry 1 found an index under a different stem the keys diverge and one bucket receives both a rebuild and a create. Measured: two indexes in one folder, zero declines, `prechecks.ok` true.
 
 ```javascript
     // A bucket landing in a folder that already holds an index REBUILDS that
@@ -379,14 +383,14 @@ Replace lines 2287 through 2294 (the `for (const bucket of buckets)` loop that p
     // existingIndexIn returns null for a folder an earlier operation creates, so
     // a genuinely new bucket takes the create path with no special case here.
     for (const bucket of buckets) {
-      const existing = existingIndexIn(ctx, bucket.folder, suffix, "split-folder", operations);
-      const to = existing || `${bucket.folder}/${indexStemFor(bucket.name, suffix)}.md`;
-      const already = bucketIndexes.get(to);
+      const already = bucketIndexes.get(samePathKey(bucket.folder));
       if (already) {
         already.groups.push(group);
         continue;
       }
-      bucketIndexes.set(to, {
+      const existing = existingIndexIn(ctx, bucket.folder, suffix, "split-folder", operations);
+      bucketIndexes.set(samePathKey(bucket.folder), {
+        to: existing || `${bucket.folder}/${indexStemFor(bucket.name, suffix)}.md`,
         kind: existing ? "rebuild-index" : "create-index",
         bucketFolder: bucket.folder,
         name: bucket.name,
@@ -407,7 +411,7 @@ In `migrate.mjs`, immediately before the existing `for (const [to, { folder, buc
   // carries no meaning. create-index ranks 7 and rebuild-index 9, both above
   // splitFolders' declared rank of 3, which is what the emit-side check in
   // buildScopedPlan requires.
-  for (const [to, { kind, bucketFolder, name, splitFolder, groups }] of bucketIndexes) {
+  for (const [, { to, kind, bucketFolder, name, splitFolder, groups }] of bucketIndexes) {
     operations.push(
       kind === "rebuild-index"
         ? {
