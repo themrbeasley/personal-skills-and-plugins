@@ -2257,13 +2257,24 @@ function planSplitFolders(items, ctx, key) {
       // used to refuse it outright with "That subfolder already exists".
       //
       // The hazard that decline named, an article silently overwriting a file the
-      // proposal never showed, is covered per file and always was:
+      // proposal never showed, is covered per file in the ordinary case:
       // destinationEntriesOf gives every bucket article its own entry with
       // mayExist false, so an article landing on an existing file is an on-disk
       // collision and aborts the run in the plan phase, before the snapshot.
       // migrate.plan.test.mjs pinned that from a hand-edited plan precisely
       // because this guard made it unreachable from the planner; it is now
       // reachable from both sides and pinned from both.
+      //
+      // THE EXCEPTION: findDestinationCollisions builds its vacated set from
+      // every entry carrying both a from and a to, without comparing APPLY_ORDER
+      // ranks. A later-ranked operation (an entityRenames entry, rank 6, run
+      // after this split's rank 3) can therefore be credited with vacating a
+      // destination this split also targets, so prechecks report ok and the run
+      // reaches apply before failing partway through the split, one article
+      // moved and the next refused. git mv refusing rather than overwriting, and
+      // the pre-migration snapshot, are what keep that from losing anything;
+      // this guard's own guarantee is narrower than "aborts before the
+      // snapshot" in that one shape.
       //
       // WHAT EXISTENCE CANNOT COVER is a destination that is not a directory, so
       // that is what this refuses now. `git mv locations/Ashfall.md
@@ -4547,7 +4558,7 @@ export function renderProposal({ scope, plan, projectRoot, settings }) {
     lines.push("## Merging into existing folders");
     lines.push("");
     lines.push(
-      "Each bucket below lands in a folder that already holds material. Nothing listed as already there is moved, renamed, or overwritten by this plan."
+      "Each bucket below lands in a folder that already holds material. An article moving in that would land on a same-named file already there is a destination collision that stops the whole run before anything moves; that is the only guarantee this section carries. Other operations in this same plan may still edit or rename what is listed here, including its index."
     );
     for (const m of merges) {
       const n = m.existing.length;

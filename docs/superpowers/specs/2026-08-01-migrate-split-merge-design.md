@@ -82,13 +82,19 @@ the parent rebuild already uses:
 `existingIndexIn` returns null when an earlier operation in the plan creates the folder, so a
 genuinely new bucket takes the create path with no special case.
 
-**Bucket rebuilds dedupe on the index path**, through the same mechanism the parent rebuild
-already uses. Two scope entries naming one bucket would otherwise emit the same `rebuild-index`
-twice, which is an in-plan collision by the generic rule, and the run would refuse with a
-message about an index path rather than about the scope the DM wrote. The existing `rebuilds`
-Map carries `{folder, bucketCount, groups}` and renders a parent-specific reason, so bucket
-rebuilds need their own entry shape rather than sharing that value; keyed on the same index
-path so the two can never both claim one destination.
+**Bucket rebuilds dedupe on the bucket folder, not the index path.** Two scope entries naming
+one bucket would otherwise emit the same `rebuild-index` twice, which is an in-plan collision
+by the generic rule, and the run would refuse with a message about an index path rather than
+about the scope the DM wrote. The existing `rebuilds` Map carries `{folder, bucketCount,
+groups}` and renders a parent-specific reason, so bucket rebuilds need their own entry shape
+rather than sharing that value. Keying that entry on the index path, as originally planned
+here, turns out to be unsound: a later entry's `existingIndexIn` call for a bucket an earlier
+entry's own `split-folder` operation already touched is blinded by that operation (the folder
+reads as freshly created), so the later entry falls back to `indexStemFor`'s default stem while
+the earlier entry found the real index under a different stem. Two entries then compute two
+different `to` values for one bucket, and a key built from `to` misses the very duplicate this
+map exists to catch, leaving one bucket to receive both a rebuild and a create. The bucket
+folder has no such gap, so the map is keyed on `samePathKey(bucket.folder)` instead.
 
 Ordering needs nothing new. `split-folder` ranks 3 and `rebuild-index` ranks 9, so the rebuild
 reads the folder after the articles have arrived, which is the point.
