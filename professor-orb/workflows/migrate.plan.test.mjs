@@ -5217,6 +5217,55 @@ const MERGE_KARSK = { settingMerges: [{ from: "karsk", into: "rolara" }] };
   rmSync(root, { recursive: true, force: true });
 }
 
+console.log("\n=== genesis: the starter layout professor-orb lays down ===");
+
+{
+  // The layout /genesis creates. Written out rather than derived from
+  // base-rules.json, for the reason EXPECTED_ORDER above is written out: deriving
+  // it would compare the enum against itself and pass whichever way the enum
+  // changed. This literal IS the decision, from the /genesis spec.
+  const KB_FOLDERS = ["people", "locations", "organizations", "items", "creatures", "concepts"];
+  const HOMEBREW_FOLDERS = [
+    "spells", "magic-items", "feats", "features", "monsters",
+    "npcs", "species", "subclasses", "classes", "other",
+  ];
+
+  // Every knowledge-base subject type in the base enum has a folder, and the four
+  // that are not subject types have none. A type added to the enum without a
+  // folder here would be a type with nowhere to live that satisfies parity.
+  const enumRule = obj(obj(obj(BASE_RULES).rules).frontmatterTypeEnum);
+  const values = list(obj(enumRule.params).values);
+  const NON_SUBJECT = ["Index", "Session Report", "Session Prep", "Chronology"];
+  const HOMEBREW_KEYS = [
+    "spell", "magic-item", "feat", "feature", "monster",
+    "npc", "species", "subclass", "class", "other",
+  ];
+  const kbTypes = values.filter((v) => !NON_SUBJECT.includes(v) && !HOMEBREW_KEYS.includes(v));
+
+  check("every knowledge-base subject type has exactly one starter folder",
+    [kbTypes.length, KB_FOLDERS.length], [6, 6]);
+  check("and the base enum still holds the six the layout was derived from",
+    kbTypes.slice().sort(),
+    ["Concept", "Creature", "Item", "Location", "Organization", "Person"]);
+  check("every homebrew artifact key has exactly one starter folder",
+    [HOMEBREW_KEYS.every((k) => values.includes(k)), HOMEBREW_FOLDERS.length],
+    [true, 10]);
+
+  // The index each starter folder carries, under rolara's default suffix. A world
+  // whose setting declares "-IDX" takes that instead; the stem rule is the same.
+  const stem = (name, suffix) => `${name.charAt(0).toUpperCase()}${name.slice(1)}${suffix}`;
+  check("a starter folder's index stem Title Cases the folder name",
+    [stem("people", "-INDEX"), stem("magic-items", "-INDEX"), stem("npcs", "-IDX")],
+    ["People-INDEX", "Magic-items-INDEX", "Npcs-IDX"]);
+
+  // 7 knowledge-base indexes, 11 homebrew, 1 session-reports root, 1 vault, 1 tag
+  // registry. Plus one more create-index when a first campaign is named.
+  const opCount = (withCampaign) =>
+    (1 + KB_FOLDERS.length) + (1 + HOMEBREW_FOLDERS.length) + 1 + (withCampaign ? 1 : 0) + 1 + 1;
+  check("a new world is 21 operations, or 22 with a first campaign",
+    [opCount(false), opCount(true)], [21, 22]);
+}
+
 console.log(`\n${passed} passed, ${failures.length} failed`);
 if (failures.length > 0) {
   for (const f of failures) console.log(`  FAILED: ${f}`);
