@@ -2172,6 +2172,25 @@ function planSplitFolders(items, ctx, key) {
   // entry per folder is the ordinary case for a split, which is why this arrived
   // later here than there.
   const rebuilds = new Map();
+  // Bucket index path -> the ONE operation that writes it, across every scope
+  // entry rather than within one.
+  //
+  // Two entries naming one bucket folder became reachable when the existence
+  // decline narrowed to a kind decline. planCreatesOutright reports a
+  // split-folder operation's own bucket as creating that directory, so the old
+  // guard declined the second entry with "That subfolder already exists" and this
+  // case could not arise. Emitting per entry now gives two operations one
+  // destination, which is an in-plan collision by the generic rule, so the run
+  // would refuse with a message about an index path rather than about the scope
+  // the DM wrote. That is the same failure the parent `rebuilds` Map above exists
+  // to prevent, one level down.
+  //
+  // ONE MAP FOR BOTH KINDS rather than one per kind, because the two are
+  // alternatives for a single question (does this bucket folder already have an
+  // index) and a bucket must not receive both. foldDuplicateRebuilds later folds
+  // duplicate rebuild-index operations ACROSS planners, but it does not fold
+  // create-index, so relying on it would leave exactly half of this closed.
+  const bucketIndexes = new Map();
 
   for (const [i, item] of items.entries()) {
     const group = groupIdFor(key, i);
@@ -2305,6 +2324,47 @@ function planSplitFolders(items, ctx, key) {
     }
     for (const [source, dest] of mine) claimed.set(source, dest);
 
+    // Computed BEFORE this entry's own split-folder operation is pushed below,
+    // not after. planCreatesOutright reports a split-folder operation's own
+    // bucket as creating that directory (see bucketIndexes above, and the
+    // dedup case that relies on it). Read against `operations` with this
+    // entry's own operation already in it, that same self-report makes
+    // existingIndexIn see this entry's own bucket as freshly created and answer
+    // null even when a real index already sits at that path, which would create
+    // a second index rather than rebuild the one that is there. Asking before
+    // the push still sees every EARLIER entry's operations, so the dedup across
+    // entries and the plan-aware resolution existingIndexIn performs still work;
+    // only this entry's own not-yet-pushed operation is excluded.
+    //
+    // A bucket landing in a folder that already holds an index REBUILDS that
+    // index rather than creating a second one, and rebuilds it under whatever
+    // stem the DM gave it rather than under indexStemFor's. create-index is
+    // deliberately absent from DESTINATION_MAY_EXIST, so emitting one against an
+    // existing index is a destination collision and the run refuses: the merge
+    // would trade one refusal for another with a worse message. Creating
+    // North-INDEX.md beside an existing Northern-Reaches-INDEX.md would also
+    // leave two indexes in one folder, which is the multi-index finding the
+    // validation sweep reports as needing judgment.
+    //
+    // existingIndexIn returns null for a folder an earlier operation creates, so
+    // a genuinely new bucket takes the create path with no special case here.
+    for (const bucket of buckets) {
+      const existing = existingIndexIn(ctx, bucket.folder, suffix, "split-folder", operations);
+      const to = existing || `${bucket.folder}/${indexStemFor(bucket.name, suffix)}.md`;
+      const already = bucketIndexes.get(to);
+      if (already) {
+        already.groups.push(group);
+        continue;
+      }
+      bucketIndexes.set(to, {
+        kind: existing ? "rebuild-index" : "create-index",
+        bucketFolder: bucket.folder,
+        name: bucket.name,
+        splitFolder: folder,
+        groups: [group],
+      });
+    }
+
     operations.push({
       op: "split-folder",
       from: folder,
@@ -2313,21 +2373,37 @@ function planSplitFolders(items, ctx, key) {
       reason: String((item && item.reason) || "Split by a DM-approved /migrate scope."),
     });
 
-    for (const bucket of buckets) {
-      operations.push({
-        op: "create-index",
-        to: `${bucket.folder}/${indexStemFor(bucket.name, suffix)}.md`,
-        groups: [group],
-        reason: `Created for the ${bucket.name} bucket of the ${folder} split.`,
-      });
-    }
-
     const parentIndex = existingIndexIn(ctx, folder, suffix, "split-folder", operations);
     if (parentIndex) {
       if (!rebuilds.has(parentIndex)) rebuilds.set(parentIndex, { folder, bucketCount: 0, groups: [] });
       rebuilds.get(parentIndex).bucketCount += buckets.length;
       rebuilds.get(parentIndex).groups.push(group);
     }
+  }
+
+  // Emitted after the entry loop so the dedup above is complete, and in whatever
+  // order the Map iterates: buildScopedPlan sorts the accumulated operations into
+  // APPLY_ORDER before anything reads them, so a planner's own emission order
+  // carries no meaning. create-index ranks 7 and rebuild-index 9, both above
+  // splitFolders' declared rank of 3, which is what the emit-side check in
+  // buildScopedPlan requires.
+  for (const [to, { kind, bucketFolder, name, splitFolder, groups }] of bucketIndexes) {
+    operations.push(
+      kind === "rebuild-index"
+        ? {
+            op: "rebuild-index",
+            to,
+            folder: bucketFolder,
+            groups,
+            reason: `Rebuilt because the ${name} bucket merged articles into the existing folder ${bucketFolder}.`,
+          }
+        : {
+            op: "create-index",
+            to,
+            groups,
+            reason: `Created for the ${name} bucket of the ${splitFolder} split.`,
+          }
+    );
   }
 
   for (const [to, { folder, bucketCount, groups }] of rebuilds) {

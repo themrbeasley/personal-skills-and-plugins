@@ -1933,6 +1933,77 @@ function splitFixture() {
 
 {
   const root = splitFixture();
+  // The destination already has an index. Creating a second one would be a
+  // destination collision, and a folder with two indexes is the multi-index
+  // finding the validation sweep reports as needing judgment.
+  writeAt(root, "settings/rolara/locations/north/North-INDEX.md",
+    "---\ntype: Index\n---\n\n- [[Emberwatch]]\n");
+  writeAt(root, "settings/rolara/locations/north/Emberwatch.md",
+    "---\ntype: Location\n---\n\nBody.\n");
+  const r = scoped(
+    {
+      splitFolders: [
+        { folder: "settings/rolara/locations", buckets: [{ name: "north", articles: ["Ashfall.md"] }] },
+      ],
+    },
+    root
+  );
+  check("a bucket merging into a folder that has an index rebuilds it",
+    [kindsOf(r.operations), r.prechecks.ok],
+    [["split-folder", "rebuild-index", "rebuild-index"], true]);
+  check("and the rebuild names the index that was already there",
+    list(r.operations).filter((o) => o.op === "rebuild-index").map((o) => o.to).sort(),
+    ["settings/rolara/locations/Locations-INDEX.md", "settings/rolara/locations/north/North-INDEX.md"]);
+  rmSync(root, { recursive: true, force: true });
+}
+
+{
+  const root = splitFixture();
+  // The existing index does NOT match the stem indexStemFor would pick. Rebuild
+  // what is there rather than creating North-INDEX.md beside it.
+  writeAt(root, "settings/rolara/locations/north/Northern-Reaches-INDEX.md",
+    "---\ntype: Index\n---\n\n- [[Emberwatch]]\n");
+  const r = scoped(
+    {
+      splitFolders: [
+        { folder: "settings/rolara/locations", buckets: [{ name: "north", articles: ["Ashfall.md"] }] },
+      ],
+    },
+    root
+  );
+  check("an existing index under a different stem is the one rebuilt",
+    [kindsOf(r.operations),
+     list(r.operations).filter((o) => o.op === "rebuild-index").map((o) => o.to).sort()],
+    [["split-folder", "rebuild-index", "rebuild-index"],
+     ["settings/rolara/locations/Locations-INDEX.md",
+      "settings/rolara/locations/north/Northern-Reaches-INDEX.md"]]);
+  rmSync(root, { recursive: true, force: true });
+}
+
+{
+  const root = splitFixture();
+  // Two entries naming ONE bucket folder. Legal now that a bucket may merge, and
+  // it was the narrowed guard that made it reachable: planCreatesOutright reports
+  // the first entry's bucket as creating that directory, so the old existence
+  // check declined the second entry outright. Two index operations on one path
+  // would be an in-plan collision.
+  const r = scoped(
+    {
+      splitFolders: [
+        { folder: "settings/rolara/locations", buckets: [{ name: "north", articles: ["Ashfall.md"] }] },
+        { folder: "settings/rolara/locations", buckets: [{ name: "north", articles: ["Karsk.md"] }] },
+      ],
+    },
+    root
+  );
+  check("two entries naming one bucket emit one index operation, not two",
+    [kindsOf(r.operations), r.declined.length, r.prechecks.ok],
+    [["split-folder", "split-folder", "create-index", "rebuild-index"], 0, true]);
+  rmSync(root, { recursive: true, force: true });
+}
+
+{
+  const root = splitFixture();
   const r = scoped(
     {
       splitFolders: [
