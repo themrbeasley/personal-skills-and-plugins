@@ -2172,8 +2172,8 @@ function planSplitFolders(items, ctx, key) {
   // entry per folder is the ordinary case for a split, which is why this arrived
   // later here than there.
   const rebuilds = new Map();
-  // Bucket index path -> the ONE operation that writes it, across every scope
-  // entry rather than within one.
+  // Bucket folder, folded through samePathKey -> the ONE operation that
+  // writes its index, across every scope entry rather than within one.
   //
   // Two entries naming one bucket folder became reachable when the existence
   // decline narrowed to a kind decline. planCreatesOutright reports a
@@ -2184,6 +2184,20 @@ function planSplitFolders(items, ctx, key) {
   // would refuse with a message about an index path rather than about the scope
   // the DM wrote. That is the same failure the parent `rebuilds` Map above exists
   // to prevent, one level down.
+  //
+  // KEYED ON THE BUCKET FOLDER rather than on the computed index path, because
+  // the index path is not a sound key: an earlier entry's own split-folder
+  // operation blinds a LATER entry's existingIndexIn call for that same bucket
+  // (planCreatesOutright reports the bucket as freshly created), so the later
+  // entry falls back to indexStemFor's default while the earlier entry found
+  // the real, differently-stemmed index. Two entries then computed two
+  // different `to` values for one bucket, and a key built from `to` missed the
+  // very duplicate this Map exists to catch. The bucket folder carries no such
+  // gap: existingIndexIn always returns a path under `${folder}/${name}`, and
+  // the default is built under `bucket.folder` too, so folder -> index is
+  // injective and the folder is safe to key on directly. samePathKey also
+  // folds a leading `./`, a doubled separator, and a case difference, so two
+  // entries spelling one folder differently still land on one key.
   //
   // ONE MAP FOR BOTH KINDS rather than one per kind, because the two are
   // alternatives for a single question (does this bucket folder already have an
@@ -2325,16 +2339,28 @@ function planSplitFolders(items, ctx, key) {
     for (const [source, dest] of mine) claimed.set(source, dest);
 
     // Computed BEFORE this entry's own split-folder operation is pushed below,
-    // not after. planCreatesOutright reports a split-folder operation's own
-    // bucket as creating that directory (see bucketIndexes above, and the
-    // dedup case that relies on it). Read against `operations` with this
-    // entry's own operation already in it, that same self-report makes
-    // existingIndexIn see this entry's own bucket as freshly created and answer
-    // null even when a real index already sits at that path, which would create
-    // a second index rather than rebuild the one that is there. Asking before
-    // the push still sees every EARLIER entry's operations, so the dedup across
-    // entries and the plan-aware resolution existingIndexIn performs still work;
-    // only this entry's own not-yet-pushed operation is excluded.
+    // not after, honouring the general rule precedingOperations states above
+    // itself: "No planner pushes its own item's operations before checking
+    // them, so a check never sees its own." Pushing first and checking after
+    // would break that rule here specifically, because planCreatesOutright
+    // reports a split-folder operation's own bucket as creating that directory
+    // (see bucketIndexes above, and the dedup case that relies on it), so
+    // existingIndexIn would see this entry's own bucket as freshly created and
+    // answer null even when a real index already sits at that path, which would
+    // create a second index rather than rebuild the one that is there. Asking
+    // before the push still sees every EARLIER entry's operations, so the
+    // dedup across entries and the plan-aware resolution existingIndexIn
+    // performs still work; only this entry's own not-yet-pushed operation is
+    // excluded.
+    //
+    // The parentIndex call further down, after the push, is a standing
+    // exception to that same rule and is meant to be one: it reads `operations`
+    // with this entry's own split-folder already in it. That is harmless rather
+    // than a second instance of this bug, because planCreatesOutright only ever
+    // matches an operation's `o.buckets[].folder` or a `create-index`'s `o.to`,
+    // and neither is ever the split's own PARENT folder, so the self-report
+    // that blinds the bucket lookup above never fires for the parent lookup
+    // below.
     //
     // A bucket landing in a folder that already holds an index REBUILDS that
     // index rather than creating a second one, and rebuilds it under whatever
@@ -2349,14 +2375,14 @@ function planSplitFolders(items, ctx, key) {
     // existingIndexIn returns null for a folder an earlier operation creates, so
     // a genuinely new bucket takes the create path with no special case here.
     for (const bucket of buckets) {
-      const existing = existingIndexIn(ctx, bucket.folder, suffix, "split-folder", operations);
-      const to = existing || `${bucket.folder}/${indexStemFor(bucket.name, suffix)}.md`;
-      const already = bucketIndexes.get(to);
+      const already = bucketIndexes.get(samePathKey(bucket.folder));
       if (already) {
         already.groups.push(group);
         continue;
       }
-      bucketIndexes.set(to, {
+      const existing = existingIndexIn(ctx, bucket.folder, suffix, "split-folder", operations);
+      bucketIndexes.set(samePathKey(bucket.folder), {
+        to: existing || `${bucket.folder}/${indexStemFor(bucket.name, suffix)}.md`,
         kind: existing ? "rebuild-index" : "create-index",
         bucketFolder: bucket.folder,
         name: bucket.name,
@@ -2387,7 +2413,7 @@ function planSplitFolders(items, ctx, key) {
   // carries no meaning. create-index ranks 7 and rebuild-index 9, both above
   // splitFolders' declared rank of 3, which is what the emit-side check in
   // buildScopedPlan requires.
-  for (const [to, { kind, bucketFolder, name, splitFolder, groups }] of bucketIndexes) {
+  for (const [, { to, kind, bucketFolder, name, splitFolder, groups }] of bucketIndexes) {
     operations.push(
       kind === "rebuild-index"
         ? {

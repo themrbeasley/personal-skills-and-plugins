@@ -2004,6 +2004,63 @@ function splitFixture() {
 
 {
   const root = splitFixture();
+  // The intersection of the two cases above: two entries naming ONE bucket
+  // folder, and that folder already holds an index under a NON-default stem.
+  // Keying the dedup on the index PATH let entry 2's existingIndexIn call be
+  // blinded by entry 1's own not-yet-excluded split-folder operation
+  // (planCreatesOutright reports entry 1's bucket as creating that
+  // directory), so entry 2 fell back to indexStemFor's default and emitted a
+  // second create-index beside the real rebuild: two indexes in one folder,
+  // with prechecks reporting ok.
+  writeAt(root, "settings/rolara/locations/north/Northern-Reaches-INDEX.md",
+    "---\ntype: Index\n---\n\n- [[Emberwatch]]\n");
+  const r = scoped(
+    {
+      splitFolders: [
+        { folder: "settings/rolara/locations", buckets: [{ name: "north", articles: ["Ashfall.md"] }] },
+        { folder: "settings/rolara/locations", buckets: [{ name: "north", articles: ["Karsk.md"] }] },
+      ],
+    },
+    root
+  );
+  const bucketOps = list(r.operations).filter(
+    (o) => (o.op === "rebuild-index" || o.op === "create-index") && String(o.to).includes("/north/"));
+  check("two entries with a non-default existing bucket index emit exactly one index op",
+    bucketOps.length, 1);
+  check("and it rebuilds the index that was already there",
+    [bucketOps[0] && bucketOps[0].op, bucketOps[0] && bucketOps[0].to],
+    ["rebuild-index", "settings/rolara/locations/north/Northern-Reaches-INDEX.md"]);
+  check("and prechecks pass", r.prechecks.ok, true);
+  rmSync(root, { recursive: true, force: true });
+}
+
+{
+  const root = splitFixture();
+  // Same bucket, two spellings of the split folder: a leading ./ that toPosix
+  // does not fold. Keying the dedup on the raw computed `to` string missed
+  // this: the two entries built two differently-spelled index paths for the
+  // same real bucket, so two create-index operations were emitted, and
+  // findDestinationCollisions (which DOES fold a leading ./, through
+  // samePathKey) then caught them as an in-plan collision. The run refused
+  // with a message about an index path rather than about the scope, which is
+  // exactly the harm the Map's comment says it exists to prevent.
+  const r = scoped(
+    {
+      splitFolders: [
+        { folder: "settings/rolara/locations", buckets: [{ name: "north", articles: ["Ashfall.md"] }] },
+        { folder: "./settings/rolara/locations", buckets: [{ name: "north", articles: ["Karsk.md"] }] },
+      ],
+    },
+    root
+  );
+  check("a leading ./ on one entry still dedupes to one bucket index",
+    [kindsOf(r.operations), r.declined.length, r.prechecks.ok],
+    [["split-folder", "split-folder", "create-index", "rebuild-index"], 0, true]);
+  rmSync(root, { recursive: true, force: true });
+}
+
+{
+  const root = splitFixture();
   const r = scoped(
     {
       splitFolders: [
