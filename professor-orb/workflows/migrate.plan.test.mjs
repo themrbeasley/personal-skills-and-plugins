@@ -4912,6 +4912,48 @@ const MERGE_KARSK = { settingMerges: [{ from: "karsk", into: "rolara" }] };
   rmSync(root, { recursive: true, force: true });
 }
 
+// ---------------------------------------------------------------------------
+// A merging bucket records what its destination already holds
+// ---------------------------------------------------------------------------
+
+{
+  const root = splitFixture();
+  writeAt(root, "settings/rolara/locations/north/Emberwatch.md", "---\ntype: Location\n---\n\nBody.\n");
+  writeAt(root, "settings/rolara/locations/north/Frosthollow.md", "---\ntype: Location\n---\n\nBody.\n");
+  const r = scoped(
+    {
+      splitFolders: [
+        { folder: "settings/rolara/locations", buckets: [{ name: "north", articles: ["Ashfall.md"] }] },
+      ],
+    },
+    root
+  );
+  check("a merging bucket records what the destination already holds",
+    obj(list(find(r.operations, "split-folder").buckets)[0]).existing,
+    ["Emberwatch.md", "Frosthollow.md"]);
+  rmSync(root, { recursive: true, force: true });
+}
+
+{
+  const root = splitFixture();
+  // A bucket destination that does not exist holds nothing, and the field is
+  // omitted rather than set to an empty array, so an ordinary split's operation
+  // shape is unchanged.
+  const r = scoped(
+    {
+      splitFolders: [
+        { folder: "settings/rolara/locations", buckets: [{ name: "north", articles: ["Ashfall.md"] }] },
+      ],
+    },
+    root
+  );
+  check("a bucket that merges into nothing carries no existing field",
+    Object.prototype.hasOwnProperty.call(
+      obj(list(find(r.operations, "split-folder").buckets)[0]), "existing"),
+    false);
+  rmSync(root, { recursive: true, force: true });
+}
+
 console.log(`\n${passed} passed, ${failures.length} failed`);
 if (failures.length > 0) {
   for (const f of failures) console.log(`  FAILED: ${f}`);

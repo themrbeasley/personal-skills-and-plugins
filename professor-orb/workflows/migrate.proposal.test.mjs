@@ -941,6 +941,71 @@ const FULL_MERGE = [
     conventionsAfterScope(MERGE_CONVENTIONS, MERGE, FULL_MERGE));
 }
 
+{
+  const plan = {
+    operations: [
+      {
+        op: "split-folder",
+        from: "settings/rolara/locations",
+        buckets: [
+          {
+            folder: "settings/rolara/locations/north",
+            name: "north",
+            articles: [
+              { from: "settings/rolara/locations/Coldwater.md", to: "settings/rolara/locations/north/Coldwater.md" },
+              { from: "settings/rolara/locations/Hailstone.md", to: "settings/rolara/locations/north/Hailstone.md" },
+            ],
+            existing: ["Emberwatch.md", "Frosthollow.md", "North-INDEX.md"],
+          },
+          {
+            folder: "settings/rolara/locations/south",
+            name: "south",
+            articles: [
+              { from: "settings/rolara/locations/Dustmoor.md", to: "settings/rolara/locations/south/Dustmoor.md" },
+            ],
+          },
+        ],
+        reason: "DM scope",
+      },
+    ],
+    declined: [],
+    prechecks: { ok: true, collisions: [], ignored: [] },
+  };
+  const text = renderProposal({ scope: { summary: "split locations" }, plan, projectRoot: "/p", settings: [] });
+  check("a merging bucket gets a disclosure section naming the folder and its contents",
+    [text.includes("## Merging into existing folders"),
+     text.includes("**settings/rolara/locations/north** (3 entries already there)"),
+     text.includes("Emberwatch.md, Frosthollow.md, North-INDEX.md"),
+     text.includes("2 moving in: Coldwater.md, Hailstone.md")],
+    [true, true, true, true]);
+  // Narrowed from a bare path substring: "settings/rolara/locations/south" is
+  // already present twice before the merge section renders anything (the
+  // operations table's To column and the fenced professor-orb:plan block both
+  // serialize every bucket folder, and neither should change), so a whole-text
+  // substring check can never be false regardless of what this section does.
+  // The bolded folder heading is the form used only inside "## Merging into
+  // existing folders", so it is what actually discriminates. Both halves are
+  // asserted deliberately: the false half alone would also pass if the section
+  // failed to render at all, which is the failure mode most worth catching.
+  check("and a bucket merging into nothing is not listed there",
+    [text.includes("**settings/rolara/locations/north**"),
+     text.includes("**settings/rolara/locations/south**")],
+    [true, false]);
+}
+
+{
+  const plan = {
+    operations: [
+      { op: "create-index", to: "settings/rolara/notes/Notes-INDEX.md", reason: "new folder" },
+    ],
+    declined: [],
+    prechecks: { ok: true, collisions: [], ignored: [] },
+  };
+  const text = renderProposal({ scope: { summary: "no merges" }, plan, projectRoot: "/p", settings: [] });
+  check("a plan with no merging bucket has no disclosure section at all",
+    text.includes("Merging into existing folders"), false);
+}
+
 console.log(`\n${passed} passed, ${failures.length} failed`);
 if (failures.length > 0) {
   for (const f of failures) console.log(`  FAILED: ${f}`);

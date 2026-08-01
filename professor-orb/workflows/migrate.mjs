@@ -2329,7 +2329,14 @@ function planSplitFolders(items, ctx, key) {
         articles.push({ from: source, to: `${dest}/${base}` });
       }
       if (refused) break;
-      buckets.push({ folder: dest, name, articles });
+      // Computed BEFORE this entry's split-folder operation is pushed, so what is
+      // recorded is what the destination already held rather than what this split
+      // is about to put there. Omitted when empty so an ordinary split's operation
+      // shape is unchanged and nothing downstream has to tell [] from absent.
+      const present = folderContentsAfterPlan(ctx, dest, "split-folder", operations);
+      buckets.push(present.length > 0
+        ? { folder: dest, name, articles, existing: present }
+        : { folder: dest, name, articles });
     }
     if (refused) continue;
     if (buckets.length === 0) {
@@ -3766,6 +3773,43 @@ function prongChildrenAfterPlan(ctx, rel, pending) {
   return out;
 }
 
+// The direct children a folder holds BY THE TIME an operation naming it runs,
+// sorted, for DISCLOSURE rather than for a decision.
+//
+// Modelled on prongChildrenAfterPlan above and deliberately not sharing it: that
+// one skips PRONG_CHILDREN_SKIPPED (.git, .obsidian, node_modules), which is
+// right for a prong root and wrong here. A bucket destination holding a
+// node_modules is holding something the DM should be told about.
+//
+// PLAN-AWARE because a run can move material in stages. planResolve rewinds the
+// folder itself through any earlier move, and the per-child namedPathPresent
+// drops a child an earlier operation carries away. Listing a file that is about
+// to leave would mislead a DM reading the proposal carefully, which is worse
+// than listing nothing.
+//
+// EMPTY IS THE ANSWER FOR EVERY UNCERTAIN CASE: no usable root, a folder an
+// earlier operation creates or vacates, or a folder that is not there. This
+// field is disclosure only, nothing at apply time reads it, and the per-article
+// collision check is what actually protects the destination. An absent list
+// understates; it cannot license an overwrite.
+function folderContentsAfterPlan(ctx, rel, kind, pending) {
+  if (!ctx.rootUsable) return [];
+  const at = planResolve(ctx, rel, kind, pending);
+  if (at.vacated || at.creates || !at.path) return [];
+  let names;
+  try {
+    names = readdirSync(path.resolve(ctx.projectRoot, at.path)).sort();
+  } catch {
+    return [];
+  }
+  const out = [];
+  for (const name of names) {
+    if (!namedPathPresent(ctx, `${rel}/${name}`, kind, pending)) continue;
+    out.push(name);
+  }
+  return out;
+}
+
 // The name an incoming child takes when the destination already holds one of that
 // name. Shared by the plan half and by conventionsAfterScope's two-argument path,
 // so the two cannot disagree about the form of the rename.
@@ -4475,6 +4519,48 @@ export function renderProposal({ scope, plan, projectRoot, settings }) {
       const cell = (s) => String(s || "").replace(/\|/g, "/");
       lines.push(`| ${i + 1} | ${op.op} | ${cell(from)} | ${cell(to)} | ${cell(detail)} | ${cell(op.reason)} |`);
     });
+  }
+
+  // Every bucket landing in a folder that already holds material, listed in full.
+  //
+  // A SECTION rather than a column in the table above, because that table is one
+  // row per operation with short cells and a destination holding forty files
+  // cannot be read in one. This is the disclosure the old existence decline's own
+  // reason asked for, "an existing folder whose contents the proposal never
+  // listed", and it is what makes approving a merge an informed act. The decline
+  // is gone; the reason it named is answered here instead.
+  //
+  // Reads the operation objects the fenced block below serializes whole, so
+  // nothing shown here can drift from what the executor sees.
+  const merges = [];
+  for (const op of operations) {
+    if (op.op !== "split-folder") continue;
+    for (const b of list(op.buckets)) {
+      if (!b || typeof b !== "object") continue;
+      const existing = list(b.existing).filter((n) => typeof n === "string" && n);
+      if (existing.length === 0) continue;
+      merges.push({ folder: toPosix(b.folder), existing, articles: list(b.articles) });
+    }
+  }
+  if (merges.length > 0) {
+    lines.push("");
+    lines.push("## Merging into existing folders");
+    lines.push("");
+    lines.push(
+      "Each bucket below lands in a folder that already holds material. Nothing listed as already there is moved, renamed, or overwritten by this plan."
+    );
+    for (const m of merges) {
+      const n = m.existing.length;
+      lines.push("");
+      lines.push(`**${m.folder}** (${n} ${n === 1 ? "entry" : "entries"} already there):`);
+      lines.push("");
+      lines.push(m.existing.join(", "));
+      lines.push("");
+      const incoming = m.articles
+        .map((a) => path.posix.basename(toPosix(a && a.to)))
+        .filter(Boolean);
+      lines.push(`${incoming.length} moving in: ${incoming.join(", ") || "(none)"}`);
+    }
   }
   lines.push("");
   lines.push("## Declined");
