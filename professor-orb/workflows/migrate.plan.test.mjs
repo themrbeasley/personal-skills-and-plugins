@@ -28,6 +28,7 @@ import {
   retypeExtensions,
   crossBoundaryLinks,
   mergeCollisions,
+  indexStemFor,
 } from "./migrate.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -833,6 +834,15 @@ try {
     );
     check("a destination on disk that nothing vacates still refuses, spelled plainly",
       [plain.prechecks.ok, plain.prechecks.collisions.map((c) => c.kind)], [false, ["on-disk"]]);
+    // The FIRST branch of the two-branch collision reason: nothing in the plan
+    // ever frees this destination, so the reason says absence, not ordering,
+    // and points the DM at changing the destination rather than reordering the
+    // scope. Pinned here so a swap with the "only after this one runs" wording
+    // (the branch pinned below, for when something DOES free the path, just too
+    // late) is caught rather than passing silently: every other collision check
+    // in this file reads only [kind, to] and never reason at all.
+    check("and the reason says nothing in the plan moves the destination away",
+      /no operation in this plan moves it away/.test(plain.prechecks.collisions[0].reason), true);
     check("and still refuses spelled with a leading ./",
       [dotted.prechecks.ok, dotted.prechecks.collisions.map((c) => c.kind)], [false, ["on-disk"]]);
   }
@@ -875,6 +885,16 @@ try {
     check("a same-rank chain that fills before it frees refuses, even though the free is in the same plan",
       [p.prechecks.ok, p.prechecks.collisions.map((c) => [c.kind, c.to])],
       [false, [["on-disk", "settings/rolara/Vault-Of-Secrets.md"]]]);
+    // The SECOND branch of the two-branch collision reason: something in this
+    // plan DOES free the destination, just later than this entry runs, so the
+    // reason has to name ordering rather than absence and point the DM at
+    // reordering the scope rather than changing a destination. /migrate.md's
+    // Step 4 remedy text branches on exactly this wording, so a regression that
+    // always picked the first branch would misdirect every DM here and still
+    // leave every other assertion in this case green, since none of them read
+    // c.reason.
+    check("and the reason names the ordering, not a destination change",
+      /only after this one runs/.test(p.prechecks.collisions[0].reason), true);
   }
 
   console.log("\nAn ignored source does not vacate its destination");
@@ -2024,6 +2044,49 @@ function splitFixture() {
 }
 
 {
+  // The POSITIVE direction of the vacate rule, the mirror of the refusal case
+  // just above: the same blocking file at the same path, but this plan also
+  // carries a pathMoves entry (rank 1) that moves it aside BEFORE the split
+  // (rank 3) runs. "Move the old one aside, then merge the loose ones in" is a
+  // legitimate, ordinary use of a split, and findDestinationCollisions has to
+  // credit the earlier relocate-path with freeing the destination rather than
+  // reading this as the same on-disk collision.
+  //
+  // Every other new case in this release pins the REFUSAL side of vacate
+  // credit (see "Vacate credit is keyed on position" and the two "does not
+  // excuse" cases below); nothing pinned that a legitimate free-then-fill
+  // still succeeds. Without this, a tightening of the credit rule into an
+  // always-refuse (for example, skipping relocate-path entries in the
+  // vacate-recording loop) would leave every other suite green and pass
+  // unnoticed, silently breaking this flow for every DM who uses it.
+  //
+  // A real, git-committed repository, not the plain temp dir splitFixture()
+  // builds: with ignored undetermined (no repository underneath),
+  // findIgnoredSources answers null and the vacate-credit loop withholds
+  // credit unconditionally regardless of order, which would refuse this case
+  // for the ignored reason rather than proving the credit this pins.
+  const root = splitFixture();
+  writeAt(root, "settings/rolara/locations/north/Ashfall.md",
+    "---\ntype: Location\n---\n\nA different article that already lives here.\n");
+  commitFixture(root);
+  const r = scoped(
+    {
+      pathMoves: [
+        { from: "settings/rolara/locations/north/Ashfall.md", to: "settings/rolara/attic/Ashfall.md", reason: "x" },
+      ],
+      splitFolders: [
+        { folder: "settings/rolara/locations", buckets: [{ name: "north", articles: ["Ashfall.md"] }] },
+      ],
+    },
+    root
+  );
+  check("a preceding pathMoves entry that frees a destination lets a later split fill it",
+    [kindsOf(r.operations), r.prechecks.ok, list(r.prechecks.collisions)],
+    [["relocate-path", "split-folder", "create-index", "rebuild-index"], true, []]);
+  rmSync(root, { recursive: true, force: true });
+}
+
+{
   // The exact shape measured in a real repository: the same collision as the
   // case just above, but with a same-plan entityRenames entry (rank 6) that
   // renames the blocking file away. It runs AFTER the split (rank 3) in apply
@@ -2063,6 +2126,15 @@ function splitFixture() {
   check("a later-ranked rename in the same plan does not excuse the split's on-disk collision",
     [r.prechecks.ok, list(r.prechecks.collisions).map((c) => [c.kind, c.op, c.to])],
     [false, [["on-disk", "split-folder", "settings/rolara/locations/north/Ashfall.md"]]]);
+  // The SECOND branch of the two-branch collision reason, reached here through
+  // a different kind (entityRenames, rank 6) than the same-rank case above
+  // (renames, rank 5): the entry that frees the destination is in this plan,
+  // just later, so the reason must name ordering rather than absence. Pinned
+  // for the same reason as the same-rank case: nothing else in this check
+  // reads c.reason, so a regression collapsing both branches into one would
+  // otherwise pass unnoticed here too.
+  check("and the reason names the ordering, not a destination change",
+    /only after this one runs/.test(list(r.prechecks.collisions)[0].reason), true);
   rmSync(root, { recursive: true, force: true });
 }
 
@@ -5253,9 +5325,11 @@ console.log("\n=== genesis: the starter layout professor-orb lays down ===");
 
   // The index each starter folder carries, under rolara's default suffix. A world
   // whose setting declares "-IDX" takes that instead; the stem rule is the same.
-  const stem = (name, suffix) => `${name.charAt(0).toUpperCase()}${name.slice(1)}${suffix}`;
+  // Pinned against the real helper, indexStemFor, rather than a local
+  // re-implementation, so a change to the rule itself would fail this case
+  // instead of passing against a copy that changed right along with it.
   check("a starter folder's index stem Title Cases the folder name",
-    [stem("people", "-INDEX"), stem("magic-items", "-INDEX"), stem("npcs", "-IDX")],
+    [indexStemFor("people", "-INDEX"), indexStemFor("magic-items", "-INDEX"), indexStemFor("npcs", "-IDX")],
     ["People-INDEX", "Magic-items-INDEX", "Npcs-IDX"]);
 
   // 7 knowledge-base indexes, 11 homebrew, 1 session-reports root, 1 vault, 1 tag

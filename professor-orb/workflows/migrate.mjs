@@ -2202,7 +2202,7 @@ function planAbsorbFolders(items, ctx, key) {
 }
 
 // Title Case for a bucket's index stem: "north" becomes "North-INDEX".
-const indexStemFor = (name, suffix) =>
+export const indexStemFor = (name, suffix) =>
   `${String(name).charAt(0).toUpperCase()}${String(name).slice(1)}${suffix}`;
 
 // Divide a folder into DM-named buckets.
