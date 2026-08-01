@@ -38,7 +38,7 @@ Resolution is a conversation, not a parse. **Restate the scope as you understood
 
 **State the prose boundary whenever the scope crosses it.** "Rename X to Y everywhere" naturally reads as including body text, and it does not include it. Say which half they are getting, in one sentence, and name `chronicler` as what handles the other half. Do this when the scope crosses the line, not on every run.
 
-**Creating a setting is out of scope for this release.** If the DM asks to start a second world, say that `/migrate` performs lifecycle operations on a setting that already exists (a rename, a retirement, a split, or a merge) and that creating one is not part of what it does. Do not improvise a creation path: a half-created setting with no `conventions.json` entry is worse than none.
+**Creating a setting is `/genesis`'s job, not this command's.** If the DM asks to start a second world, say that `/genesis` creates one, scaffolded to professor-orb's layout and registered in `conventions.json`, and that `/migrate` performs lifecycle operations on a world that already exists: a rename, a retirement, a split, or a merge. Do not improvise a creation path here. A half-created setting with no `conventions.json` entry is worse than none, which is exactly the failure `/genesis` exists to avoid.
 
 **Refuse a scope that resolves to nothing** with a plain sentence. No snapshot, no commit, no proposal file.
 
@@ -205,7 +205,7 @@ structural change.
 - **Never commit when Step 9's read of `linkIntegrity` failed.**
 - **Never use the executor's own `snapshot` field or its printed restore line in the report.** By the time Step 7 runs it names Step 6's preparation commit, not Step 5's, and either way the DM needs both hashes for the two-revert undo, not the one the executor happens to report. The executor's printed line also appends its own `git clean -fd` supplement for exactly the untracked-leftover risk Step 9 warns about; do not copy that line either, because it is keyed to the wrong hash. Step 9 builds the equivalent instruction itself, keyed to Step 5's hash and to a `git status` you read yourself.
 - **Never delete a setting's entry from `conventions.json`.** Retiring marks it; deleting destroys the record of a world that existed.
-- **Never create a setting.** Lifecycle operations act on settings that exist.
+- **Never create a setting.** Lifecycle operations act on worlds that exist. `/genesis` creates them.
 - **Never auto-resume an interrupted run.** The per-item accounting makes a partial application diagnosable, and Step 5's snapshot hash together with Step 6's preparation-commit hash are the undo; resuming would apply operations against a tree that no longer matches the plan.
 - **Never write `.professor-orb/pipeline-state.json`.** This command is outside the session pipeline.
 - **Never push.** `/migrate` commits; pushing is the DM's call.
