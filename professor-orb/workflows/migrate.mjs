@@ -133,7 +133,7 @@ export function runPrechecks({ operations, projectRoot }) {
   const oracle = ignoreOracle(projectRoot);
   // ignored has to be computed FIRST. findDestinationCollisions needs to know
   // which operations the apply phase will skip, because a skipped operation
-  // does not vacate its source; see the vacated comment inside that function
+  // does not vacate its source; see the vacatedAt comment inside that function
   // for what goes wrong when the order is the other way around.
   const ignored = findIgnoredSources(operations, oracle);
   const ignoredBeneath = findIgnoredWithinSources(operations, oracle, projectRoot);
@@ -604,13 +604,25 @@ function findDestinationCollisions(operations, projectRoot, ignored) {
     const vacatedIndex = vacatedAt.get(key);
     if (vacatedIndex !== undefined && vacatedIndex <= i) continue;
     if (!existsSync(path.resolve(projectRoot, to))) continue;
+    // Two distinct reasons land here, and they read differently to a DM. If
+    // vacatedIndex is undefined, nothing in the plan ever frees this path, so
+    // the old wording still applies as written. If it is defined, something
+    // DOES free it, just later than this entry runs, so the problem is order
+    // rather than absence, and the fix is reordering rather than picking a
+    // different destination. Either way the real failure mode is not an
+    // overwrite: git mv refuses a destination that already exists rather than
+    // clobbering it, so a plan that reaches apply with this hit unresolved
+    // fails partway through, it does not lose data.
+    const reason =
+      vacatedIndex === undefined
+        ? "Destination already exists and no operation in this plan moves it away, so applying this one would overwrite it."
+        : "Destination already exists and an operation in this plan moves it away, but only after this one runs. Reorder the plan so that freeing operation comes first; as written, the run would fail partway through, since git mv refuses an existing destination rather than overwriting it.";
     hits.push({
       kind: "on-disk",
       op: e.op,
       from: e.from,
       to,
-      reason:
-        "Destination already exists and no operation in this plan moves it away, so applying this one would overwrite it.",
+      reason,
     });
   }
   return hits;
@@ -1341,7 +1353,7 @@ function planMovedOnto(o, target) {
 
 // Whether an operation takes whatever is at `target` AWAY, leaving the path empty.
 //
-// The frees half of the model, and the same rule findDestinationCollisions' `vacated`
+// The frees half of the model, and the same rule findDestinationCollisions' `vacatedAt`
 // applies: only an operation carrying BOTH a from and a to vacates anything, because
 // an in-place edit carries a from and no to exactly to say it leaves the file where it
 // is. So split-folder, which carries `from: folder` and no `to`, does not vacate its
@@ -2321,13 +2333,19 @@ function planSplitFolders(items, ctx, key) {
       // reachable from both sides and pinned from both. This used to carry an
       // exception: findDestinationCollisions credited a later-ranked operation
       // (an entityRenames entry, rank 6, run after this split's rank 3) with
-      // vacating a destination this split also targets, purely because rank
-      // could not order two same-rank entries and the vacate set carried no
-      // position at all. findDestinationCollisions now keys vacate credit on
-      // each entry's position in apply order rather than on rank, so a later
-      // entry can no longer be credited with a free that has not happened yet
-      // by the time this split runs. See the position comment inside that
-      // function for the fix and for the same-rank chain it also corrects.
+      // vacating a destination this split also targets. Rank 3 and rank 6 are
+      // different ranks, so rank itself could have ordered them; what let this
+      // slip through is that the vacate set carried no ordering at all, only
+      // unconditional membership, so a later-ranked free counted as already
+      // having happened regardless of when it actually ran. (The same-rank
+      // problem, where two entries of one kind share a rank and rank cannot
+      // order them at all, is the separate reason POSITION was chosen over
+      // RANK in the first place; it is not why this particular case slipped
+      // through.) findDestinationCollisions now keys vacate credit on each
+      // entry's position in apply order rather than on rank, so a later entry
+      // can no longer be credited with a free that has not happened yet by the
+      // time this split runs. See the position comment inside that function
+      // for the fix and for the same-rank chain it also corrects.
       //
       // WHAT EXISTENCE CANNOT COVER is a destination that is not a directory, so
       // that is what this refuses now. `git mv locations/Ashfall.md
@@ -5696,7 +5714,7 @@ function wikilinkTargetsIn(text) {
 //
 // THE MODULE'S OWN "moves" RULE decides membership, not a list of kinds. An entry
 // counts when it carries BOTH a `from` and a `to`, which is exactly the test
-// planVacates and findDestinationCollisions' `vacated` already apply and for the
+// planVacates and findDestinationCollisions' `vacatedAt` already apply and for the
 // same reason: an in-place edit carries a `from` and no `to` precisely to say it
 // leaves the file where it is, and create-index, merge-index, rebuild-index and
 // tag-registry carry a `to` and no `from` because they write a file rather than

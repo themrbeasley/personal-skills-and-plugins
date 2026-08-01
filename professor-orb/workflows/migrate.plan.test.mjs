@@ -915,12 +915,18 @@ try {
 
   {
     // ignored undetermined (no repository at all): the conservative choice
-    // means no operation is credited with vacating its source, so a same-path
-    // A -> B, B -> C chain that is legal once the ignored question is
-    // answered (proved just above with a real repo) instead reads as a
-    // collision while the question cannot be answered at all. This is the
-    // deliberate tradeoff: crediting an unverified vacate would reproduce the
-    // silent overwrite; withholding credit only costs a false-positive abort.
+    // means no operation is credited with vacating its source, regardless of
+    // order. B -> C is listed first below, freeing B, and A -> B is listed
+    // second, filling it: the same deliberate free-first order the two legal
+    // chains above use, and under a determined verdict that order is legal
+    // (proved just above with a real repo). It still reads as a collision
+    // here, because the ignored question cannot be answered at all, not
+    // because the order is wrong; flipping the order would also refuse, but
+    // for the reason "a same-rank chain that fills before it frees refuses"
+    // above already pins, and would prove nothing new about undetermined
+    // ignored specifically. This is the deliberate tradeoff: crediting an
+    // unverified vacate would reproduce the silent overwrite; withholding
+    // credit only costs a false-positive abort.
     const bare = mkdtempSync(path.join(os.tmpdir(), "orb-migrate-plan-norepo-vacate-"));
     try {
       mkdirSync(path.join(bare, "settings", "rolara"), { recursive: true });
@@ -928,12 +934,12 @@ try {
       writeFileSync(path.join(bare, "settings", "rolara", "B.md"), "body\n");
       const pre = runPrechecks({
         operations: [
-          { op: "rename-with-link-rewrite", from: "settings/rolara/A.md", to: "settings/rolara/B.md" },
           { op: "rename-with-link-rewrite", from: "settings/rolara/B.md", to: "settings/rolara/C.md" },
+          { op: "rename-with-link-rewrite", from: "settings/rolara/A.md", to: "settings/rolara/B.md" },
         ],
         projectRoot: bare,
       });
-      check("with ignored undetermined, a same-path chain legal under a determined verdict reads as a collision instead",
+      check("with ignored undetermined, a same-path chain that would be legal under a determined verdict reads as a collision instead",
         pre.ok, false);
     } finally {
       try {
