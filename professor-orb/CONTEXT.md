@@ -155,9 +155,24 @@ absorbs, index rebuilds, retypes, frontmatter repairs, path reference updates);
 never rewrites body prose, which stays `chronicler`'s job. Not a lane command: it
 restructures across prongs by nature and commits its own work rather than
 deferring to `/scribe`, `/log`, or `/catalog`. Shares `workflows/migrate.mjs` with
-setup's onboarding migration.
+setup's onboarding migration and `/genesis`. Acts on worlds that already exist:
+creating one is `/genesis`'s job.
 _Avoid_: executing anything the approved proposal does not carry, rewriting body
 prose, running on a dirty tree
+
+**genesis command**:
+The `/genesis` creation step: makes a world that does not exist yet. Asks three
+things (the name, whether to copy a sibling world's custom types and rule tweaks
+or take the base layer alone, and the first campaign), surveys what is already on
+disk, builds a plan of `create-index`, `vault`, and `tag-registry` operations,
+shows it, and hands it to `applyPlan`. Then appends the `settings[]` entry to
+`conventions.json`, from what actually applied. Adopts a folder tree that already
+exists rather than refusing it, emitting operations only for what is missing, so
+no existing file is written. Needs no operation kind the executor lacks. Lifecycle
+operations on a world that exists are `/migrate`'s.
+_Avoid_: creating a world without asking about a name collision, rewriting the
+`settings` array rather than appending, writing `retired` / `mergedInto` /
+`retiredCampaigns` (those are `/migrate`'s)
 
 **starter layout**:
 The folder tree /genesis lays down for a new world: one folder per knowledge-base
