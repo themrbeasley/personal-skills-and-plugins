@@ -8,13 +8,12 @@ Post-session workflow plugin for D&D DMs. Skills, four commands, four agents, tw
 
 **Professor-orb imposes its own structural schema.** Index rules, frontmatter schema, filename conventions, and folder layout are professor-orb's, shipped in `references/base-rules.json` and laid down by `setup` as the canonical layout. Its purpose is to assign an organization method and pull unorganized or under-organized material into it. From the consumer's `CLAUDE.md` it reads campaign facts, writing style, and content exclusions — never structure.
 
-`dnd-campaign-toolkit/` is a different plugin that shares many of these skill and agent names and takes the opposite posture. Check which one you are editing.
-
 - **`.professor-orb/conventions.json` is the machine-readable authority.** `setup` generates it from `references/base-rules.json` plus a project extras layer. Every skill and hook reads it first. Schema: `skills/setup/references/conventions-schema.md`.
 - **Multi-setting layout.** `conventions.json` carries `settings[]`, one per world, each with three prong roots (`kbRoot`, `homebrewRoot`, `sessionReportsRoot`), its own `rules`, and its own `tagRegistryPath`. `retired`, `mergedInto`, and `retiredCampaigns` are written only by `/migrate` and must survive a resync.
 - **Lane commands own one prong each.** `/scribe`, `/log`, `/catalog` never cross prongs and use `:(literal)` pathspecs. `/migrate` is the exception: it restructures across prongs and commits its own work.
 - **`workflows/` is real code.** `migrate.mjs` is the migration executor — plan phase read-only by contract, apply phase mutates behind a snapshot commit. `validation-sweep.mjs` is the KB validator. `setup` copies both into the consumer's `.claude/workflows/`.
 - **Comment blocks in `migrate.mjs` are load-bearing.** Each records the invariant its guard holds. Read the comment before changing the code under it; update it when the rule changes.
+- **Agent `color` must be one of** `red`, `blue`, `green`, `yellow`, `purple`, `orange`, `pink`, `cyan`.
 
 Tests are Node built-ins, no framework. Run a file directly:
 
@@ -25,18 +24,6 @@ node professor-orb/workflows/migrate.plan.test.mjs
 Suites: `workflows/migrate.plan`, `workflows/migrate.apply`, `workflows/migrate.proposal`, `workflows/validation-sweep.ownership`, `hooks/validate-write`, `hooks/pipeline-next`, `commands/lane-staging`.
 
 Designs are in `docs/superpowers/specs/`, implementation plans in `docs/superpowers/plans/`. Read the relevant spec before changing behavior it describes.
-
-## `dnd-campaign-toolkit/` — Claude Code plugin
-
-Post-session workflow plugin for D&D DMs. Seven skills, three agents, two hooks. All markdown, no build or test tooling; validate by installing into a session against a real campaign project.
-
-- **Session pipeline** is the core mental model: `debrief → prep → content / chronicler → kb-validator`. Each skill's `description` frontmatter names the upstream skill it consumes from and the downstream skill it feeds, and the `Stop` hook reinforces the handoffs. Keep those references consistent when editing a description.
-- **System-agnostic — this plugin only.** Skills ship no templates and assume no folder layout. Each begins with "First: learn the user's system," reading the consumer project's `CLAUDE.md` for folder structure, frontmatter schema, filename suffixes, and cross-reference style. Never hardcode paths or schemas here.
-- **Two skills sit outside the pipeline.** `homebrew` is standalone and targets D&D 5.5e (2024). `timeline` builds chronology documents on demand and spawns the `historian` agent.
-- **Hooks use `"type": "prompt"`.** `PostToolUse` validates article frontmatter against the consumer's `CLAUDE.md`; `Stop` suggests the next pipeline step. Both silent on success.
-- **Agents are read-only.** `lore`, `kb-validator`, `historian` write nothing. `chronicler` is the only component that mutates the KB, and only after explicit DM approval.
-
-**Cowork install constraint.** Keep every `skills/*/SKILL.md` and `agents/*.md` frontmatter `description` under ~1500 characters — Cowork's content validator rejects the entire plugin with "Plugin validation failed." if one is too long, and `claude plugin validate` does not catch it. Agent `color` must be one of `red`, `blue`, `green`, `yellow`, `purple`, `orange`, `pink`, `cyan`.
 
 ## `boxaid-call-ops/` — Claude Code plugin
 

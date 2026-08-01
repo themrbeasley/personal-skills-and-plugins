@@ -1,7 +1,6 @@
 # Professor Orb
 
-The Claude Code-native successor to `dnd-campaign-toolkit`. A post-session workflow
-plugin for D&D DMs, forked from the Cowork edition and free of its constraints.
+A Claude Code-native post-session workflow plugin for D&D DMs.
 
 ## Language
 
@@ -12,8 +11,10 @@ from the DM's earlier AI-assistant projects.
 _Avoid_: Professor Orb as a persona name, "the Professor"
 
 **Cowork edition**:
-The original `dnd-campaign-toolkit` plugin, frozen (kept installable for other
-Cowork users, no obligation to sync changes in either direction). Never deleted.
+The deprecated `dnd-campaign-toolkit` plugin, archived out of this repo. The term
+survives because `setup` still detects it in a consumer project and offers removal:
+its `Write|Edit` hook fires throughout a migration, so an install left in place is a
+mutation-safety problem rather than clutter.
 _Avoid_: "the old plugin" (ambiguous once professor-orb has its own history)
 
 **session pipeline**:
@@ -190,10 +191,9 @@ A small breadcrumb file in `.professor-orb/` recording where the session pipelin
 stands (e.g., "debrief done for 2026-07-08, chronicler pending"). Each pipeline
 skill's final act is updating it. Read by two consumers: the Stop hook (a
 deterministic `command` script that prints the next-step suggestion after a
-pipeline skill finishes and stays silent otherwise, replacing the Cowork
-edition's unreliable prompt hook) and any fresh session answering "where were
-we?". No model judgment anywhere in the path: the hook either fires correctly
-or says nothing.
+pipeline skill finishes and stays silent otherwise) and any fresh session
+answering "where were we?". No model judgment anywhere in the path: the hook
+either fires correctly or says nothing.
 _Avoid_: "the nag", prompt-type Stop hooks in any form
 
 **validation sweep**:
@@ -247,11 +247,11 @@ _Avoid_: a campaign-level "time travel mode", treating flags as errors by defaul
 The distribution mechanism: a `marketplace.json` at this repo's root turns the
 repo into the DM's personal Claude Code plugin marketplace, listing professor-orb
 only. The manifest is an explicit list, not a directory scan: the repo's other
-contents (Cowork plugins, the MCP server, standalone skills) cohabit untouched
+contents (the other plugin, the MCP server, standalone skills) cohabit untouched
 and keep their own distribution paths. Steady-state installs and updates flow
 through the marketplace; during the build, iteration against Rolara uses a
 direct local-path install instead.
-_Avoid_: listing the frozen Cowork edition in it, restructuring the repo around it
+_Avoid_: restructuring the repo around it
 
 **tag registry**:
 A derived inventory of every tag in use across the KB, kept in `.professor-orb/`
