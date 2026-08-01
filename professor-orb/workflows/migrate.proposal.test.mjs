@@ -1006,6 +1006,61 @@ const FULL_MERGE = [
     text.includes("Merging into existing folders"), false);
 }
 
+{
+  // Two scope entries naming one bucket folder plan two split-folder
+  // operations, each with its own bucket object for that one destination.
+  // planCreatesOutright reports the first entry's own bucket as creating the
+  // directory, so folderContentsAfterPlan correctly answers empty for the
+  // second entry's bucket: only the first ever carries `existing`. This shape
+  // is hand-built here rather than planned, mirroring what planSplitFolders
+  // actually emits for that case, so the section is proven against the shape
+  // it has to read rather than against a shape convenient for the section.
+  const plan = {
+    operations: [
+      {
+        op: "split-folder",
+        from: "settings/rolara/locations",
+        buckets: [
+          {
+            folder: "settings/rolara/locations/north",
+            name: "north",
+            articles: [
+              { from: "settings/rolara/locations/Ashfall.md", to: "settings/rolara/locations/north/Ashfall.md" },
+            ],
+            existing: ["Emberwatch.md"],
+          },
+        ],
+        reason: "DM scope entry 1",
+      },
+      {
+        op: "split-folder",
+        from: "settings/rolara/other",
+        buckets: [
+          {
+            folder: "settings/rolara/locations/north",
+            name: "north",
+            articles: [
+              { from: "settings/rolara/other/Karsk.md", to: "settings/rolara/locations/north/Karsk.md" },
+            ],
+            // No `existing` field: this is the second entry's bucket object,
+            // blinded by the first entry's own split-folder operation.
+          },
+        ],
+        reason: "DM scope entry 2",
+      },
+    ],
+    declined: [],
+    prechecks: { ok: true, collisions: [], ignored: [] },
+  };
+  const text = renderProposal({ scope: { summary: "two entries, one folder" }, plan, projectRoot: "/p", settings: [] });
+  const headingCount = (text.match(/\*\*settings\/rolara\/locations\/north\*\*/g) || []).length;
+  check("two split-folder operations naming one destination fold into a single block",
+    [headingCount, text.includes("1 entry already there"), text.includes("Emberwatch.md")],
+    [1, true, true]);
+  check("the folded block's incoming count covers both operations' articles, not just the first",
+    text.includes("2 moving in: Ashfall.md, Karsk.md"), true);
+}
+
 console.log(`\n${passed} passed, ${failures.length} failed`);
 if (failures.length > 0) {
   for (const f of failures) console.log(`  FAILED: ${f}`);

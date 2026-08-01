@@ -5151,6 +5151,72 @@ const MERGE_KARSK = { settingMerges: [{ from: "karsk", into: "rolara" }] };
   rmSync(root, { recursive: true, force: true });
 }
 
+// ---------------------------------------------------------------------------
+// folderContentsAfterPlan's two stated divergences from prongChildrenAfterPlan
+// ---------------------------------------------------------------------------
+//
+// Its doc block gives two reasons it does not just call prongChildrenAfterPlan:
+// it must not skip PRONG_CHILDREN_SKIPPED (.git, .obsidian, node_modules), and
+// it never adds a plan-half fill the way prongChildrenAfterPlan does. Neither
+// was pinned; replacing the whole function body with
+// `return prongChildrenAfterPlan(ctx, rel, pending);` left the plan and
+// proposal suites fully green. These two cases guard each divergence.
+
+{
+  // NOT SKIPPED, and marked as a directory (also Finding 2's case: a subfolder
+  // must render distinguishably from an article). node_modules is both a name
+  // prongChildrenAfterPlan would skip and a directory, so one fixture covers
+  // both at once.
+  const root = splitFixture();
+  writeAt(root, "settings/rolara/locations/north/Emberwatch.md", "---\ntype: Location\n---\n\nBody.\n");
+  mkdirSync(path.join(root, "settings/rolara/locations/north/node_modules"), { recursive: true });
+  const r = scoped(
+    {
+      splitFolders: [
+        { folder: "settings/rolara/locations", buckets: [{ name: "north", articles: ["Ashfall.md"] }] },
+      ],
+    },
+    root
+  );
+  check("a bucket destination's node_modules is disclosed rather than skipped, and marked as a directory",
+    obj(list(find(r.operations, "split-folder").buckets)[0]).existing,
+    ["Emberwatch.md", "node_modules/"]);
+  rmSync(root, { recursive: true, force: true });
+}
+
+{
+  // DISK-ONLY, NOT PLAN-HALF-FILLED. A preceding pathMoves entry (rank 1) lands
+  // Stray.md inside the bucket destination before the split (rank 3) runs, so
+  // the destination will hold it by apply time. This helper never adds a
+  // plan-half fill the way prongChildrenAfterPlan does, so the disclosure
+  // still only shows what the rewound disk enumeration finds: understating by
+  // design, per the helper's own "empty is the answer for every uncertain
+  // case" posture, and the 2026-08-01-migrate-split-merge-design.md record of
+  // this being a considered choice.
+  const root = splitFixture();
+  writeAt(root, "settings/rolara/locations/north/Emberwatch.md", "---\ntype: Location\n---\n\nBody.\n");
+  writeAt(root, "settings/rolara/notes/Stray.md", "---\ntype: Note\n---\n\nBody.\n");
+  const r = scoped(
+    {
+      pathMoves: [
+        {
+          from: "settings/rolara/notes/Stray.md",
+          to: "settings/rolara/locations/north/Stray.md",
+          reason: "x",
+        },
+      ],
+      splitFolders: [
+        { folder: "settings/rolara/locations", buckets: [{ name: "north", articles: ["Ashfall.md"] }] },
+      ],
+    },
+    root
+  );
+  check("a preceding move landing a file IN the bucket destination is not added to existing",
+    obj(list(find(r.operations, "split-folder").buckets)[0]).existing,
+    ["Emberwatch.md"]);
+  rmSync(root, { recursive: true, force: true });
+}
+
 console.log(`\n${passed} passed, ${failures.length} failed`);
 if (failures.length > 0) {
   for (const f of failures) console.log(`  FAILED: ${f}`);

@@ -3858,36 +3858,64 @@ function prongChildrenAfterPlan(ctx, rel, pending) {
 // The direct children a folder holds BY THE TIME an operation naming it runs,
 // sorted, for DISCLOSURE rather than for a decision.
 //
-// Modelled on prongChildrenAfterPlan above and deliberately not sharing it: that
-// one skips PRONG_CHILDREN_SKIPPED (.git, .obsidian, node_modules), which is
-// right for a prong root and wrong here. A bucket destination holding a
-// node_modules is holding something the DM should be told about.
+// Modelled on prongChildrenAfterPlan above and deliberately not sharing it, in
+// two ways:
 //
-// PLAN-AWARE because a run can move material in stages. planResolve rewinds the
-// folder itself through any earlier move, and the per-child namedPathPresent
-// drops a child an earlier operation carries away. Listing a file that is about
-// to leave would mislead a DM reading the proposal carefully, which is worse
-// than listing nothing.
+//   NOT SKIPPED. prongChildrenAfterPlan skips PRONG_CHILDREN_SKIPPED (.git,
+//   .obsidian, node_modules), which is right for a prong root and wrong here. A
+//   bucket destination holding a node_modules is holding something the DM
+//   should be told about.
+//
+//   DISK-ONLY, NOT PLAN-HALF-FILLED. prongChildrenAfterPlan adds the names
+//   earlier operations put directly under a root (the "plan half") on top of
+//   the rewound disk enumeration (the "disk half"), because a chained merge
+//   needs to reason about a prong root as it will be, not as it is now. This
+//   helper only rewinds the DISK half through planResolve and filters what it
+//   finds through namedPathPresent; it never adds a name an earlier operation
+//   is about to move IN. A file a preceding pathMoves entry moves onto this
+//   destination therefore is not listed here even though it will be there by
+//   the time this split runs. That is a considered choice, not a gap: this
+//   list is disclosure, never a decision, and EMPTY IS THE ANSWER FOR EVERY
+//   UNCERTAIN CASE below already licenses understating a destination's
+//   contents. A plan-half fill would only ever grow the list toward
+//   completeness this helper does not need, at the cost of replaying every
+//   operation kind that can land material on a destination rather than the one
+//   prongChildrenAfterPlan covers. See 2026-08-01-migrate-split-merge-design.md,
+//   Test 7, for the record of this being decided rather than overlooked.
+//
+// PLAN-AWARE on the disk half because a run can move material in stages.
+// planResolve rewinds the folder itself through any earlier move, and the
+// per-child namedPathPresent drops a child an earlier operation carries away.
+// Listing a file that is about to leave would mislead a DM reading the
+// proposal carefully, which is worse than listing nothing.
 //
 // EMPTY IS THE ANSWER FOR EVERY UNCERTAIN CASE: no usable root, a folder an
 // earlier operation creates or vacates, or a folder that is not there. This
 // field is disclosure only, nothing at apply time reads it, and the per-article
 // collision check is what actually protects the destination. An absent list
 // understates; it cannot license an overwrite.
+//
+// A DIRECTORY NAME CARRIES A TRAILING "/". readdirSync's withFileTypes option
+// says which child is a directory without a second statSync per name, and the
+// marker is written straight into the recorded name rather than into a
+// parallel field, so `existing` stays the flat array of strings the operation
+// shape already has. The marker exists only so a DM reading the proposal
+// cannot mistake a subfolder for an article; nothing reads it back apart.
 function folderContentsAfterPlan(ctx, rel, kind, pending) {
   if (!ctx.rootUsable) return [];
   const at = planResolve(ctx, rel, kind, pending);
   if (at.vacated || at.creates || !at.path) return [];
-  let names;
+  let entries;
   try {
-    names = readdirSync(path.resolve(ctx.projectRoot, at.path)).sort();
+    entries = readdirSync(path.resolve(ctx.projectRoot, at.path), { withFileTypes: true });
   } catch {
     return [];
   }
+  entries.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
   const out = [];
-  for (const name of names) {
-    if (!namedPathPresent(ctx, `${rel}/${name}`, kind, pending)) continue;
-    out.push(name);
+  for (const entry of entries) {
+    if (!namedPathPresent(ctx, `${rel}/${entry.name}`, kind, pending)) continue;
+    out.push(entry.isDirectory() ? `${entry.name}/` : entry.name);
   }
   return out;
 }
@@ -4612,18 +4640,45 @@ export function renderProposal({ scope, plan, projectRoot, settings }) {
   // listed", and it is what makes approving a merge an informed act. The decline
   // is gone; the reason it named is answered here instead.
   //
+  // GROUPED BY DESTINATION FOLDER rather than by bucket object. Two scope
+  // entries naming the same bucket folder plan two split-folder operations, each
+  // with its own bucket object for that one destination, and planCreatesOutright
+  // reports the first entry's bucket as creating the directory, so
+  // folderContentsAfterPlan correctly answers empty for every bucket object
+  // after the first: only the first ever carries `existing`. Keying this section
+  // on the bucket object printed one block per object instead of one per
+  // destination, so the true incoming count was split across as many blocks as
+  // there were scope entries naming that folder, and every block after the first
+  // (empty `existing`) was skipped outright, its incoming articles never shown
+  // at all. samePathKey is the fold this module already uses to answer "same
+  // folder", so every bucket across every split-folder operation that shares a
+  // destination folds into one entry here: the union of every bucket's incoming
+  // articles, and whichever bucket's `existing` came back non-empty.
+  //
   // Reads the operation objects the fenced block below serializes whole, so
   // nothing shown here can drift from what the executor sees.
+  const mergesByFolder = new Map();
   const merges = [];
   for (const op of operations) {
     if (op.op !== "split-folder") continue;
     for (const b of list(op.buckets)) {
       if (!b || typeof b !== "object") continue;
-      const existing = list(b.existing).filter((n) => typeof n === "string" && n);
-      if (existing.length === 0) continue;
-      merges.push({ folder: toPosix(b.folder), existing, articles: list(b.articles) });
+      const folder = toPosix(b.folder);
+      const key = samePathKey(folder);
+      let entry = mergesByFolder.get(key);
+      if (!entry) {
+        entry = { folder, existing: null, articles: [] };
+        mergesByFolder.set(key, entry);
+        merges.push(entry);
+      }
+      if (!entry.existing) {
+        const existing = list(b.existing).filter((n) => typeof n === "string" && n);
+        if (existing.length > 0) entry.existing = existing;
+      }
+      for (const a of list(b.articles)) entry.articles.push(a);
     }
   }
+  for (let i = merges.length - 1; i >= 0; i--) if (!merges[i].existing) merges.splice(i, 1);
   if (merges.length > 0) {
     lines.push("");
     lines.push("## Merging into existing folders");

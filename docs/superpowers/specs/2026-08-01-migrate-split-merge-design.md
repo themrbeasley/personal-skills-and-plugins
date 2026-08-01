@@ -131,6 +131,13 @@ mislead a DM reading carefully, which is worse than listing nothing. `prongChild
 is the existing model for a plan-aware folder enumeration; this needs the same shape at the
 `split-folder` rank, without `PRONG_CHILDREN_SKIPPED`, which is prong-specific.
 
+It also does not adopt `prongChildrenAfterPlan`'s plan-half fill, the names earlier operations
+put directly under a root, added on top of the rewound disk enumeration. This helper only
+rewinds and filters the disk half; it never adds a name a preceding operation is about to move
+onto the destination. That is a considered choice rather than a second gap to close: the list
+is disclosure, never a decision, so it is allowed to understate, and a plan-half fill would only
+grow it toward a completeness this posture does not need. See Test 7 below.
+
 The recorded list is **disclosure only**. Nothing at apply time reads it, and a stale list in a
 hand-edited plan misinforms the reader without endangering a file: the per-article collision
 check is what protects the destination, and it re-runs against whatever operations actually
@@ -176,8 +183,14 @@ New cases:
    collision. This is the protection the guard was standing in for, now exercised from the planner
    rather than only from a hand-edited plan.
 6. **Two entries naming one bucket** emit one `rebuild-index`, not two, and prechecks stay ok.
-7. The recorded contents **exclude a file an earlier operation carries away**, and include
-   one an earlier operation moves in.
+7. The recorded contents **exclude a file an earlier operation carries away**. They do
+   **not** include a file an earlier operation moves in: the enumeration rewinds the disk
+   through `planResolve` and filters what it finds, but never fills in a name from the plan
+   half the way `prongChildrenAfterPlan` does. That is a considered choice, not a gap: the
+   helper's own posture is that empty is the answer for every uncertain case, so it can only
+   ever understate a destination's contents, and understating never licenses an overwrite.
+   Pinned in both directions, so the exclude half and the deliberately absent include half
+   both have a guard.
 8. `renderProposal` emits the merge section for a merged bucket and omits it entirely when no
    bucket merges.
 
