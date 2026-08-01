@@ -68,7 +68,7 @@ This is a pre-existing defect, independent of autofix, but it is load-bearing he
 
 ## Architecture
 
-Five pieces. Nothing about em dashes or see-also exists in plugin code; the plugin stays system-agnostic.
+Five pieces. Nothing about em dashes or see-also exists in plugin code; both are consumer-specific and live in the project extras layer.
 
 ### 1. `conventions.json`: a per-rule `autofix` field
 
@@ -204,4 +204,4 @@ The agent side cannot be asserted deterministically. Verify it by driving one re
 - Node built-ins only in the hook.
 - Never edit the marketplace cache under `~/.claude/plugins/cache/`. Change source, bump version, republish.
 - Never run `professor-orb:setup`.
-- The plugin stays system-agnostic: no Rolara rule ids, no em dash logic, no see-also logic in plugin code.
+- No consumer-specific content in plugin code: no Rolara rule ids, no em dash logic, no see-also logic. Those belong in the project extras layer of `conventions.json`.

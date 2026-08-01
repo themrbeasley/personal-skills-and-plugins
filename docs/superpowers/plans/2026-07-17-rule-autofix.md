@@ -16,7 +16,7 @@
 - Node built-ins only in `validate-write.mjs`.
 - Never edit the marketplace cache under `C:\Users\jorda\.claude\plugins\cache\`. It is a build artifact.
 - Never run `professor-orb:setup`. It regenerates `conventions.json` wholesale and would discard hand-tuned rules.
-- The plugin stays system-agnostic: no Rolara rule ids, no em dash logic, no see-also logic in plugin code.
+- No consumer-specific content in plugin code: no Rolara rule ids, no em dash logic, no see-also logic. Those belong in the project extras layer of `conventions.json`.
 - No Shadow Moon / Hemingway Protocol content in any rule description, message, doc, or commit message.
 - A check must never crash a write. Malformed config is inconclusive (`null`), never an enforcement change.
 - Commit style: `feat(professor-orb): ...` / `fix(professor-orb): ...`, body paragraph, then `Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>`.

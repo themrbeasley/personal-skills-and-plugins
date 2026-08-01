@@ -198,9 +198,15 @@ discontinued while the rest stays) via an inline note on that part.
 
 ## Versioning (two tracks, established once)
 
-The plugin must not force git on anyone (it is system-agnostic and the KB may be plain
-markdown), but a private homebrew repo is a good idea and should be offered. The mode is
-established once, the first time a catalog is used, and then followed silently.
+> **Superseded by `2026-07-28-apply-the-schema-design.md` (1.6.0).** That release made
+> onboarding git-first: `setup` runs `git init` at the project root, which would make the
+> repo-presence check below return true for every consumer, so phase 2 deleted that check
+> and flipped this step's precedence. The marker was also renamed from
+> `.professor-orb/catalog-versioning.json` to `.professor-orb/versioning.json`. This section
+> records what was decided on 2026-07-11; do not implement from it.
+
+A private homebrew repo is a good idea and should be offered. The mode is established once,
+the first time a catalog is used, and then followed silently.
 
 - **First-time establishment.** Before the first capture writes anything, the command
   checks whether versioning has been established: is the catalog already inside a git
