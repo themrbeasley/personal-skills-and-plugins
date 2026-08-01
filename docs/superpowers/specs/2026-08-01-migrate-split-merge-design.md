@@ -66,17 +66,17 @@ callers unchanged; only this call site changes shape.
 
 The planner emits `create-index` per bucket unconditionally. `create-index` is deliberately
 absent from `DESTINATION_MAY_EXIST`, so a bucket merging into a folder that already holds an
-index is a destination collision and the run refuses anyway — one refusal traded for another,
+index is a destination collision and the run refuses anyway: one refusal traded for another,
 with a worse message.
 
 Per bucket, ask `existingIndexIn(ctx, dest, suffix, "split-folder", operations)`, the helper
 the parent rebuild already uses:
 
-- **An index is there** — emit `rebuild-index` against *that* index, whatever its stem.
+- **An index is there.** Emit `rebuild-index` against *that* index, whatever its stem.
   Not `create-index` at `<name>-INDEX.md`: a bucket named `north` merging into a folder whose
   index is `Northern-Reaches-INDEX.md` would otherwise end with two indexes in one folder,
   which is precisely the multi-index finding the validation sweep reports as needing judgment.
-- **No index is there** — `create-index`, unchanged. This covers both a bucket folder that
+- **No index is there.** Emit `create-index`, unchanged. This covers both a bucket folder that
   does not exist yet and an existing folder that never had an index.
 
 `existingIndexIn` returns null when an earlier operation in the plan creates the folder, so a
@@ -95,7 +95,7 @@ reads the folder after the articles have arrived, which is the point.
 
 ### 3. The proposal discloses what is already there
 
-The guard's stated reason — contents "the proposal never listed" — is a real gap, and it
+The guard's stated reason, contents "the proposal never listed", is a real gap, and it
 survives the guard's removal. Close it rather than drop it.
 
 When a bucket lands in a folder that already holds something, the planner records that
@@ -105,7 +105,7 @@ table:
 ```
 ## Merging into existing folders
 
-**settings/rolara/locations/north** — 6 entries already there:
+**settings/rolara/locations/north** (6 entries already there):
 Ashfall-Ridge.md, Emberwatch.md, Frosthollow.md, North-INDEX.md,
 Stormgate.md, Winterfell-Pass.md
 
@@ -116,8 +116,8 @@ Stormgate.md, Winterfell-Pass.md
 short cells; forty filenames in a cell is unreadable. A section below it can list them in full,
 which is what makes the disclosure worth having.
 
-**Computed at plan time, carried on the operation.** `renderProposal` reads no disk — it renders
-the plan object it is handed — so the list has to be recorded when the plan is built. That is
+**Computed at plan time, carried on the operation.** `renderProposal` reads no disk. It renders
+the plan object it is handed, so the list has to be recorded when the plan is built. That is
 also the correct place for it: the enumeration must be plan-aware, because a single run can move
 things in stages, and a file an earlier operation in the same plan carries *out* of the
 destination must not be listed as already there. Listing a file that is about to leave would
@@ -138,7 +138,7 @@ Unchanged, and worth stating so the narrowing does not read as broader than it i
 - Two operations targeting one destination (in-plan collision).
 - A bucket whose destination path holds a file rather than a folder (new shape of the
   narrowed decline).
-- A protected folder as the split's own target — a prong root or campaign folder.
+- A protected folder as the split's own target: a prong root or campaign folder.
 - An article claimed by two buckets, or listed twice by one bucket.
 - A bucket article that is not on disk.
 - A git-ignored article anywhere in the entry, which declines the whole entry.
@@ -167,7 +167,7 @@ New cases:
    created.
 4. A destination path holding a **file** is declined, with the reason naming the path.
 5. An article merging onto a **same-named existing file** still aborts on the on-disk
-   collision — the protection the guard was standing in for, now exercised from the planner
+   collision. This is the protection the guard was standing in for, now exercised from the planner
    rather than only from a hand-edited plan.
 6. **Two entries naming one bucket** emit one `rebuild-index`, not two, and prechecks stay ok.
 7. The recorded contents **exclude a file an earlier operation carries away**, and include

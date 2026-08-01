@@ -54,8 +54,8 @@ Three questions, and only three:
   immediately rather than after the first `/log`.
 
 **A name collision stops the run and asks.** Before anything else, check the name against both
-`settings[]` and the filesystem. If either already has it, report exactly what was found — a
-registered entry, folders on disk, or both — and ask how to proceed. `/genesis` never decides
+`settings[]` and the filesystem. If either already has it, report exactly what was found: a
+registered entry, folders on disk, or both, then ask how to proceed. `/genesis` never decides
 this on its own: adopting an unregistered folder tree and refusing a duplicate registration are
 both reasonable, and which one is right depends on how the collision arose. Warn, show, wait.
 
@@ -127,8 +127,8 @@ occupied path.
 
 Consequences, all of them wanted:
 
-- A world whose scaffolding drifted — someone made `locations/` by hand and never wrote its
-  index — gets exactly its gaps filled.
+- A world whose scaffolding drifted, someone having made `locations/` by hand and never written its
+  index, gets exactly its gaps filled.
 - A complete world produces an empty plan, and the run says so rather than doing nothing
   silently.
 - **No existing file is ever written.** Not an index, not an article. The survey is what
@@ -147,7 +147,7 @@ artifacts itself at its Step 12, outside the executor, and `/genesis` does the s
 builds the tree, and the settings entry is written after it returns.
 
 The entry carries `name`, the three prong roots, `campaigns`, `tagRegistryPath`, and `rules`.
-It carries none of `retired`, `mergedInto`, or `retiredCampaigns` — those three are `/migrate`'s
+It carries none of `retired`, `mergedInto`, or `retiredCampaigns`. Those three are `/migrate`'s
 alone and are absent on a world that has never been retired or merged.
 
 **Written from what applied, not from what was planned**, the same rule `/migrate` Step 8 follows
@@ -175,13 +175,13 @@ No change to `workflows/migrate.mjs`. That is the point of the design.
 its behavior is exercised by running it. What is testable is the plan it produces, and that
 belongs with the executor's existing plan suite:
 
-1. A brand-new world plans 21 operations without a campaign and 22 with one — 7 knowledge-base
+1. A brand-new world plans 21 operations without a campaign and 22 with one: 7 knowledge-base
    indexes, 11 homebrew, 1 session-reports root, the optional campaign, 1 `vault`, and 1
-   `tag-registry` — and the prechecks come back ok.
+   `tag-registry`, and the prechecks come back ok.
 2. Every planned index path sits inside the prong root it belongs to, and each folder's index
    stem matches `indexStemFor` for that setting's suffix.
 3. A target folder that already holds an index contributes **no** `create-index`, and the
-   prechecks stay ok — the adopt case.
+   prechecks stay ok. This is the adopt case.
 4. A fully scaffolded world plans zero operations.
 5. A world with an existing vault plans the `vault` operation without tripping the on-disk
    collision check.
