@@ -4,7 +4,7 @@ Each top-level directory is an independent, self-contained project. No shared bu
 
 ## `professor-orb/` — Claude Code plugin (most active)
 
-Post-session workflow plugin for D&D DMs. Skills, four commands, four agents, two hooks, two workflow scripts.
+Post-session workflow plugin for D&D DMs. Distributed through `.claude-plugin/marketplace.json` at the repo root — bump its `version` on release.
 
 **Professor-orb imposes its own structural schema.** Index rules, frontmatter schema, filename conventions, and folder layout are professor-orb's, shipped in `references/base-rules.json` and laid down by `setup` as the canonical layout. Its purpose is to assign an organization method and pull unorganized or under-organized material into it. From the consumer's `CLAUDE.md` it reads campaign facts, writing style, and content exclusions — never structure.
 
@@ -21,9 +21,13 @@ Tests are Node built-ins, no framework. Run a file directly:
 node professor-orb/workflows/migrate.plan.test.mjs
 ```
 
-Suites: `workflows/migrate.plan`, `workflows/migrate.apply`, `workflows/migrate.proposal`, `workflows/validation-sweep.ownership`, `hooks/validate-write`, `hooks/pipeline-next`, `commands/lane-staging`.
+All seven suites (~48s; each exits non-zero on failure):
 
-Designs are in `docs/superpowers/specs/`, implementation plans in `docs/superpowers/plans/`. Read the relevant spec before changing behavior it describes.
+```
+for f in $(find professor-orb -name "*.test.mjs" | sort); do node "$f" || break; done
+```
+
+Read the relevant spec in `docs/superpowers/` before changing behavior it describes.
 
 ## `boxaid-call-ops/` — Claude Code plugin
 
@@ -50,11 +54,11 @@ Re-run `cf-typegen` after changing bindings in `wrangler.jsonc`. No test suite.
 
 ## `sequencer/` — Claude Code skill
 
-Builds Foundry VTT Sequencer visual-effect macros (projectiles, impacts, auras, summoning flourishes). Integrates with Midi-QOL, DAE, and Portal; implements the *visuals*, not game balance. Layout: `SKILL.md` + `references/` + `evals/`. Unrelated to the toolkit pipeline.
+Builds Foundry VTT Sequencer visual-effect macros (projectiles, impacts, auras, summoning flourishes). Integrates with Midi-QOL, DAE, and Portal; implements the *visuals*, not game balance. Layout: `SKILL.md` + `references/` + `evals/`.
 
 ## `sequencer-workspace/` and `docs/`
 
-Development material, not shipped. `sequencer-workspace/` holds eval iteration outputs for `sequencer`. `docs/` holds the design record described under professor-orb.
+Development material, not shipped. `sequencer-workspace/` holds eval iteration outputs for `sequencer`. `docs/superpowers/specs/` holds designs, `docs/superpowers/plans/` implementation plans.
 
 ## Security
 
