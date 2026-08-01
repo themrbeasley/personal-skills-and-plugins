@@ -67,7 +67,11 @@ misreading becomes visible before it costs anything.
 
 ### 3. Execute
 
-Hand the plan to `applyPlan`. Then write the `conventions.json` entry.
+Hand the plan to `applyPlan`, with `settings` set to the on-disk array plus the new world's own
+entry, not the on-disk array alone. The executor resolves a `tag-registry` operation's owner and
+a `create-index` operation's suffix by matching against `settings`; a world absent from that
+array owns nothing under either lookup, so its registry operation finds no owner and its indexes
+fall back to the base suffix. Then write the `conventions.json` entry.
 
 ## The plan needs no new operation kinds
 
