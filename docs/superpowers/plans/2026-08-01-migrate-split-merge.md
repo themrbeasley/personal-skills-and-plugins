@@ -648,9 +648,17 @@ Append to `migrate.proposal.test.mjs`:
      text.includes("Emberwatch.md, Frosthollow.md, North-INDEX.md"),
      text.includes("2 moving in: Coldwater.md, Hailstone.md")],
     [true, true, true, true]);
+  // Asserted against the BOLDED heading, which only the merge section emits, not
+  // against the bare path. proposalTo renders every bucket folder into the
+  // operations table's To cell and the fenced plan block serializes the operation
+  // whole, so a bare `text.includes("settings/rolara/locations/south")` is true
+  // before this section exists and can never go false. Both halves are asserted
+  // because the negative alone would also pass if the section failed to render at
+  // all, which is the failure worth catching here.
   check("and a bucket merging into nothing is not listed there",
-    text.includes("settings/rolara/locations/south"),
-    false);
+    [text.includes("**settings/rolara/locations/north**"),
+     text.includes("**settings/rolara/locations/south**")],
+    [true, false]);
 }
 
 {
@@ -671,7 +679,7 @@ Append to `migrate.proposal.test.mjs`:
 
 Run: `node professor-orb/workflows/migrate.proposal.test.mjs`
 
-Expected: FAIL on "a merging bucket gets a disclosure section naming the folder and its contents" with `actual: [false,false,false,false]`. The two negative cases PASS already and are regression guards.
+Expected: FAIL on both checks in the first block. The first reports `actual: [false,false,false,false]`, and the second reports `actual: [false,false]` because no merge section has rendered yet, so the bolded north heading is absent. The second block's check PASSES already and is a regression guard. Note the exit code is 1.
 
 - [ ] **Step 8: Render the section**
 
