@@ -796,7 +796,7 @@ Expected: one hit, in Step 4. Read the whole paragraph before editing so the new
 
 - [ ] **Step 2: Add the merge disclosure to that paragraph**
 
-Append these two sentences to the end of that paragraph, before the sentence beginning "A destination collision does not":
+Append these two sentences to the very end of that paragraph, AFTER the sentence beginning "A destination collision does not". Do not place them before it. That sentence is an elliptical contrast whose antecedent is the preceding sentence, "both appear in the proposal's Declined section", and inserting anything between the two severs it. Worse, the first new sentence itself ends with "is still a destination collision that stops the run", so a reader arriving at "A destination collision does not" binds it to the wrong thing:
 
 ```
 A split bucket may name a subfolder that already exists, which merges the bucket into it; the proposal lists that folder's current contents in its own "Merging into existing folders" section so the merge is approved with both halves visible, and an article that would land on a same-named file there is still a destination collision that stops the run. A bucket naming a path that holds a file rather than a folder is declined, because articles cannot be moved into a file.
