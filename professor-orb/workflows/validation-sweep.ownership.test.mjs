@@ -1,17 +1,18 @@
-// Regression guard for the single-ownership aggregation and the tag-registry
-// conflict guard in validation-sweep.mjs.
+// Regression guard for the single-ownership aggregation, the tag-registry
+// conflict guard, and the deterministic enumeration/claims-extraction pipeline
+// in validation-sweep.mjs.
 //
 // The workflow module cannot be imported directly: it uses top-level await and
 // workflow-runtime globals (agent, parallel, phase, log, args), so importing it
 // would execute run() and throw. This test therefore mirrors the aggregation
 // logic. aggregateOld reproduces the historical bug (shipped through 1.5.0);
 // aggregateNew mirrors the shipped fix. Keep toOwnershipKey, aggregateNew,
-// aggregateSingleOwnershipFixed, normalizeRel, and detectTagRegistryConflicts
-// byte-aligned with the corresponding sections of validation-sweep.mjs: if you
-// change that logic in the source, change it here too, or this guard drifts. A
-// mirror that claims a correspondence it no longer has is worse than no
-// mirror, because the whole value of this suite rests on the claim being
-// true.
+// aggregateSingleOwnershipFixed, normalizeRel, detectTagRegistryConflicts,
+// isIndexFile, parseClaimLine, claimsFromLines, and sliceRanges byte-aligned
+// with the corresponding sections of validation-sweep.mjs: if you change that
+// logic in the source, change it here too, or this guard drifts. A mirror
+// that claims a correspondence it no longer has is worse than no mirror,
+// because the whole value of this suite rests on the claim being true.
 //
 // Run: node professor-orb/workflows/validation-sweep.ownership.test.mjs
 
@@ -461,6 +462,168 @@ assert('MIXED: the third, genuinely distinct setting is not mutated', mixedRegis
 assert(
   'MIXED: the conflicting pair is mutated',
   mixedRegistries[0].conflict === true && mixedRegistries[1].conflict === true,
+)
+
+// DETERMINISTIC ENUMERATION AND CLAIMS EXTRACTION regression guard, added
+// alongside the 2026-08-02 fix. Two mirrors from validation-sweep.mjs:
+// isIndexFile, parseClaimLine, claimsFromLines, and sliceRanges, byte-aligned
+// with the corresponding definitions in the source (the block right above
+// `async function run()`). Keep them that way, same as every other mirror in
+// this file.
+const isIndexFile = (file, suffixLower) => {
+  if (!suffixLower) return false
+  const normalized = String(file == null ? '' : file).replace(/\\/g, '/')
+  const base = normalized.slice(normalized.lastIndexOf('/') + 1)
+  const lastDot = base.lastIndexOf('.')
+  const stem = lastDot > 0 ? base.slice(0, lastDot) : base
+  return stem.toLowerCase().endsWith(suffixLower)
+}
+
+const parseClaimLine = (raw) => {
+  const line = String(raw == null ? '' : raw)
+  const linkAt = line.indexOf('[[')
+  if (linkAt === -1) return null
+  const head = /^(.*):(\d+):(\d+):$/.exec(line.slice(0, linkAt))
+  if (!head) return null
+  return { indexFile: head[1], line: Number(head[2]), offset: Number(head[3]), target: line.slice(linkAt) }
+}
+
+const claimsFromLines = (lines) => {
+  const firstPerLine = new Map()
+  let unparseable = 0
+  for (const raw of Array.isArray(lines) ? lines : []) {
+    const parsed = parseClaimLine(raw)
+    if (!parsed) {
+      unparseable++
+      continue
+    }
+    const byLine = firstPerLine.get(parsed.indexFile) || new Map()
+    const held = byLine.get(parsed.line)
+    if (!held || parsed.offset < held.offset) byLine.set(parsed.line, parsed)
+    firstPerLine.set(parsed.indexFile, byLine)
+  }
+  const claims = []
+  for (const byLine of firstPerLine.values()) {
+    for (const p of byLine.values()) claims.push({ indexFile: p.indexFile, ownedArticle: p.target })
+  }
+  return { claims, unparseable }
+}
+
+const sliceRanges = (total, size) => {
+  const ranges = []
+  for (let from = 1; from <= total; from += size) ranges.push({ from, to: Math.min(from + size - 1, total) })
+  return ranges
+}
+
+// isIndexFile: case-insensitive suffix match on the stem, empty suffix always false.
+assert('isIndexFile: matches the configured suffix case-insensitively', isIndexFile('kb/archfey/Archfey-index.md', '-index'))
+assert('isIndexFile: an ordinary article does not match', !isIndexFile('kb/archfey/Baba-Yaga.md', '-index'))
+assert('isIndexFile: an empty suffix (no indexParity rule declared) never matches', !isIndexFile('kb/archfey/Archfey-INDEX.md', ''))
+assert('isIndexFile: a dotless filename does not crash and does not match', !isIndexFile('kb/archfey/README', '-index'))
+
+// sliceRanges: 1-based, inclusive, the exact form `sed -n 'FROM,TOp'` takes.
+const ranges25 = sliceRanges(25, 12)
+assert(
+  'sliceRanges: 25 items at size 12 produce three ranges covering 1-25 with no gap or overlap',
+  JSON.stringify(ranges25) === JSON.stringify([{ from: 1, to: 12 }, { from: 13, to: 24 }, { from: 25, to: 25 }]),
+)
+assert('sliceRanges: zero items produce zero ranges', sliceRanges(0, 12).length === 0)
+
+// THE REGRESSION CASE NAMED IN THE BUG REPORT: real `grep -bnoHE` output
+// captured from the project's actual settings/rolara/characters/archfey/
+// Archfey-INDEX.md (16 entries, escaped-pipe table rows, one row -
+// Bear Prince Urso's - carrying a second, in-prose wikilink to Caliban that
+// must NOT be counted as a 17th claim).
+const archfeyGrepLines = [
+  'kb/archfey/Archfey-INDEX.md:15:459:[[Baba-Yaga\\|Baba Yaga]]',
+  'kb/archfey/Archfey-INDEX.md:16:593:[[Bear-Prince-Urso\\|Bear Prince Urso]]',
+  'kb/archfey/Archfey-INDEX.md:16:743:[[Caliban\\|Caliban]]',
+  'kb/archfey/Archfey-INDEX.md:17:836:[[Daegolor\\|Daegolor]]',
+  'kb/archfey/Archfey-INDEX.md:18:969:[[Faerieth\\|Faerieth]]',
+  'kb/archfey/Archfey-INDEX.md:19:1052:[[Ilactariel\\|Ilactariel]]',
+  'kb/archfey/Archfey-INDEX.md:20:1083:[[Jack-Frost\\|Jack Frost]]',
+  'kb/archfey/Archfey-INDEX.md:21:1114:[[Jingling\\|Jingling]]',
+  'kb/archfey/Archfey-INDEX.md:22:1141:[[Múnla\\|Múnla]]',
+  'kb/archfey/Archfey-INDEX.md:23:1164:[[Nalea\\|Nalea]]',
+  'kb/archfey/Archfey-INDEX.md:24:1185:[[Nerizorwyn\\|Nerizorwyn]]',
+  'kb/archfey/Archfey-INDEX.md:25:1216:[[Oberon\\|Oberon]]',
+  'kb/archfey/Archfey-INDEX.md:26:1239:[[Queen-of-Air-and-Darkness\\|Queen of Air and Darkness]]',
+  'kb/archfey/Archfey-INDEX.md:27:1300:[[Rionnon\\|Rionnon]]',
+  'kb/archfey/Archfey-INDEX.md:28:1325:[[Ru-Ling\\|Ru Ling]]',
+  'kb/archfey/Archfey-INDEX.md:29:1350:[[Titania\\|Titania]]',
+  'kb/archfey/Archfey-INDEX.md:30:1375:[[Vircan\\|Vircan]]',
+]
+const archfeyParsed = claimsFromLines(archfeyGrepLines)
+assert('ARCHFEY: all 17 grep lines parse cleanly, none unparseable', archfeyParsed.unparseable === 0)
+assert('ARCHFEY: exactly 16 claims recovered, not 8 (the 2026-08-02 under-transcription) and not 17', archfeyParsed.claims.length === 16)
+const archfeyOwnersByKey = new Map()
+for (const c of archfeyParsed.claims) {
+  const key = toOwnershipKey(c.ownedArticle, 'rolara')
+  const owners = archfeyOwnersByKey.get(key) || []
+  owners.push(c.indexFile)
+  archfeyOwnersByKey.set(key, owners)
+}
+for (const name of [
+  'Baba-Yaga', 'Bear-Prince-Urso', 'Daegolor', 'Faerieth', 'Ilactariel', 'Jack-Frost', 'Jingling', 'Múnla',
+  'Nalea', 'Nerizorwyn', 'Oberon', 'Queen-of-Air-and-Darkness', 'Rionnon', 'Ru-Ling', 'Titania', 'Vircan',
+]) {
+  const owners = archfeyOwnersByKey.get(toOwnershipKey(name, 'rolara')) || []
+  assert('ARCHFEY: ' + name + ' is owned by exactly the Archfey index (this failed as a false orphan before the fix)', owners.length === 1)
+}
+assert(
+  'ARCHFEY: Caliban (in-prose mention on the Bear Prince Urso row) is NOT claimed by the index',
+  !archfeyOwnersByKey.has(toOwnershipKey('Caliban', 'rolara')),
+)
+
+// An unparseable line (does not end in :digits:digits: before its first "[[")
+// is counted, not silently dropped, and does not crash the parse of the lines
+// around it.
+const withGarbageLine = archfeyGrepLines
+  .slice(0, 3)
+  .concat(['this line did not come from grep at all'])
+const garbageParsed = claimsFromLines(withGarbageLine)
+assert('UNPARSEABLE: one bad line is counted', garbageParsed.unparseable === 1)
+assert('UNPARSEABLE: the well-formed lines around it still parse', garbageParsed.claims.length === 2)
+
+// SUPPRESSION regression: when a setting's deterministic claims extraction
+// fails verification (mirrors the "unverifiedClaimSettings" gate in the
+// source's singleOwnership loop), that setting's findings must not appear at
+// all, not appear as false 0-owner orphans, because the correct read of a
+// failed extraction is "this run could not tell," not "no index owns this."
+function aggregateSingleOwnershipWithUnverified(shards, settingConfigs, unverifiedSettings) {
+  const { allArticles, articleSettingByPath, ownersByKey } = collectOwnership(shards)
+  const findings = []
+  for (const article of allArticles) {
+    const settingKey = articleSettingByPath.get(article)
+    if (unverifiedSettings.has(settingKey)) continue
+    const cfg = settingConfigs.get(settingKey)
+    const ruleId = (cfg && cfg.singleOwnershipRuleId) || 'singleOwnership'
+    const off = Boolean(cfg && cfg.rules[ruleId] && cfg.rules[ruleId].enforcement === 'off')
+    if (off) continue
+    const owners = Array.from(new Set(ownersByKey.get(toOwnershipKey(article, settingKey)) || []))
+    if (owners.length === 1) continue
+    findings.push({ file: article, ownerCount: owners.length, ruleId })
+  }
+  return { findings }
+}
+
+const suppressionShards = [{
+  settingKey: '0',
+  articles: ['kb/archfey/Baba-Yaga.md', 'kb/archfey/Orphan.md'],
+  ownershipClaims: [], // as if the checkers correctly returned nothing (centralOwnership true)
+}]
+const suppressionConfigs = new Map([
+  ['0', { rules: { structuralSingleOwnership: { enforcement: 'warn' } }, singleOwnershipRuleId: 'structuralSingleOwnership' }],
+])
+const withoutSuppression = aggregateSingleOwnershipWithUnverified(suppressionShards, suppressionConfigs, new Set())
+assert(
+  'SUPPRESSION: with no unverified settings, both articles report as unowned (baseline)',
+  withoutSuppression.findings.length === 2,
+)
+const withSuppression = aggregateSingleOwnershipWithUnverified(suppressionShards, suppressionConfigs, new Set(['0']))
+assert(
+  'SUPPRESSION: a setting whose claims extraction failed verification reports ZERO singleOwnership findings, not false orphans',
+  withSuppression.findings.length === 0,
 )
 
 console.log(ok ? '\nAll checks passed.' : '\nSome checks FAILED.')
