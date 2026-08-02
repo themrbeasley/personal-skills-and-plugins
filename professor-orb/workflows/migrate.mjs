@@ -587,15 +587,22 @@ function findDestinationCollisions(operations, projectRoot, ignored) {
   // i, and a/b is now an ancestor of that SAME entry's own destination a/b/c.
   // Under a blanket <= that self-nesting move would be silently credited,
   // crediting an entry with clearing a path out from under its own arrival.
-  // `git mv a/b a/b/c` fails outright (a directory cannot be moved into its
-  // own descendant), so crediting it here would hide a real apply-time
-  // failure behind a plan that reports ok. Requiring the ancestor's vacating
-  // index to be strictly earlier than i closes exactly that case, since i < i
-  // is false, while every OTHER, genuinely earlier ancestor credit (a
-  // different, earlier entry moving a folder that a later entry then refills
-  // beneath) still applies. The exact match keeps its own <= i unchanged; see
-  // the comment beside that comparison, further down, for why it still needs
-  // the wider test.
+  // Whether a/b/c is genuinely free by the time this entry runs is
+  // apply-time behavior this plan-phase check has no way to see
+  // (applyRelocateProng in fact stages exactly this shape through a
+  // temporary sibling and succeeds), so an entry cannot be allowed to vouch
+  // for its own destination through its own ancestor: crediting it here on
+  // the strength of a mechanism the checker cannot verify would risk hiding
+  // a real problem behind a plan that reports ok. The two ways of getting
+  // that call wrong cost differently, too: withholding credit wrongly costs
+  // only a false refusal, while granting it wrongly costs a suppressed
+  // collision, so the checker stays conservative. Requiring the ancestor's
+  // vacating index to be strictly earlier than i closes exactly that case,
+  // since i < i is false, while every OTHER, genuinely earlier ancestor
+  // credit (a different, earlier entry moving a folder that a later entry
+  // then refills beneath) still applies. The exact match keeps its own <= i
+  // unchanged; see the comment beside that comparison, further down, for why
+  // it still needs the wider test.
   //
   // vacatedTreeAt is NOT vacatedAt. It is built by the same forward walk,
   // below, but it drops an entry whose `to` folds to the SAME samePathKey as
@@ -680,12 +687,13 @@ function findDestinationCollisions(operations, projectRoot, ignored) {
     // vacatedAt: widen this one to <= and an entry moving a/b to a/b/c
     // vacates a/b at its own index i, and a/b is now an ancestor of that SAME
     // entry's own destination a/b/c, so a blanket <= would credit it with
-    // clearing a path out from under its own arrival, a move `git mv` itself
-    // refuses. i < i is false, so the strict comparison correctly leaves that
-    // case reported rather than silently credited, while a genuinely earlier,
-    // different entry's ancestor credit still applies. Reading vacatedTreeAt
-    // instead of vacatedAt closes a second, separate gap: vacatedAt still
-    // carries a fold-equal entry (a case-only rename) for the EXACT branch's
+    // clearing a path out from under its own arrival on the strength of
+    // apply-time behavior this plan-phase check cannot verify. i < i is
+    // false, so the strict comparison correctly leaves that case reported
+    // rather than silently credited, while a genuinely earlier, different
+    // entry's ancestor credit still applies. Reading vacatedTreeAt instead of
+    // vacatedAt closes a second, separate gap: vacatedAt still carries a
+    // fold-equal entry (a case-only rename) for the EXACT branch's
     // self-credit above, but that entry frees nothing on a case-insensitive
     // filesystem, so it must not hand out ancestor credit to everything
     // beneath it. See the comment above this function for the full reasoning
@@ -734,7 +742,7 @@ function findDestinationCollisions(operations, projectRoot, ignored) {
     const reason =
       vacatedIndex === undefined
         ? "Destination already exists and no operation in this plan moves it away, so applying this one would overwrite it."
-        : "Destination already exists and an operation in this plan moves it away, but only after this one runs. If that is a different, earlier-running operation, reorder the plan so it comes first. If it is this same operation, no reordering can help, since a folder cannot be moved into its own descendant; change the destination instead. As written, the run would fail partway through, since git mv refuses an existing destination rather than overwriting it.";
+        : "Destination already exists and an operation in this plan moves it away, but only after this one runs. If that is a different, earlier-running operation, reorder the plan so it comes first. If it is this same operation, no reordering can help, since this operation is the only thing in the plan that would free the destination, leaving no earlier operation to reorder ahead of it; change the destination instead. As written, the run would fail partway through, since git mv refuses an existing destination rather than overwriting it.";
     hits.push({
       kind: "on-disk",
       op: e.op,

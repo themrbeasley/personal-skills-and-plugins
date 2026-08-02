@@ -907,10 +907,13 @@ try {
     // the measured reproduction); this pins the degenerate case that sits
     // right beside the legitimate one and must NOT be credited: an entry
     // moving a/b to a/b/c vacates a/b at its own index, and a/b is an
-    // ancestor of that SAME entry's own destination a/b/c. `git mv a/b a/b/c`
-    // fails outright, a directory cannot be moved into its own descendant, so
-    // silently crediting that self-nesting move would hide a real apply-time
-    // failure behind a plan reporting ok.
+    // ancestor of that SAME entry's own destination a/b/c. Whether a/b/c is
+    // genuinely free by the time this entry runs is apply-time behavior this
+    // plan-phase check has no way to see (applyRelocateProng in fact stages
+    // exactly this shape through a temporary sibling and succeeds), so
+    // silently crediting that self-nesting move on the strength of a
+    // mechanism the checker cannot verify would risk hiding a real problem
+    // behind a plan reporting ok.
     //
     // Pinned directly against findDestinationCollisions via runPrechecks,
     // the same way the ignored-source cases above are, rather than through a
@@ -1035,8 +1038,12 @@ try {
       // This is the fix, discriminated. With the vacatedTreeAt exclusion
       // reverted (the case-only rename's own index handed out as ordinary
       // ancestor credit again), this reports [true, []]: the fill is
-      // silently credited and the file on disk would be clobbered by a `git
-      // mv` with no -f. With the fix in place it reports the on-disk
+      // silently credited even though the destination is still occupied, and
+      // applying it would send `git mv` at a destination that already
+      // exists. `git mv` with no `-f` refuses rather than clobbering, so the
+      // run would fail partway through instead of losing the file, but that
+      // refusal is exactly the outcome these prechecks exist to catch before
+      // anything moves. With the fix in place it reports the on-disk
       // collision below instead.
       check("a case-only folder rename does not free the files beneath it for a later fill to collide with",
         [r.prechecks.ok, list(r.prechecks.collisions).map((c) => [c.kind, c.op, c.to])],
