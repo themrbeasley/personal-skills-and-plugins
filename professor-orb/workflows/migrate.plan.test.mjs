@@ -897,6 +897,87 @@ try {
       /only after this one runs/.test(p.prechecks.collisions[0].reason), true);
   }
 
+  console.log("\nVacate credit reaches beneath a moved folder, and stops at itself");
+
+  {
+    // The bug this release fixes: `git mv` on a FOLDER carries every path
+    // beneath it, so an entry whose OWN `from` is a folder frees every path
+    // under that folder, not only the folder's own exact spelling. Exact
+    // matching alone missed this (see the split-folder case just below for
+    // the measured reproduction); this pins the degenerate case that sits
+    // right beside the legitimate one and must NOT be credited: an entry
+    // moving a/b to a/b/c vacates a/b at its own index, and a/b is an
+    // ancestor of that SAME entry's own destination a/b/c. `git mv a/b a/b/c`
+    // fails outright, a directory cannot be moved into its own descendant, so
+    // silently crediting that self-nesting move would hide a real apply-time
+    // failure behind a plan reporting ok.
+    //
+    // Pinned directly against findDestinationCollisions via runPrechecks,
+    // the same way the ignored-source cases above are, rather than through a
+    // planner. A real, committed repository is still required: with ignored
+    // undetermined the vacate-credit loop withholds credit from every entry
+    // regardless of order or ancestry, which would make this pass for the
+    // wrong reason (see the norepo case just above).
+    const root = mkdtempSync(path.join(os.tmpdir(), "orb-migrate-plan-ancestor-self-"));
+    try {
+      writeAt(root, "a/b/c/nested.md", "a real file already living where a/b/c would land\n");
+      commitFixture(root);
+      const pre = runPrechecks({
+        operations: [{ op: "relocate-path", from: "a/b", to: "a/b/c" }],
+        projectRoot: root,
+      });
+      check("a folder moved into its own descendant is still reported as a collision, not silently credited",
+        [pre.ok, list(pre.collisions).map((c) => [c.kind, c.op, c.to])],
+        [false, [["on-disk", "relocate-path", "a/b/c"]]]);
+      // vacatedAt DOES carry an entry for a/b, this entry's own from, and the
+      // ancestor walk finds it; it is just not strictly earlier than this
+      // entry's own index, so credit is correctly withheld without the
+      // reason pretending nothing in the plan ever touches a/b.
+      check("and the reason does not claim nothing in the plan moves the path away",
+        /only after this one runs/.test(pre.collisions[0].reason), true);
+    } finally {
+      try {
+        rmSync(root, { recursive: true, force: true, maxRetries: 5 });
+      } catch {
+        /* Same Windows handle caveat as the fixture repo below. */
+      }
+    }
+  }
+
+  {
+    // The ancestor-match mirror of "Vacate credit is keyed on position"
+    // above: a LATER entry that moves the whole PARENT folder away does not
+    // excuse an EARLIER entry filling a path beneath it, and the reason has
+    // to name the ordering through the ancestor match. Nothing else in this
+    // file exercises the ancestor branch of the reason discriminator, so a
+    // regression that fell back to "no operation in this plan moves it away"
+    // for every ancestor-only match would pass every other case here and
+    // only show up in this one.
+    const root = mkdtempSync(path.join(os.tmpdir(), "orb-migrate-plan-ancestor-order-"));
+    try {
+      writeAt(root, "parent/sub/loose.md", "a file already occupying the fill destination\n");
+      commitFixture(root);
+      const pre = runPrechecks({
+        operations: [
+          { op: "relocate-path", from: "elsewhere/loose.md", to: "parent/sub/loose.md" },
+          { op: "relocate-path", from: "parent/sub", to: "parent/attic" },
+        ],
+        projectRoot: root,
+      });
+      check("an ancestor-vacating entry that runs later does not excuse an earlier fill beneath it",
+        [pre.ok, list(pre.collisions).map((c) => [c.kind, c.op, c.to])],
+        [false, [["on-disk", "relocate-path", "parent/sub/loose.md"]]]);
+      check("and the reason names the ordering through the ancestor match, not absence",
+        /only after this one runs/.test(pre.collisions[0].reason), true);
+    } finally {
+      try {
+        rmSync(root, { recursive: true, force: true, maxRetries: 5 });
+      } catch {
+        /* Same Windows handle caveat as the fixture repo below. */
+      }
+    }
+  }
+
   console.log("\nAn ignored source does not vacate its destination");
 
   {
@@ -2081,6 +2162,55 @@ function splitFixture() {
     root
   );
   check("a preceding pathMoves entry that frees a destination lets a later split fill it",
+    [kindsOf(r.operations), r.prechecks.ok, list(r.prechecks.collisions)],
+    [["relocate-path", "split-folder", "create-index", "rebuild-index"], true, []]);
+  rmSync(root, { recursive: true, force: true });
+}
+
+{
+  // The reported bug, reproduced exactly: the case just above frees the
+  // destination by naming the FILE itself (from:
+  // settings/rolara/locations/north/Ashfall.md). Here the pathMoves entry
+  // instead moves the FOLDER the file lives in, north itself, which is what
+  // `git mv` actually carries away in one shot. findDestinationCollisions'
+  // vacate lookup used to compare only exact `from` strings, so it never saw
+  // that the folder move frees settings/rolara/locations/north/Ashfall.md
+  // too, and refused with "on-disk, split-folder,
+  // settings/rolara/locations/north/Ashfall.md" against a plan that was
+  // legal: by the time the rank-3 split runs, the rank-1 move has already
+  // carried the file away with its parent folder, so nothing is there to
+  // overwrite. Measured against the pre-fix code, not assumed.
+  //
+  // kindsOf(r.operations) is asserted, not only prechecks.ok, because "the
+  // operations plan" is part of what this pins: the split-folder planner
+  // itself reads the destination through the same plan-aware model
+  // (planVacates, via planResolve) and already treats a folder move as
+  // freeing what is beneath it, so a regression narrowly confined to
+  // findDestinationCollisions would only be caught by the prechecks half of
+  // this assertion, and one confined to the planner half would only be
+  // caught by kindsOf.
+  //
+  // A real, git-committed repository, for the same reason the sibling case
+  // above needs one: with ignored undetermined, the vacate-credit loop
+  // withholds credit from every entry regardless of order or ancestry, which
+  // would refuse this case for the ignored reason rather than proving the
+  // ancestor credit this pins.
+  const root = splitFixture();
+  writeAt(root, "settings/rolara/locations/north/Ashfall.md",
+    "---\ntype: Location\n---\n\nA different article that already lives here.\n");
+  commitFixture(root);
+  const r = scoped(
+    {
+      pathMoves: [
+        { from: "settings/rolara/locations/north", to: "settings/rolara/attic", reason: "x" },
+      ],
+      splitFolders: [
+        { folder: "settings/rolara/locations", buckets: [{ name: "north", articles: ["Ashfall.md"] }] },
+      ],
+    },
+    root
+  );
+  check("a preceding pathMoves entry that frees a whole folder lets a later split fill beneath it",
     [kindsOf(r.operations), r.prechecks.ok, list(r.prechecks.collisions)],
     [["relocate-path", "split-folder", "create-index", "rebuild-index"], true, []]);
   rmSync(root, { recursive: true, force: true });
