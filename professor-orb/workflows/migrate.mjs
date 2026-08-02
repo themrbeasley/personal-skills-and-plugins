@@ -577,9 +577,9 @@ function findDestinationCollisions(operations, projectRoot, ignored) {
   // mid-plan, has always modeled the prefix case correctly (`target === from
   // || target.startsWith(from + "/")`); this function's own vacate lookup did
   // not. The fix applies that same rule here: at the lookup, every ANCESTOR of
-  // the checked destination is tested against vacatedAt as well as the exact
-  // path, walked off the normalized posix `to` so the keys line up with what
-  // samePathKey produces.
+  // the checked destination is tested against a SECOND map, vacatedTreeAt, as
+  // well as the exact path against vacatedAt, walked off the normalized posix
+  // `to` so the keys line up with what samePathKey produces.
   //
   // Ancestor credit is not handed the exact match's <= i. It gets its own,
   // STRICTLY EARLIER, < i, and the reason is a shape exact matching could
@@ -596,9 +596,33 @@ function findDestinationCollisions(operations, projectRoot, ignored) {
   // beneath) still applies. The exact match keeps its own <= i unchanged; see
   // the comment beside that comparison, further down, for why it still needs
   // the wider test.
+  //
+  // vacatedTreeAt is NOT vacatedAt. It is built by the same forward walk,
+  // below, but it drops an entry whose `to` folds to the SAME samePathKey as
+  // its `from`, which is a case-only rename. On the case-insensitive
+  // filesystem this module folds for, a case-only FOLDER rename frees nothing
+  // beneath it: settings/Rolara/items and settings/rolara/items are one
+  // directory on that same filesystem (see the case-fold paragraph near the
+  // top of this function). Before ancestor credit existed, recording that
+  // entry in vacatedAt was harmless, because the EXACT branch could only ever
+  // match it back against its own, identical key; no other entry's `to` folds
+  // to the same key as a case-only rename's `from` without ALSO being that
+  // same rename. Once ancestor credit reads the same map, that harmless
+  // record turns into an ANCESTOR key, and every destination beneath the
+  // folder, however far down, is silently credited with a free that never
+  // happened. Measured: a settingRenames entry that only changes case ranked
+  // ahead of a pathMoves entry filling a path beneath that same folder, over a
+  // file already on disk there; prechecks reported ok true with zero
+  // collisions instead of refusing. vacatedTreeAt is a separate map rather
+  // than a filtered read of vacatedAt, for two reasons that are both
+  // load-bearing: vacatedAt itself must keep the fold-equal record so the
+  // EXACT branch's self-credit above still works, and "first write wins"
+  // would otherwise let that fold-equal index sit in the ancestor map ahead
+  // of a later, genuinely freeing entry for the same key.
   const ignoredFroms =
     ignored === null ? null : new Set(list(ignored).map((i) => toPosix(i.from)).filter(Boolean));
   const vacatedAt = new Map();
+  const vacatedTreeAt = new Map();
   for (const [i, e] of entries.entries()) {
     if (!e.from || !e.to) continue;
     const from = toPosix(e.from);
@@ -608,6 +632,12 @@ function findDestinationCollisions(operations, projectRoot, ignored) {
     // that vacates a given key IS the earliest one, and that is the only index
     // any later entry ever needs to compare itself against.
     if (!vacatedAt.has(key)) vacatedAt.set(key, i);
+    // vacatedTreeAt feeds only the ancestor walk below, and excludes a
+    // fold-equal entry (its `to` folds to the same key as its `from`, a
+    // case-only rename that frees nothing on this fold). See the comment
+    // above this function for why that exclusion exists and why this has to
+    // be a second map rather than a filtered read of vacatedAt.
+    if (key !== samePathKey(toPosix(e.to)) && !vacatedTreeAt.has(key)) vacatedTreeAt.set(key, i);
   }
 
   const byDir = new Map();
@@ -646,18 +676,25 @@ function findDestinationCollisions(operations, projectRoot, ignored) {
     // reaches this self case and does not let a later, different entry back
     // in.
     //
-    // ANCESTOR, strictly < i: widen this one to <= and an entry moving a/b to
-    // a/b/c vacates a/b at its own index i, and a/b is now an ancestor of that
-    // SAME entry's own destination a/b/c, so a blanket <= would credit it with
+    // ANCESTOR, strictly < i, and read from vacatedTreeAt rather than
+    // vacatedAt: widen this one to <= and an entry moving a/b to a/b/c
+    // vacates a/b at its own index i, and a/b is now an ancestor of that SAME
+    // entry's own destination a/b/c, so a blanket <= would credit it with
     // clearing a path out from under its own arrival, a move `git mv` itself
     // refuses. i < i is false, so the strict comparison correctly leaves that
     // case reported rather than silently credited, while a genuinely earlier,
-    // different entry's ancestor credit still applies.
+    // different entry's ancestor credit still applies. Reading vacatedTreeAt
+    // instead of vacatedAt closes a second, separate gap: vacatedAt still
+    // carries a fold-equal entry (a case-only rename) for the EXACT branch's
+    // self-credit above, but that entry frees nothing on a case-insensitive
+    // filesystem, so it must not hand out ancestor credit to everything
+    // beneath it. See the comment above this function for the full reasoning
+    // and the measured reproduction.
     const exactVacatedIndex = vacatedAt.get(key);
     let ancestorVacatedIndex;
     let ancestor = path.posix.dirname(path.posix.normalize(to));
     while (ancestor !== "." && ancestor !== "/") {
-      const v = vacatedAt.get(samePathKey(ancestor));
+      const v = vacatedTreeAt.get(samePathKey(ancestor));
       if (v !== undefined && (ancestorVacatedIndex === undefined || v < ancestorVacatedIndex)) {
         ancestorVacatedIndex = v;
       }
@@ -673,15 +710,21 @@ function findDestinationCollisions(operations, projectRoot, ignored) {
     // this path, so the old wording still applies as written. If either did,
     // something DOES free it, whether by naming this exact path or by moving
     // a folder above it, just not soon enough to credit, so the problem is
-    // order rather than absence, and the fix is reordering rather than
-    // picking a different destination. That reading also covers the
-    // self-nesting trap above: the entry IS the thing that nominally frees
-    // its own ancestor, just not before itself, so this still says something
-    // frees the path rather than falsely claiming nothing does. Either way
-    // the real failure mode is not an overwrite: git mv refuses a destination
-    // that already exists rather than clobbering it, so a plan that reaches
-    // apply with this hit unresolved fails partway through, it does not lose
-    // data.
+    // order rather than absence. That reading also covers the self-nesting
+    // trap above: the entry IS the thing that nominally frees its own
+    // ancestor, just not before itself, so this still says something frees
+    // the path rather than falsely claiming nothing does. The remedy
+    // sentence has to cover both shapes without misdirecting either one:
+    // "reorder the plan" is real, actionable advice when the freeing
+    // operation and the filling operation are two DIFFERENT entries, but the
+    // self-nesting case is the SAME entry nominally freeing and filling the
+    // same destination, and no reordering can move an operation ahead of
+    // itself, so the sentence names the "change the destination instead"
+    // alternative for that shape rather than repeating advice a DM cannot
+    // act on. Either way the real failure mode is not an overwrite: git mv
+    // refuses a destination that already exists rather than clobbering it, so
+    // a plan that reaches apply with this hit unresolved fails partway
+    // through, it does not lose data.
     const vacatedIndex =
       exactVacatedIndex === undefined
         ? ancestorVacatedIndex
@@ -691,7 +734,7 @@ function findDestinationCollisions(operations, projectRoot, ignored) {
     const reason =
       vacatedIndex === undefined
         ? "Destination already exists and no operation in this plan moves it away, so applying this one would overwrite it."
-        : "Destination already exists and an operation in this plan moves it away, but only after this one runs. Reorder the plan so that freeing operation comes first; as written, the run would fail partway through, since git mv refuses an existing destination rather than overwriting it.";
+        : "Destination already exists and an operation in this plan moves it away, but only after this one runs. If that is a different, earlier-running operation, reorder the plan so it comes first. If it is this same operation, no reordering can help, since a folder cannot be moved into its own descendant; change the destination instead. As written, the run would fail partway through, since git mv refuses an existing destination rather than overwriting it.";
     hits.push({
       kind: "on-disk",
       op: e.op,

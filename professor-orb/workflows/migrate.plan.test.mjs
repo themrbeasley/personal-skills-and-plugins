@@ -934,7 +934,7 @@ try {
       // entry's own index, so credit is correctly withheld without the
       // reason pretending nothing in the plan ever touches a/b.
       check("and the reason does not claim nothing in the plan moves the path away",
-        /only after this one runs/.test(pre.collisions[0].reason), true);
+        /only after this one runs/.test(obj(pre.collisions[0]).reason), true);
     } finally {
       try {
         rmSync(root, { recursive: true, force: true, maxRetries: 5 });
@@ -968,7 +968,79 @@ try {
         [pre.ok, list(pre.collisions).map((c) => [c.kind, c.op, c.to])],
         [false, [["on-disk", "relocate-path", "parent/sub/loose.md"]]]);
       check("and the reason names the ordering through the ancestor match, not absence",
-        /only after this one runs/.test(pre.collisions[0].reason), true);
+        /only after this one runs/.test(obj(pre.collisions[0]).reason), true);
+    } finally {
+      try {
+        rmSync(root, { recursive: true, force: true, maxRetries: 5 });
+      } catch {
+        /* Same Windows handle caveat as the fixture repo below. */
+      }
+    }
+  }
+
+  console.log("\nA fold-equal rename does not vacate the tree beneath it");
+
+  {
+    // The Critical this release fixes. vacatedAt's forward walk records EVERY
+    // entry with a from and a to, including one whose to folds to the SAME
+    // samePathKey as its from: a case-only rename. On the case-insensitive
+    // filesystem this module folds for, a case-only FOLDER rename frees
+    // nothing beneath it (see the case-fold paragraph in
+    // findDestinationCollisions: settings/Rolara/items and
+    // settings/rolara/items are one directory on that same filesystem).
+    // Before ancestor credit existed, recording that entry in vacatedAt was
+    // harmless, because the EXACT branch could only ever match it back
+    // against its own, identical key. Once its index became an ANCESTOR key
+    // too, that harmless record turned into free credit for every
+    // destination beneath the folder, on a rename that moves nothing.
+    //
+    // Reproduced through buildScopedPlan from an ordinary scope, not
+    // hand-fed: a settingRenames entry that only changes case (Rolara ->
+    // rolara) plans a relocate-prong for each of the setting's three prongs,
+    // ranked ahead of a pathMoves entry filling a path beneath the knowledge
+    // base prong. The article the fill would land on is already there.
+    const CASE_FOLD_SETTINGS = [
+      {
+        name: "Rolara",
+        kbRoot: "settings/Rolara",
+        homebrewRoot: "homebrew/Rolara",
+        sessionReportsRoot: "session-reports/Rolara",
+        campaigns: [],
+      },
+    ];
+    const root = mkdtempSync(path.join(os.tmpdir(), "orb-migrate-plan-fold-ancestor-"));
+    try {
+      writeAt(root, "settings/Rolara/locations/Tavern.md", "---\ntype: Concept\n---\n\nThe DM's article, already here.\n");
+      writeAt(root, "homebrew/Rolara/Blade.md", "---\ntype: Item\n---\n\nBody.\n");
+      writeAt(root, "session-reports/Rolara/misc/One-REPORT.md", "---\ntype: Session Report\n---\n\nBody.\n");
+      writeAt(root, "inbox/Tavern.md", "---\ntype: Concept\n---\n\nA second article a DM is filing into the same folder.\n");
+      commitFixture(root);
+      const r = buildScopedPlan({
+        projectRoot: root,
+        settings: CASE_FOLD_SETTINGS,
+        baseRules: BASE_RULES,
+        scope: {
+          settingRenames: [{ from: "Rolara", to: "rolara" }],
+          pathMoves: [{ from: "inbox/Tavern.md", to: "settings/rolara/locations/Tavern.md", reason: "x" }],
+        },
+      });
+      check("the scope plans the case-only rename ahead of the fill beneath it",
+        r.operations.map((o) => [o.op, o.from, o.to]),
+        [
+          ["relocate-prong", "settings/Rolara", "settings/rolara"],
+          ["relocate-prong", "homebrew/Rolara", "homebrew/rolara"],
+          ["relocate-prong", "session-reports/Rolara", "session-reports/rolara"],
+          ["relocate-path", "inbox/Tavern.md", "settings/rolara/locations/Tavern.md"],
+        ]);
+      // This is the fix, discriminated. With the vacatedTreeAt exclusion
+      // reverted (the case-only rename's own index handed out as ordinary
+      // ancestor credit again), this reports [true, []]: the fill is
+      // silently credited and the file on disk would be clobbered by a `git
+      // mv` with no -f. With the fix in place it reports the on-disk
+      // collision below instead.
+      check("a case-only folder rename does not free the files beneath it for a later fill to collide with",
+        [r.prechecks.ok, list(r.prechecks.collisions).map((c) => [c.kind, c.op, c.to])],
+        [false, [["on-disk", "relocate-path", "settings/rolara/locations/Tavern.md"]]]);
     } finally {
       try {
         rmSync(root, { recursive: true, force: true, maxRetries: 5 });
