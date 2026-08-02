@@ -1,0 +1,7 @@
+# professor-orb's setup skill copies workflows/*.mjs verbatim into a consumer
+# project's .claude/workflows/. On Windows, core.autocrlf would hand that copy
+# CRLF line endings even though the repository stores LF, so every consumer
+# would have to re-normalize by hand (World of Rolara did, on 2026-08-02).
+# Pinning eol=lf makes the checked-out file byte-identical to the stored one on
+# every platform, which is what makes the copy safe to ship.
+professor-orb/workflows/*.mjs eol=lf
