@@ -4,16 +4,19 @@ Each top-level directory is an independent, self-contained project. No shared bu
 
 ## `professor-orb/` — Claude Code plugin (most active)
 
-Post-session workflow plugin for D&D DMs. Distributed through `.claude-plugin/marketplace.json` at the repo root — bump its `version` on release.
+Post-session workflow plugin for D&D DMs. Distributed through `.claude-plugin/marketplace.json` at the repo root. A release bumps `version` in **both** that file and `professor-orb/.claude-plugin/plugin.json` — they must match.
 
 **Professor-orb imposes its own structural schema.** Index rules, frontmatter schema, filename conventions, and folder layout are professor-orb's, shipped in `references/base-rules.json` and laid down by `setup` as the canonical layout. Its purpose is to assign an organization method and pull unorganized or under-organized material into it. From the consumer's `CLAUDE.md` it reads campaign facts, writing style, and content exclusions — never structure.
 
 - **`.professor-orb/conventions.json` is the machine-readable authority.** `setup` generates it from `references/base-rules.json` plus a project extras layer. Every skill and hook reads it first. Schema: `skills/setup/references/conventions-schema.md`.
 - **Multi-setting layout.** `conventions.json` carries `settings[]`, one per world, each with three prong roots (`kbRoot`, `homebrewRoot`, `sessionReportsRoot`), its own `rules`, and its own `tagRegistryPath`. `retired`, `mergedInto`, and `retiredCampaigns` are written only by `/migrate` and must survive a resync.
-- **Lane commands own one prong each.** `/scribe`, `/log`, `/catalog` never cross prongs and use `:(literal)` pathspecs. `/migrate` is the exception: it restructures across prongs and commits its own work.
+- **Lane commands own one prong each.** `/scribe`, `/log`, `/catalog` never cross prongs and use `:(literal)` pathspecs. `/migrate` and `/genesis` are the exceptions: both work across prongs and commit their own work behind a snapshot commit. `/sweep` drives `validation-sweep.mjs` and mutates nothing before approval.
 - **`workflows/` is real code.** `migrate.mjs` is the migration executor — plan phase read-only by contract, apply phase mutates behind a snapshot commit. `validation-sweep.mjs` is the KB validator. `setup` copies both into the consumer's `.claude/workflows/`.
 - **Comment blocks in `migrate.mjs` are load-bearing.** Each records the invariant its guard holds. Read the comment before changing the code under it; update it when the rule changes.
 - **Agent `color` must be one of** `red`, `blue`, `green`, `yellow`, `purple`, `orange`, `pink`, `cyan`.
+- **Every command, agent, and skill opens by reading `skills/SHARED-PRINCIPLES.md`.** All 19 carry the preamble; new ones must too.
+
+`CONTEXT.md` is the project's glossary — the vocabulary used throughout this file, with the wrong terms called out explicitly. Read it before writing user-facing prose.
 
 Tests are Node built-ins, no framework. Run a file directly:
 
@@ -21,7 +24,7 @@ Tests are Node built-ins, no framework. Run a file directly:
 node professor-orb/workflows/migrate.plan.test.mjs
 ```
 
-All seven suites (~48s; each exits non-zero on failure):
+All eight suites (~1 min; each exits non-zero on failure):
 
 ```
 for f in $(find professor-orb -name "*.test.mjs" | sort); do node "$f" || break; done
