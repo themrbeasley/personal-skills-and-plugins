@@ -305,6 +305,137 @@ console.log("\n=== tag matching ===");
   check("a second setting's vocabulary also denies", r.code, 2);
 }
 
+console.log("\n=== Grep content gate ===");
+
+// Grep names no single file, so the per-article tag check cannot apply. What
+// it can do is refuse the output modes that return body text at all.
+function runGrep({ conventions, files, toolInput, targetRel }) {
+  const dir = path.join(os.tmpdir(), `orb-excl-grep-${process.pid}-${Math.abs(hashOf(targetRel))}`);
+  rmSync(dir, { recursive: true, force: true });
+  mkdirSync(dir, { recursive: true });
+  for (const [rel, content] of Object.entries(files)) {
+    const abs = path.join(dir, rel);
+    mkdirSync(path.dirname(abs), { recursive: true });
+    writeFileSync(abs, content, "utf8");
+  }
+  if (conventions !== null) {
+    const abs = path.join(dir, ".professor-orb", "conventions.json");
+    mkdirSync(path.dirname(abs), { recursive: true });
+    writeFileSync(abs, JSON.stringify(conventions, null, 2), "utf8");
+  }
+  const resolved = { ...toolInput };
+  if (typeof resolved.path === "string") resolved.path = path.join(dir, resolved.path);
+  const payload = JSON.stringify({ cwd: dir, tool_name: "Grep", tool_input: resolved });
+  try {
+    const out = execFileSync("node", [HOOK], { input: payload, encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] });
+    return { code: 0, out: out.trim(), err: "" };
+  } catch (e) {
+    return { code: e.status, out: (e.stdout || "").trim(), err: (e.stderr || "").trim() };
+  }
+}
+
+{
+  const r = runGrep({
+    conventions: CONVENTIONS,
+    files: { "settings/w/people/A.md": plain },
+    toolInput: { pattern: "x", path: "settings/w", output_mode: "content" },
+    targetRel: "grep-content-in-scope",
+  });
+  check("content-mode grep inside a prong root is denied", r.code, 2);
+  check("the grep denial explains the supported route", r.err.includes("files_with_matches"), true);
+}
+
+{
+  const r = runGrep({
+    conventions: CONVENTIONS,
+    files: { "settings/w/people/A.md": plain },
+    toolInput: { pattern: "x", path: "settings/w", output_mode: "files_with_matches" },
+    targetRel: "grep-fwm-in-scope",
+  });
+  check("files_with_matches grep is allowed", r.code, 0);
+}
+
+{
+  const r = runGrep({
+    conventions: CONVENTIONS,
+    files: { "settings/w/people/A.md": plain },
+    toolInput: { pattern: "x", path: "settings/w", output_mode: "count" },
+    targetRel: "grep-count-in-scope",
+  });
+  check("count-mode grep is allowed", r.code, 0);
+}
+
+{
+  // The default when output_mode is omitted is files_with_matches, which is
+  // path-only and therefore safe.
+  const r = runGrep({
+    conventions: CONVENTIONS,
+    files: { "settings/w/people/A.md": plain },
+    toolInput: { pattern: "x", path: "settings/w" },
+    targetRel: "grep-default-mode",
+  });
+  check("grep with no output_mode is allowed", r.code, 0);
+}
+
+{
+  // -o returns the matched substrings themselves, which is body text even
+  // though the mode is not "content".
+  const r = runGrep({
+    conventions: CONVENTIONS,
+    files: { "settings/w/people/A.md": plain },
+    toolInput: { pattern: "x", path: "settings/w", output_mode: "files_with_matches", "-o": true },
+    targetRel: "grep-dash-o",
+  });
+  check("grep with -o is denied even outside content mode", r.code, 2);
+}
+
+{
+  const r = runGrep({
+    conventions: CONVENTIONS,
+    files: { "notes/A.md": plain },
+    toolInput: { pattern: "x", path: "notes", output_mode: "content" },
+    targetRel: "grep-content-out-of-scope",
+  });
+  check("content-mode grep entirely outside every prong root is allowed", r.code, 0);
+}
+
+{
+  // A search rooted above a prong descends into it, so it reaches the same
+  // content and must be treated the same way.
+  const r = runGrep({
+    conventions: CONVENTIONS,
+    files: { "settings/w/people/A.md": plain },
+    toolInput: { pattern: "x", output_mode: "content" },
+    targetRel: "grep-content-no-path",
+  });
+  check("content-mode grep with no path (project root) is denied", r.code, 2);
+}
+
+{
+  // A project that configured no excluded tags gets no gate at all: professor-orb
+  // imposes structure, never content policy.
+  const noTags = JSON.parse(JSON.stringify(CONVENTIONS));
+  noTags.settings[0].rules.frontmatterExcludedTagLocation.params.tags = [];
+  const r = runGrep({
+    conventions: noTags,
+    files: { "settings/w/people/A.md": plain },
+    toolInput: { pattern: "x", path: "settings/w", output_mode: "content" },
+    targetRel: "grep-no-exclusions-configured",
+  });
+  check("with no excluded tags configured, content-mode grep is allowed", r.code, 0);
+}
+
+{
+  // Same fail-closed posture as the per-file path: a broken config widens.
+  const r = runGrep({
+    conventions: null,
+    files: { "settings/w/people/A.md": plain },
+    toolInput: { pattern: "x", path: "settings/w", output_mode: "content" },
+    targetRel: "grep-no-conventions",
+  });
+  check("with no conventions.json, content-mode grep is denied", r.code, 2);
+}
+
 console.log(`\n${passed}/${passed + failures.length} expectations met.`);
 if (failures.length) {
   console.log("\nFailures:");

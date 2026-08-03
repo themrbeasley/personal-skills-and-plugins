@@ -1,6 +1,9 @@
 #!/usr/bin/env node
-// PreToolUse hook (matcher: Read|Edit|Write|NotebookEdit): refuses a tool call
-// whose target article carries a tag the project has excluded.
+// PreToolUse hook (matcher: Read|Edit|Write|NotebookEdit|Grep): refuses a tool
+// call that would surface an article the project has excluded by frontmatter
+// tag. For the file tools that means checking the target article's own tags.
+// For Grep, which names no single file, it means refusing the output modes
+// that return text from inside files at all.
 //
 // This is the tag-based half of content exclusion. Its sibling, the
 // path-scoped permission deny rule setup writes into .claude/settings.json,
@@ -157,6 +160,56 @@ function matchedTag(frontmatter, tags) {
   return null;
 }
 
+// Which Grep output modes return article prose. "content" returns matching
+// lines; "-o" returns the matched substrings themselves. Both are body text
+// leaving the knowledge base without any per-file gate having seen it.
+// "files_with_matches" and "count" return paths and numbers, so they stay
+// allowed: the agent can still locate candidate files and then Read them one
+// at a time, and each of those Reads passes back through this same hook.
+//
+// Returns the offending mode, or null when the call is allowed.
+//
+// This gate is blunt on purpose. A Grep call names no single file, so the hook
+// cannot check any one article's frontmatter the way the Read path does.
+// Deciding whether an excluded article actually sits under the search path
+// would mean opening every markdown file beneath it inside a 10 second hook
+// timeout, and a hook that times out is a hook that silently allows, which is
+// the failure this whole feature exists to prevent. Over-blocking costs one
+// extra step; under-blocking costs the thing being protected.
+function grepLeakMode(toolInput, projectRoot, roots) {
+  const mode =
+    typeof toolInput.output_mode === "string" && toolInput.output_mode
+      ? toolInput.output_mode
+      : "files_with_matches";
+  const onlyMatching = toolInput["-o"] === true;
+  if (mode !== "content" && !onlyMatching) return null;
+
+  // Grep defaults to the current working directory when path is omitted, which
+  // is the project root and therefore contains every prong.
+  const searchPath =
+    typeof toolInput.path === "string" && toolInput.path
+      ? path.resolve(projectRoot, toolInput.path)
+      : projectRoot;
+
+  // With no roots resolved, scope is unknown and the same fail-closed rule
+  // applies as everywhere else in this file: treat it as overlapping.
+  if (roots.length === 0) return onlyMatching && mode !== "content" ? "-o" : mode;
+
+  // Overlap in either direction. A search inside a prong root reaches its
+  // articles; a search ABOVE one descends into it and reaches the same
+  // articles, so both count.
+  const overlaps = roots.some((root) => {
+    const intoRoot = path.relative(root, searchPath);
+    const inside = intoRoot === "" || (!intoRoot.startsWith("..") && !path.isAbsolute(intoRoot));
+    const intoSearch = path.relative(searchPath, root);
+    const above = intoSearch === "" || (!intoSearch.startsWith("..") && !path.isAbsolute(intoSearch));
+    return inside || above;
+  });
+  if (!overlaps) return null;
+
+  return onlyMatching && mode !== "content" ? "-o" : mode;
+}
+
 function main() {
   let input;
   try {
@@ -167,6 +220,54 @@ function main() {
   if (!input || typeof input !== "object") process.exit(0);
 
   const toolInput = input.tool_input || {};
+  const toolName = typeof input.tool_name === "string" ? input.tool_name : "";
+
+  const projectRoot =
+    typeof input.cwd === "string" && input.cwd.length > 0 ? input.cwd : process.cwd();
+
+  let tags = FALLBACK_TAGS;
+  let roots = [];
+  // Whether the project named a vocabulary of its own. The per-file path below
+  // always checks (using FALLBACK_TAGS when nothing is configured, so a broken
+  // config still guards). The Grep path uses this to stay entirely silent for a
+  // project that deliberately configured no exclusions, because denying a whole
+  // output mode is a workflow cost no such project agreed to pay.
+  let configuredExclusions = false;
+
+  const conventionsPath = path.resolve(projectRoot, ".professor-orb", "conventions.json");
+  let conventionsReadable = false;
+  if (existsSync(conventionsPath)) {
+    try {
+      const conventions = JSON.parse(readFileSync(conventionsPath, "utf8"));
+      if (conventions && typeof conventions === "object") {
+        conventionsReadable = true;
+        const found = excludedTagsFrom(conventions);
+        if (found.length > 0) {
+          tags = found;
+          configuredExclusions = true;
+        }
+        roots = prongRootsFrom(conventions, projectRoot);
+      }
+    } catch {
+      // Unreadable or malformed: keep the widened defaults set above.
+    }
+  }
+
+  if (toolName === "Grep") {
+    // A readable conventions.json that names no excluded tags is a project
+    // that opted out; anything else (missing, malformed, or configured) gates.
+    if (conventionsReadable && !configuredExclusions) process.exit(0);
+    const leak = grepLeakMode(toolInput, projectRoot, roots);
+    if (leak === null) process.exit(0);
+    process.stderr.write(
+      `Blocked: this project excludes some articles from Claude by frontmatter tag, and a Grep in ${leak === "-o" ? '"-o" mode' : '"content" mode'} returns text from inside files.\n` +
+        "A Grep names no single file, so this hook cannot check any one article's tags the way it can for Read.\n" +
+        'Use output_mode "files_with_matches" (or "count") to find candidates, then Read each file you need. Each of those Reads is checked individually, and an excluded one is refused by name.\n' +
+        "This denial is final. Do not route around it with Bash, ripgrep, or a script.\n"
+    );
+    process.exit(2);
+  }
+
   // NotebookEdit carries notebook_path; the file tools carry file_path.
   const target =
     typeof toolInput.file_path === "string" && toolInput.file_path
@@ -177,26 +278,7 @@ function main() {
   if (!target) process.exit(0);
   if (!target.toLowerCase().endsWith(".md")) process.exit(0);
 
-  const projectRoot =
-    typeof input.cwd === "string" && input.cwd.length > 0 ? input.cwd : process.cwd();
   const absFilePath = path.resolve(projectRoot, target);
-
-  let tags = FALLBACK_TAGS;
-  let roots = [];
-
-  const conventionsPath = path.resolve(projectRoot, ".professor-orb", "conventions.json");
-  if (existsSync(conventionsPath)) {
-    try {
-      const conventions = JSON.parse(readFileSync(conventionsPath, "utf8"));
-      if (conventions && typeof conventions === "object") {
-        const found = excludedTagsFrom(conventions);
-        if (found.length > 0) tags = found;
-        roots = prongRootsFrom(conventions, projectRoot);
-      }
-    } catch {
-      // Unreadable or malformed: keep the widened defaults set above.
-    }
-  }
 
   // With roots resolved, restrict to them. With none resolved, check every
   // markdown file rather than none.
