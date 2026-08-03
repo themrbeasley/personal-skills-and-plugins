@@ -92,6 +92,17 @@
       "description": "tags, when present, must be an array of strings.",
       "params": { "field": "tags", "format": "string-array", "optional": true }
     },
+    "frontmatterExcludedTagLocation": {
+      "provenance": "professor-orb",
+      "category": "frontmatter",
+      "check": "tagImpliesPath",
+      "enforcement": "off",
+      "description": "An article carrying an excluded tag lives under a folder of the required name, so the path-scoped permission deny rule in .claude/settings.json can cover it. Ships off with no tags named: the DM chooses the vocabulary at setup, and professor-orb never imposes one.",
+      "params": {
+        "tags": [],
+        "requiredSegment": "nsfw"
+      }
+    },
     "filenameSuffixByType": {
       "provenance": "professor-orb",
       "category": "filename",

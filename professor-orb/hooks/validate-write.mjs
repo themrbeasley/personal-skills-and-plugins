@@ -652,6 +652,57 @@ function checkFrontmatterImpliesFrontmatter(params, ctx) {
   return `Frontmatter matches ${JSON.stringify(when)}, so ${failures.join("; ")}.`;
 }
 
+// An article carrying an excluded tag must physically sit under a folder of the
+// required name. The wall around excluded content is a path-scoped permission
+// deny rule in .claude/settings.json, and permission rules match PATHS, never
+// file contents: there is no rule that can say "deny anything tagged NSFW".
+// Containment in a named folder is therefore the only thing that makes the block
+// expressible at all, and this check is what notices an article that is not
+// contained. It is deliberately the one violation the deny rule itself cannot
+// report, because an article outside the protected path is, by definition,
+// outside what the deny rule can see.
+function checkTagImpliesPath(params, ctx) {
+  const excluded = Array.isArray(params.tags)
+    ? params.tags.filter((t) => typeof t === "string" && t.trim() !== "")
+    : [];
+  const segment = typeof params.requiredSegment === "string" ? params.requiredSegment.trim() : "";
+  // Guarded here rather than left to the check loop's swallow-and-continue
+  // catch: a half-configured rule must be inert, and an inert rule and a
+  // crashed one are indistinguishable from outside if the catch handles both.
+  if (excluded.length === 0 || segment === "") return null;
+
+  const tags = ctx.frontmatter.tags;
+  if (!Array.isArray(tags) || tags.length === 0) return true;
+
+  // Case-insensitive on the tag because the DM types it by hand in Obsidian,
+  // so its spelling is not guaranteed, and a tag that misses here is an article
+  // that never gets contained.
+  const lowerExcluded = excluded.map((t) => t.toLowerCase());
+  const matched = tags.find(
+    (t) => typeof t === "string" && lowerExcluded.includes(t.toLowerCase())
+  );
+  if (matched === undefined) return true;
+
+  // relPath comes from path.relative, so it carries the platform separator;
+  // split on both rather than assuming posix. Anchoring on relPath (prong-root
+  // relative) rather than relProjectPath matters: a prong root that itself
+  // contained a segment of this name would otherwise pass every article inside
+  // it, silently disabling the rule for that whole setting.
+  const dir = path.dirname(ctx.relPath);
+  const segments = dir === "." ? [] : dir.split(/[\\/]/).filter(Boolean);
+  const wanted = segment.toLowerCase();
+
+  // Whole-segment comparison, never a substring test on the path. A folder
+  // named "nsfw-rumors" or a file named "Nsfw-Rumors.md" is not the protected
+  // folder, and the **/nsfw/** deny rule does not cover either, so counting
+  // them as contained would report a leak as safe. Folder casing is folded for
+  // the opposite reason: Windows and macOS filesystems are case-insensitive, so
+  // an "NSFW" folder genuinely IS the "nsfw" folder and the deny rule covers it.
+  if (segments.some((s) => s.toLowerCase() === wanted)) return true;
+
+  return `Article carries the excluded tag "${matched}" but does not sit under a "${segment}" folder. Excluded content has to live inside one for the path-scoped permission deny rule to cover it; a tag alone cannot be denied. Move this file into the nearest "${segment}" folder.`;
+}
+
 // Check semantics are duplicated four ways: skills/setup/references/conventions-schema.md's
 // check catalog (normative), this CHECKS table, the checkerPrompt in
 // workflows/validation-sweep.mjs, and agents/kb-validator.md Step 4. The base rule data
@@ -673,6 +724,7 @@ const CHECKS = {
   prohibitedPattern: checkProhibitedPattern,
   bodyImpliesFrontmatter: checkBodyImpliesFrontmatter,
   frontmatterImpliesFrontmatter: checkFrontmatterImpliesFrontmatter,
+  tagImpliesPath: checkTagImpliesPath,
 };
 
 // ---------------------------------------------------------------------------

@@ -614,4 +614,189 @@ console.log("\n=== countArticles: index exclusion and isDirectory guard, in isol
   check("a subfolder named legacy.md is not counted as an article (isDirectory guard)", r.code, 2);
 }
 
+// ---------------------------------------------------------------------------
+// tagImpliesPath
+//
+// The wall around excluded content is a path-scoped permission deny rule, and
+// permission rules match paths rather than file contents. So an article can
+// only be protected by living somewhere the deny rule names. This check is what
+// notices an excluded-tag article that is NOT in such a place, which is the one
+// state the deny rule cannot see, because it is by definition outside it.
+// ---------------------------------------------------------------------------
+
+console.log("\n=== tagImpliesPath ===");
+
+function exclusionConventions(params) {
+  return {
+    version: 3,
+    settings: [
+      {
+        name: "r",
+        kbRoot: "settings/r",
+        homebrewRoot: null,
+        sessionReportsRoot: null,
+        rules: {
+          frontmatterExcludedTagLocation: {
+            provenance: "professor-orb",
+            category: "frontmatter",
+            check: "tagImpliesPath",
+            enforcement: "block",
+            description: "An excluded-tag article lives under its required subfolder.",
+            params,
+          },
+        },
+      },
+    ],
+  };
+}
+
+const EXCL = { tags: ["NSFW"], requiredSegment: "nsfw" };
+const tagged = (tag) => `---\ntype: Person\ntags: [${tag}]\n---\n\nx\n`;
+
+{
+  const r = runHook({
+    conventions: exclusionConventions(EXCL),
+    files: { "settings/r/characters/nsfw/A.md": tagged("NSFW") },
+    targetRel: "settings/r/characters/nsfw/A.md",
+  });
+  check("tagged article inside its required folder passes", r.code, 0);
+}
+
+{
+  const r = runHook({
+    conventions: exclusionConventions(EXCL),
+    files: { "settings/r/characters/A.md": tagged("NSFW") },
+    targetRel: "settings/r/characters/A.md",
+  });
+  check("tagged article outside its required folder blocks", r.code, 2);
+}
+
+{
+  const r = runHook({
+    conventions: exclusionConventions(EXCL),
+    files: { "settings/r/characters/A.md": "---\ntype: Person\ntags: [Noble]\n---\n\nx\n" },
+    targetRel: "settings/r/characters/A.md",
+  });
+  check("untagged article outside the folder passes", r.code, 0);
+}
+
+{
+  const r = runHook({
+    conventions: exclusionConventions(EXCL),
+    files: { "settings/r/characters/A.md": "---\ntype: Person\n---\n\nx\n" },
+    targetRel: "settings/r/characters/A.md",
+  });
+  check("article with no tags field at all passes", r.code, 0);
+}
+
+{
+  // The DM types the tag by hand in Obsidian, so its casing is not guaranteed.
+  // A lowercase spelling is the same tag and must not slip the check.
+  const r = runHook({
+    conventions: exclusionConventions(EXCL),
+    files: { "settings/r/characters/A.md": tagged("nsfw") },
+    targetRel: "settings/r/characters/A.md",
+  });
+  check("tag match is case-insensitive, so a lowercase spelling still blocks", r.code, 2);
+}
+
+{
+  // Windows and macOS filesystems are case-insensitive, so a folder named NSFW
+  // and one named nsfw are the same folder. Treating them differently here
+  // would block an article that is in fact correctly contained.
+  const r = runHook({
+    conventions: exclusionConventions(EXCL),
+    files: { "settings/r/characters/NSFW/A.md": tagged("NSFW") },
+    targetRel: "settings/r/characters/NSFW/A.md",
+  });
+  check("folder match is case-insensitive, so an NSFW folder counts as nsfw", r.code, 0);
+}
+
+{
+  // The segment may sit at any depth, not only as the article's immediate
+  // parent, because the deny rule that backs this uses **/nsfw/** and covers
+  // everything beneath the folder.
+  const r = runHook({
+    conventions: exclusionConventions(EXCL),
+    files: { "settings/r/characters/nsfw/deep/A.md": tagged("NSFW") },
+    targetRel: "settings/r/characters/nsfw/deep/A.md",
+  });
+  check("a nested article below the required folder passes", r.code, 0);
+}
+
+{
+  // Whole-segment comparison, not a substring test on the path. A filename or
+  // folder that merely CONTAINS the word is not the protected folder, and the
+  // deny rule would not cover it, so treating it as a pass would be a leak.
+  const r = runHook({
+    conventions: exclusionConventions(EXCL),
+    files: { "settings/r/characters/nsfw-rumors/A.md": tagged("NSFW") },
+    targetRel: "settings/r/characters/nsfw-rumors/A.md",
+  });
+  check("a folder merely containing the word is not the required folder", r.code, 2);
+}
+
+{
+  const r = runHook({
+    conventions: exclusionConventions(EXCL),
+    files: { "settings/r/characters/Nsfw-Rumors.md": tagged("NSFW") },
+    targetRel: "settings/r/characters/Nsfw-Rumors.md",
+  });
+  check("a filename containing the word does not satisfy the folder requirement", r.code, 2);
+}
+
+{
+  // Guard the params rather than leaning on the check loop's swallow-and-continue
+  // catch: a rule shipped with no tag list must be inert, not throw.
+  const r = runHook({
+    conventions: exclusionConventions({ requiredSegment: "nsfw" }),
+    files: { "settings/r/characters/A.md": tagged("NSFW") },
+    targetRel: "settings/r/characters/A.md",
+  });
+  check("a rule with no tags list is inert", r.code, 0);
+}
+
+{
+  const r = runHook({
+    conventions: exclusionConventions({ tags: [], requiredSegment: "nsfw" }),
+    files: { "settings/r/characters/A.md": tagged("NSFW") },
+    targetRel: "settings/r/characters/A.md",
+  });
+  check("a rule with an empty tags list is inert", r.code, 0);
+}
+
+{
+  const r = runHook({
+    conventions: exclusionConventions({ tags: ["NSFW"] }),
+    files: { "settings/r/characters/A.md": tagged("NSFW") },
+    targetRel: "settings/r/characters/A.md",
+  });
+  check("a rule with no requiredSegment is inert", r.code, 0);
+}
+
+{
+  // The base rule ships enforcement "off" so no consumer inherits a tag
+  // vocabulary they did not choose. Off must produce no finding of any kind.
+  const conventions = exclusionConventions(EXCL);
+  conventions.settings[0].rules.frontmatterExcludedTagLocation.enforcement = "off";
+  const r = runHook({
+    conventions,
+    files: { "settings/r/characters/A.md": tagged("NSFW") },
+    targetRel: "settings/r/characters/A.md",
+  });
+  check("an off rule produces no finding", r.code, 0);
+}
+
+{
+  // The violation message has to name the tag it matched, because a project may
+  // exclude several and the DM needs to know which one put the article here.
+  const r = runHook({
+    conventions: exclusionConventions({ tags: ["NSFW", "Private"], requiredSegment: "nsfw" }),
+    files: { "settings/r/characters/A.md": tagged("Private") },
+    targetRel: "settings/r/characters/A.md",
+  });
+  check("a second excluded tag also blocks", r.code, 2);
+  check("the message names the matched tag", r.err.includes("Private"), true);
+}
+
 report();
