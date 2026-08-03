@@ -551,7 +551,7 @@ const archfeyGrepLines = [
   'kb/archfey/Archfey-INDEX.md:27:1300:[[Rionnon\\|Rionnon]]',
   'kb/archfey/Archfey-INDEX.md:28:1325:[[Ru-Ling\\|Ru Ling]]',
   'kb/archfey/Archfey-INDEX.md:29:1350:[[Titania\\|Titania]]',
-  'kb/archfey/Archfey-INDEX.md:30:1375:[[Vircan\\|Vircan]]',
+  'kb/archfey/Archfey-INDEX.md:30:1375:[[Verrin\\|Verrin]]',
 ]
 const archfeyParsed = claimsFromLines(archfeyGrepLines)
 assert('ARCHFEY: all 17 grep lines parse cleanly, none unparseable', archfeyParsed.unparseable === 0)
@@ -565,7 +565,7 @@ for (const c of archfeyParsed.claims) {
 }
 for (const name of [
   'Baba-Yaga', 'Bear-Prince-Urso', 'Daegolor', 'Faerieth', 'Ilactariel', 'Jack-Frost', 'Jingling', 'Múnla',
-  'Nalea', 'Nerizorwyn', 'Oberon', 'Queen-of-Air-and-Darkness', 'Rionnon', 'Ru-Ling', 'Titania', 'Vircan',
+  'Nalea', 'Nerizorwyn', 'Oberon', 'Queen-of-Air-and-Darkness', 'Rionnon', 'Ru-Ling', 'Titania', 'Verrin',
 ]) {
   const owners = archfeyOwnersByKey.get(toOwnershipKey(name, 'rolara')) || []
   assert('ARCHFEY: ' + name + ' is owned by exactly the Archfey index (this failed as a false orphan before the fix)', owners.length === 1)
