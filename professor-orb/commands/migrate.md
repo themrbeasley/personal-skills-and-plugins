@@ -24,7 +24,7 @@ Invoked with no argument, do **not** ask "what would you like to migrate?" Two c
 
 **Source 1: setup's deferred items.** Setup's after-action report names them: git-ignored files inside a prong, absorb candidates, split proposals, `-TIMELINE` and `-HISTORY` files, and prose path references in `CLAUDE.md` or elsewhere. **Re-derive these from the current tree rather than trusting the report**, which may be months old and may name work the DM has since done by hand. Do not offer articles missing `publish` as a scope: the planner declines it at plan time and the executor declines it again at apply time, on purpose, because no unattended process ever inserts that flag. A bulk default would publish unmarked secret lore. Set it per article; the sweep reports which articles are missing it.
 
-**Source 2: the validation sweep's needs-judgment findings**, if a sweep has run in this project. Each carries a `question` field, which is exactly the input scope negotiation needs. Ownership conflicts, ambiguous types, and multi-index folders all land there. If no sweep has run, say so in one line and do not run one unasked: a sweep is a long operation and the DM did not ask for it.
+**Source 2: the validation sweep's needs-judgment findings**, if a sweep has run in this project. Each carries a `question` field, which is exactly the input scope negotiation needs. Ownership conflicts, ambiguous types, multi-index folders, and `tagImpliesPath` location violations (excluded content sitting outside the folder its permission deny rule covers) all land there. If no sweep has run, say so in one line and point at `/sweep`; do not run one yourself here, since a sweep is a long operation with its own command and the DM did not invoke this one to start it.
 
 **Source 3: a scope the DM states**, in their own words.
 
@@ -190,7 +190,7 @@ look."]
 **Undo:** git -C [project] revert [Step 10's commit hash] [Step 6's hash]
 
 ### Next
-Re-run the validation sweep to confirm the knowledge base is clean after a
+Run /sweep to confirm the knowledge base is clean after a
 structural change.
 ```
 
@@ -224,7 +224,7 @@ structural change.
 ## How this command connects to the others
 
 - **Fed by `setup`**, whose after-action report names the deferred items this command re-derives and offers.
-- **Fed by the validation sweep**, whose `needsJudgment` findings become candidate scopes. That bucket had no consumer before this command.
+- **Fed by `/sweep`**, whose `needsJudgment` findings become candidate scopes. That bucket had no consumer before this command.
 - **Shares `workflows/migrate.mjs` with setup.** Setup supplies a schema-derived plan and no gate; `/migrate` supplies a scope-derived plan and a gate. Both call the same `applyPlan`, which is why Step 6's preparation commit mirrors setup's own preparation commit before its migration step: the same clean-tree requirement applies either way.
-- **Hands back to the sweep.** The report recommends re-running it, which is the natural verification after a structural change.
+- **Hands back to `/sweep`.** The report recommends running it, which is the natural verification after a structural change.
 - **Not a lane command**, and the only component that commits across prongs. `/scribe`, `/log`, and `/catalog` keep their one-prong guarantee.
