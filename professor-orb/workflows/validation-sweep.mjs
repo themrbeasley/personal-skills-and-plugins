@@ -153,16 +153,65 @@ const shellQuote = (s) => "'" + String(s == null ? '' : s).replace(/'/g, "'\\''"
 // preceded by a letter, never by a slash). Dropping them is not cosmetic: an
 // Obsidian vault's own plugin folders can hold .md files that are not KB
 // articles and that no rule in conventions.json describes.
-const findMarkdownCommand = (root) => 'LC_ALL=C find ' + shellQuote(root) + " -type f -name '*.md' ! -path '*/.*'"
+//
+// excludedSegments extends the same mechanism to content the project has walled
+// off. Each name becomes another `! -path` clause, so files under a folder of
+// that name are never counted and never enumerated, and therefore never reach a
+// checker shard. This is the only place the exclusion has to be applied: the
+// census and the slices both build from here, so the two stay in agreement, and
+// the ownership claims grep takes its file list from the verified enumeration
+// rather than re-globbing, so it inherits the exclusion too.
+//
+// A shard subagent is handed paths and told to read the file. There is no way
+// to hand it a path it must not open and rely on it not opening one, so the
+// path never goes in. Body text also leaves a shard as quoted fragments inside
+// finding descriptions, which then reach the DM's report and the fix phase, so
+// "the shard read it but reported nothing" would not contain it either.
+const findMarkdownCommand = (root, excludedSegments) => {
+  const excludes = (Array.isArray(excludedSegments) ? excludedSegments : [])
+    .filter((s) => typeof s === 'string' && s.trim() !== '')
+    .map((s) => " ! -path " + shellQuote('*/' + s.trim() + '/*'))
+    .join('')
+  return 'LC_ALL=C find ' + shellQuote(root) + " -type f -name '*.md' ! -path '*/.*'" + excludes
+}
+
+// The folder names a project has walled off, drawn from every tagImpliesPath
+// rule that names one and has tags configured. Deliberately independent of
+// enforcement: the level governs whether a MISPLACED article is reported, while
+// this governs whether a correctly placed one is opened, and a DM who sets the
+// rule to "off" has said "stop checking placement", not "start reading the
+// protected folder". The rule professor-orb ships has an empty tags list, so a
+// consumer who never configured exclusions excludes nothing.
+const excludedSegmentsFrom = (settingConfigs) => {
+  const found = new Set()
+  for (const cfg of Array.isArray(settingConfigs) ? settingConfigs : []) {
+    let rules = null
+    try {
+      rules = JSON.parse(String((cfg && cfg.rulesJson) || '{}'))
+    } catch {
+      continue
+    }
+    if (!rules || typeof rules !== 'object') continue
+    for (const id of Object.keys(rules)) {
+      const rule = rules[id]
+      if (!rule || rule.check !== 'tagImpliesPath') continue
+      const params = rule.params || {}
+      const tags = Array.isArray(params.tags) ? params.tags.filter((t) => typeof t === 'string' && t.trim() !== '') : []
+      const segment = typeof params.requiredSegment === 'string' ? params.requiredSegment.trim() : ''
+      if (tags.length > 0 && segment !== '') found.add(segment)
+    }
+  }
+  return Array.from(found)
+}
 
 // LC_ALL=C on both find and sort. Collation is locale-dependent, and the
 // slicing command runs once per slice: two slices sorted under different
 // collations would overlap on some paths and skip others while still returning
 // the right number of lines each, which is precisely the failure the count
 // check cannot see. Byte order is the same everywhere.
-const countFilesCommand = (root) => findMarkdownCommand(root) + ' | wc -l'
-const listFilesSliceCommand = (root, from, to) =>
-  findMarkdownCommand(root) + " | LC_ALL=C sort | sed -n '" + from + ',' + to + "p'"
+const countFilesCommand = (root, excludedSegments) => findMarkdownCommand(root, excludedSegments) + ' | wc -l'
+const listFilesSliceCommand = (root, from, to, excludedSegments) =>
+  findMarkdownCommand(root, excludedSegments) + " | LC_ALL=C sort | sed -n '" + from + ',' + to + "p'"
 
 // Ownership claims. -b -n -o -H prints one line per match as
 // <path>:<lineNumber>:<byteOffset>:<the matched wikilink>, which is everything
@@ -447,7 +496,7 @@ const checkerPrompt = (shardFiles, shardIdx, setting, kbRoot, rulesJson, indexSu
     rulesJson,
     '',
     'For each file in your shard:',
-    '1. Read the file: frontmatter and body.',
+    '1. Read the file\'s frontmatter first, on its own. If the project defines a tagImpliesPath rule and this file\'s tags include any tag that rule names, STOP: do not read the body, do not quote any part of the file, and report only the location violation described in step 4b. Content the project has walled off is normally excluded from your shard before you ever see it, so a file reaching you with an excluded tag is one sitting outside the protected folder, which is the drift this sweep exists to surface. Report where it is and which tag it carries, and nothing else about it. Otherwise read the body and continue.',
     '2. Decide whether it functions as an index file for its folder (by the suffix hint above, or by content). Index files are not "articles" being validated for ownership; they are the source of ownership claims for the articles they list.',
     '3. Decide whether it is a catalog entry: frontmatter type is exactly one of spell, magic-item, feat, feature, monster, npc, species, subclass, class, other (lowercase, matched case-sensitively, so a KB article of type "Species" is NOT a catalog entry while a homebrew entry of type "species" is). Catalog entries ARE subject to index ownership checks (a real index should still list them), but are EXEMPT from wikilink and orphan checks: never flag a catalog entry for having no outgoing wikilinks or for not being linked to from other article bodies. That is correct structure for a catalog entry, not a violation.',
     'Before checking anything: skip every rule whose enforcement is "off". The DM turned it off deliberately, and off is the only lever they have over a rule professor-orb ships rather than one they wrote. An off rule produces no finding of any kind, and in particular never a mechanicallyFixable one, because that bucket is applied wholesale on a single approval.',
@@ -955,8 +1004,23 @@ async function run() {
   // again. Returns ok:false with no paths on ANY discrepancy; there is no
   // partial-credit path here; see the module-level note for why a count match
   // that hides duplicates is treated as a failure too.
+  // Union across settings rather than per setting: roots are deduped across
+  // settings above, so one root can serve two settings whose exclusion lists
+  // differ. Excluding a folder some other setting walled off costs that setting
+  // nothing it can detect (it has no such folder, or it does and skipping it was
+  // the safer error), while scanning one is unrecoverable once a shard has
+  // quoted its contents into a finding.
+  const excludedSegments = excludedSegmentsFrom(orderedConfigs.map((cfg) => ({ rulesJson: cfg.rulesJson })))
+  if (excludedSegments.length > 0) {
+    log(
+      'Excluding ' +
+        excludedSegments.map((s) => '"' + s + '/"').join(', ') +
+        ' from enumeration: content the project has walled off is never counted, never sharded, and never read.',
+    )
+  }
+
   async function enumerateRoot(root) {
-    const census = await agent(censusPrompt(root, countFilesCommand(root)), {
+    const census = await agent(censusPrompt(root, countFilesCommand(root, excludedSegments)), {
       model: 'haiku',
       label: 'census:' + root,
       phase: 'Scout',
@@ -979,7 +1043,7 @@ async function run() {
     const ranges = sliceRanges(census.count, enumerationSliceSize)
     const sliceResultsRaw = await parallel(
       ranges.map((r) => () =>
-        agent(enumeratePrompt(root, r.from, r.to, listFilesSliceCommand(root, r.from, r.to)), {
+        agent(enumeratePrompt(root, r.from, r.to, listFilesSliceCommand(root, r.from, r.to, excludedSegments)), {
           model: 'haiku',
           label: 'enumerate:' + root + ':' + r.from + '-' + r.to,
           phase: 'Scout',
