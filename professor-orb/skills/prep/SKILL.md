@@ -24,6 +24,7 @@ Either way, `conventions.json` only covers frontmatter, filename, and structural
 - **Cross-reference format.** How does this project link between files?
 - **Content file conventions.** Where do handouts, recaps, and setpieces live? You will link to these in the Handouts section.
 - **Index conventions.** How indexes are structured and owned. You will need this in Phase 3.
+- **Content exclusions.** Tags or categories marked off-limits. Check article metadata before reading any unfamiliar article, and never pull excluded material into a brief. If the project also carries a permission deny rule for excluded content, a blocked path is final: see SHARED-PRINCIPLES Principle 13.
 
 If `CLAUDE.md` points to other reference documents, read those too.
 

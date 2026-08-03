@@ -1,6 +1,6 @@
 # Shared Principles for Session Pipeline Skills
 
-> Every pipeline skill (debrief, prep, content, chronicler) must follow these principles. Read this file at the start of every run, alongside the project's CLAUDE.md.
+> Every skill, agent, and command in professor-orb must follow these principles, not the session pipeline alone. Read this file at the start of every run, alongside the project's CLAUDE.md. Some principles name the pipeline skills specifically (Principle 2's write gate, Principle 10's pipeline state); those bind the pipeline. The rest bind everything that reads or writes the DM's material, including the `lore`, `historian`, `kb-validator`, and `rule-fixer` agents and the `/scribe`, `/log`, `/catalog`, `/migrate`, and `/genesis` commands.
 
 ## 1. The DM is the source of truth
 
@@ -71,3 +71,13 @@ The base schema does not answer every structural question. It defines frontmatte
 Paths come from `conventions.json`'s `settings` array, never from a hardcoded default. With one setting there is no ambiguity. With several, the DM usually names it; otherwise infer from context and confirm with a single AskUserQuestion.
 
 `settings[].campaigns` is a cache for disambiguation and ordering. Enumerate the filesystem under `sessionReportsRoot` for the authoritative list, so a campaign created since the last setup run is still visible.
+
+## 13. A permission denial is final
+
+When a tool call is denied for a path, stop. Report to the DM that the path is blocked and what you were trying to do. That is the whole response.
+
+Do not retry the same read with a different tool. Do not reach for Bash when Read is denied. Do not write a script that opens the file. Do not look for a copy of the content somewhere else, and do not reconstruct it from indexes, wikilinks, or other articles that quote it. Do not ask the DM to paste the contents in so you can proceed.
+
+A denial is not an obstacle in front of the task; it is the answer to it. The DM configured that rule deliberately, and the most likely reason is content they have decided you do not read. Working around it defeats the only mechanism they have, and doing so helpfully, in service of finishing the job, is exactly the failure this principle exists to prevent.
+
+Excluded content is bounded work, not blocked work. Note the article as excluded, say what you could not check because of it, and carry on with everything else.
