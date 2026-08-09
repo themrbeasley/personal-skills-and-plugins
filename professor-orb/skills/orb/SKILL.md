@@ -1,6 +1,6 @@
 ---
 name: orb
-description: "Menu and orientation skill for professor-orb: shows every skill, agent, command, workflow, and hook the plugin ships, and helps the DM pick what to run next. Use when the user runs /orb, asks what tools are available, what this plugin can do, or what should I run next. Reads .professor-orb/pipeline-state.json (if present) to recommend the next session-pipeline step (debrief, then prep, then content and/or chronicler, then the kb-validator agent) and suggests running setup first when no professor-orb install is found yet. Standalone components (setup after first install, homebrew, timeline, /catalog, /scribe, /log, /genesis, /migrate, /sweep) are always available on demand and never presented as a required next step. This skill only reads pipeline state; it never writes pipeline-state.json, conventions.json, or any KB file. It is the on-demand counterpart to the Stop hook's automatic next-step suggestion, not a replacement for it."
+description: "Menu and orientation skill for professor-orb: shows every skill, agent, command, workflow, and hook the plugin ships, and helps the DM pick what to run next. Use when the user runs /orb, asks what tools are available, what this plugin can do, or what should I run next. Reads .professor-orb/pipeline-state.json (if present) to recommend the next session-pipeline step (debrief, then prep, then content and/or chronicler, then the kb-validator agent) and suggests running setup first when no professor-orb install is found yet. Standalone components (setup after first install, homebrew, timeline, forge-prompt, /catalog, /scribe, /log, /genesis, /migrate, /sweep) are always available on demand and never presented as a required next step. This skill only reads pipeline state; it never writes pipeline-state.json, conventions.json, or any KB file. It is the on-demand counterpart to the Stop hook's automatic next-step suggestion, not a replacement for it."
 ---
 
 > **Before you begin:** read `../SHARED-PRINCIPLES.md` and apply its rules throughout this workflow.
@@ -19,7 +19,7 @@ Professor Orb is a post-session workflow plugin for D&D DMs. Every skill drafts 
 
 **Session pipeline:** debrief > prep > content / chronicler > kb-validator (agent)
 
-**Standalone, on demand, never part of pipeline state:** setup (after the first install), homebrew, timeline, `/catalog`, `/scribe`, `/log`, `/genesis`, `/migrate`, `/sweep`, and orb itself.
+**Standalone, on demand, never part of pipeline state:** setup (after the first install), homebrew, timeline, forge-prompt, `/catalog`, `/scribe`, `/log`, `/genesis`, `/migrate`, `/sweep`, and orb itself.
 
 ## Components
 
@@ -32,6 +32,7 @@ Professor Orb is a post-session workflow plugin for D&D DMs. Every skill drafts 
 | chronicler | Skill | Draft a KB lore-update proposal from the session report and execute it after DM approval. The only pipeline skill that writes the KB | "update the lore," "canonize last session," "apply the session changes" |
 | timeline | Skill | Build or maintain campaign chronology documents, or answer a temporal question; spawns `historian` and runs temporal triage on flagged inconsistencies | "build a timeline," "when did X happen," "update the chronology" |
 | homebrew | Skill | D&D 5.5e (2024 rules) homebrew design, review, and balance assistant; points to `/catalog` once a design is finalized | Any homebrew design, workshopping, balance, or rules-language question |
+| forge-prompt | Skill | Image-generation prompt craft for FLUX.2 and ComfyUI: forge a new prompt, write an edit prompt against an approved image, or diagnose one that underperformed. Runs an iterative loop and saves the result to the campaign's `prompts/` directory | `/forge-prompt`, "write an image prompt," "edit this image," "fix this prompt" |
 | orb | Skill | This menu: what is available and what to run next | `/orb`, "what tools are available," "what should I run next" |
 | lore | Agent (read-only) | Cross-references session events against the KB and drafts a lore-update proposal | Spawned automatically at the end of `debrief`, or on demand for a lore/contradiction check |
 | historian | Agent (read-only) | Chronological indexing, calendar conversion, temporal consistency checks | Spawned by `timeline` (and by `content` for timeline visualizations), or on demand for a temporal query |
@@ -59,7 +60,7 @@ Read `.professor-orb/pipeline-state.json` if it exists, and check its `lastStep`
 - **`lastStep` is `"chronicler"`.** Suggest running the `kb-validator` agent to audit what changed, and `timeline` if chronology needs updating.
 - **Any other or unrecognized `lastStep`.** Say what state you found and ask the DM directly rather than guessing.
 
-Mention `sessionDate` when you report the suggestion, so the DM knows which session's progress this reflects. Standalone components (`homebrew`, `timeline`, `/catalog`, `/scribe`, `/log`, `/migrate`, `/sweep`) never count as a required next step; note that they remain available at any time regardless of pipeline state.
+Mention `sessionDate` when you report the suggestion, so the DM knows which session's progress this reflects. Standalone components (`homebrew`, `timeline`, `forge-prompt`, `/catalog`, `/scribe`, `/log`, `/migrate`, `/sweep`) never count as a required next step; note that they remain available at any time regardless of pipeline state.
 
 This is the on-demand version of the Stop hook's automatic suggestion. The Stop hook already prints a next-step line after a pipeline skill finishes; orb exists for when the DM asks directly, mid-conversation, or wants the fuller menu alongside the same answer. Neither replaces the other.
 

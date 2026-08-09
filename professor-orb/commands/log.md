@@ -40,7 +40,7 @@ With the `settings` array in hand:
 
 ## Step 3: Resolve the lane path
 
-The lane is `<sessionReportsRoot>/<campaign>/`, recursively: the session reports themselves, the Session Prep briefs `prep` saves alongside them in the same folder, the campaign's own index, and the `content/` subdirectory holding recaps, handouts, setpieces, and prompt sidecars, all as a single path for staging and committing (Step 7).
+The lane is `<sessionReportsRoot>/<campaign>/`, recursively: the session reports themselves, the Session Prep briefs `prep` saves alongside them in the same folder, the campaign's own index, the `content/` subdirectory holding recaps, handouts, and setpieces, and the `prompts/` subdirectory holding what `forge-prompt` saved, all as a single path for staging and committing (Step 7).
 
 **A lane path that does not exist yet on disk is not an error.** It means nothing has been written there yet; report "nothing outstanding" (Step 5) and stop.
 
@@ -128,7 +128,7 @@ Tell the DM in one short block:
 ## How this command connects to the others
 
 - **Standalone**: runs on demand, independent of the session pipeline's state, and never writes `.professor-orb/pipeline-state.json`, even though its own content comes from pipeline skills.
-- **Fed by:** the `debrief` skill, which writes the session report and campaign index, the `prep` skill, which saves its Session Prep brief alongside the report in the same campaign folder, and the `content` skill, which writes recaps, handouts, setpieces, and prompt sidecars into the campaign's `content/` subdirectory.
+- **Fed by:** the `debrief` skill, which writes the session report and campaign index, the `prep` skill, which saves its Session Prep brief alongside the report in the same campaign folder, the `content` skill, which writes recaps, handouts, and setpieces into the campaign's `content/` subdirectory, and the `forge-prompt` skill, which writes into the campaign's `prompts/` subdirectory.
 - **Reads:** `.professor-orb/versioning.json` (performing the one-time conversion from `.professor-orb/catalog-versioning.json` if needed) and `.professor-orb/conventions.json`'s `settings` array for the resolved setting's `sessionReportsRoot`.
 - **Writes:** one commit per resolved campaign with outstanding session-reports-lane changes. Writes `.professor-orb/versioning.json` only when Step 1's conversion is pending. Never writes session-reports content itself.
 - **Names, but never touches,** uncommitted work in the KB or homebrew lanes, pointing at `/scribe` or `/catalog` respectively, and uncommitted work in another campaign, pointing at another `/log` run.

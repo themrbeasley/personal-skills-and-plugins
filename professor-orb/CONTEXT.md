@@ -81,11 +81,38 @@ The content skill's secondary output: a full standalone HTML document with print
 CSS. Serves physical handouts, print-to-PDF distribution, and (rarely) lore-website
 hosting.
 
+**forge-prompt skill**:
+Image-generation prompt craft, split out of `content` in 1.12.0 because the material
+is model-specific, goes stale with the model, and is prep work rather than table
+work. Three entry modes: forge a prompt from nothing, write an edit prompt against
+an image the DM has already approved, or diagnose one that underperformed. Runs an
+iterative loop borrowed from the DM's own ultimate-prompt-creator skill, whose
+load-bearing rule is that suggestions are approved by default and questions are
+asked only when they block. Saves to `<sessionReportsRoot>/<campaign>/prompts/`,
+carrying no `type` frontmatter field, because the write-time hook skips a typeless
+file and blocks a type it does not recognize. The DM runs generation manually;
+deeper ComfyUI integration remains a flagged future investigation.
+_Avoid_: "the prompt skill" (ambiguous), calling its output canon
+
+**prompt corpus**:
+The accumulated prompt files in a campaign's `prompts/` directory. Serves double
+duty, the same way the homebrew catalog does: the DM's record of what was generated,
+and the source `forge-prompt` reads before drafting so a recurring NPC keeps the same
+locked visual descriptors across sessions. Deliberately not a registry in
+`.professor-orb/`: Principle 8 licenses exactly one auxiliary document and this is
+not it, and a locked descriptor is authored rather than derived so it could not live
+in the gitignored tier. KB canon outranks the corpus; the corpus holds only the
+rendering delta the generator needed, and a rendering choice never travels back into
+a KB article.
+_Avoid_: "visual registry", treating a locked descriptor as canon
+
 **prompt sidecar**:
-A companion file the content skill emits alongside visual-bearing outputs: Flux2/
-ComfyUI generation prompts plus output settings, with image dimensions matched to
-the slots in the HTML. The DM runs generation manually for now; deeper ComfyUI
-integration is a flagged future investigation.
+_Retired in 1.12.0._ Content's former companion file for visual-bearing outputs,
+carrying Flux2 prompts and dimensions matched to the HTML slot. Removed because its
+spec required a negative prompt, which FLUX.2 does not support, and because the
+dimension matching described a workflow the DM does not run. Superseded by the
+forge-prompt skill and the prompt corpus above. The term survives here only so that
+older session transcripts and commits remain legible.
 
 **homebrew catalog**:
 A growing corpus of locked homebrew mechanical text at `homebrew/<setting>/`, a
