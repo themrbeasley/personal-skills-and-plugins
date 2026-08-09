@@ -216,17 +216,21 @@ All in `professor-orb/skills/content/SKILL.md`.
 | Location | What goes |
 |---|---|
 | line 3 (description) | "Any output with an image slot gets a matching prompt sidecar for image generation." |
+| line 21 | The `-IMAGE-PROMPT.md` filename suffix in the content filename conventions |
 | line 145 | The trailing "use an image slot (below) instead" points at the section being deleted. Repoint it at the new placeholder guidance. |
-| lines 156 to 164 | The entire `### Prompt sidecar` section |
+| lines 155 to 164 | The entire `### Prompt sidecar` section |
 | line 176 | "and, if HTML, whether it needs an image slot" as a format sub-question |
 | line 198 | "If an image slot was requested, size the placeholder and draft its prompt sidecar now" |
 | line 206 | Self-check: "does the sidecar's dimensions match the HTML slot exactly?" |
 | line 212 | "along with its prompt sidecar if one exists" |
+| line 214 | "and any prompt sidecar" in the Phase 4b save instruction |
 | line 216 | "and prompt sidecars" in the index-participation sentence |
 | line 244 | Never-do: "Never produce an image slot without a matching prompt sidecar..." |
 | line 251 | "and any prompt sidecars" in the outputs list |
 
-Roughly 20 lines net removed.
+Twelve lines carry the string `sidecar`; all twelve are listed above, with 155, 157, and 164 removed together as the section block. Net effect is 255 lines to 251: the block removal is 10 lines replaced by 5, plus one added line cross-referencing `forge-prompt` in the connections section.
+
+*Revision note:* the first draft of this table omitted lines 21 and 214 and misnumbered the section start as 156. Caught during the implementation plan's self-review by measuring the grep count rather than trusting the enumeration.
 
 ### Addition
 
