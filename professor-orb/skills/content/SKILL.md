@@ -1,6 +1,6 @@
 ---
 name: content
-description: "Player-facing content generator for D&D sessions. Produces four kinds of immersive content from a session report and (optionally) its session brief: (1) dramatic third-person read-aloud recaps, (2) handouts such as in-world letters, item descriptions, clues, and prophecies, (3) boxed-text setpieces for upcoming scenes, and (4) player-facing timeline visualizations. Each piece can be output as plain markdown, a self-contained Foundry fragment (an inline-styled HTML snippet pasteable into any Foundry HTML field: journal entries, item descriptions, actor biographies, module fields, not just journals), or a printable page (a standalone HTML file with print CSS for physical handouts or PDF export). Any output with an image slot gets a matching prompt sidecar for image generation. Use this skill whenever the user asks for a 'recap,' 'read-aloud,' 'handout,' 'letter from X,' 'boxed text,' 'setpiece,' 'timeline visualization,' or 'player-facing timeline,' or anything the DM will read aloud or hand to players at the table, including in Foundry. Also trigger right after prep, when the DM asks for 'the recap' or 'the handouts.' Position in the pipeline: debrief, then prep, then content and/or chronicler, then the kb-validator agent. The skill's last act records pipeline state so the Stop hook can suggest the next step."
+description: "Player-facing content generator for D&D sessions. Produces four kinds of immersive content from a session report and (optionally) its session brief: (1) dramatic third-person read-aloud recaps, (2) handouts such as in-world letters, item descriptions, clues, and prophecies, (3) boxed-text setpieces for upcoming scenes, and (4) player-facing timeline visualizations. Each piece can be output as plain markdown, a self-contained Foundry fragment (an inline-styled HTML snippet pasteable into any Foundry HTML field: journal entries, item descriptions, actor biographies, module fields, not just journals), or a printable page (a standalone HTML file with print CSS for physical handouts or PDF export). A piece with a spot for art gets a marked placeholder and a pointer to the forge-prompt skill, which writes image prompts; this skill does not. Use this skill whenever the user asks for a 'recap,' 'read-aloud,' 'handout,' 'letter from X,' 'boxed text,' 'setpiece,' 'timeline visualization,' or 'player-facing timeline,' or anything the DM will read aloud or hand to players at the table, including in Foundry. Also trigger right after prep, when the DM asks for 'the recap' or 'the handouts.' Position in the pipeline: debrief, then prep, then content and/or chronicler, then the kb-validator agent. The skill's last act records pipeline state so the Stop hook can suggest the next step."
 ---
 
 > **Before you begin:** read `../SHARED-PRINCIPLES.md` and apply its rules throughout this workflow.
@@ -18,7 +18,7 @@ Many projects never formalize content-file conventions in `conventions.json`, si
 For everything else, fall back to the project's `CLAUDE.md` (or equivalent instructions file) the same way debrief and prep do for everything `conventions.json` doesn't reach. Extract:
 
 - **Where content files live.** Resolve `sessionReportsRoot` per SHARED-PRINCIPLES Principle 12; look for a content subdirectory, naming convention, or file pattern within `<sessionReportsRoot>/<campaign>/`. If not specified, default to a `content/` subdirectory inside that campaign folder.
-- **Content filename conventions.** Look for prefix patterns (for example `RECAP-`, `HANDOUT-`). If not specified, default to `[TYPE]-YYYY-MM-DD-[Title].md` for markdown, with `-FRAGMENT.html`, `-PRINT.html`, and `-IMAGE-PROMPT.md` suffixes for the Foundry fragment, printable page, and prompt sidecar variants described below.
+- **Content filename conventions.** Look for prefix patterns (for example `RECAP-`, `HANDOUT-`). If not specified, default to `[TYPE]-YYYY-MM-DD-[Title].md` for markdown, with `-FRAGMENT.html` and `-PRINT.html` suffixes for the Foundry fragment and printable page variants described below.
 - **Writing style rules.** Especially important for this skill, since any tone, phrasing, or formatting rules affect how content reads aloud. Check for prohibited patterns, required voice, cultural sensitivity notes.
 - **Cross-reference format.** Match the project's link conventions. Cross-references are optional in read-aloud content (it is meant to be spoken, not navigated) and pointless in HTML outputs bound for Foundry or print, but useful if a markdown file will be referenced from the KB.
 - **Content exclusions.** Any tags or categories marked off-limits. Do not write content that draws on excluded material.
@@ -142,7 +142,7 @@ A self-contained HTML snippet, pasteable into **any** Foundry HTML field: journa
 - **All styling inline**, via `style` attributes on each element. No `<style>` block, no CSS classes, no external stylesheet links, no `<script>` tags. Foundry's editor sanitization and theme variation both make anything outside inline styles unreliable.
 - **A self-contained color scheme.** Set explicit background and text colors on the fragment's outer container (for example a parchment card, a sealed-letter look, a weathered-page look) rather than leaving backgrounds transparent or colors inherited. The fragment must look the same whether pasted into a dark journal theme or a light actor sheet.
 - **A fragment, not a document.** No `<!DOCTYPE>`, `<html>`, `<head>`, or `<body>` tags. Start directly with the outer container element so it drops cleanly into a rich-text field.
-- **No external assets.** No linked fonts, no remote image URLs, unless the DM has confirmed the destination world can load them. If the piece calls for art, use an image slot (below) instead.
+- **No external assets.** No linked fonts, no remote image URLs, unless the DM has confirmed the destination world can load them. If the piece calls for art, leave an art placeholder (below) instead.
 
 ### Printable page
 
@@ -152,16 +152,11 @@ A standalone HTML document with print CSS, for physical handouts or PDF export v
 - **`@media print` rules:** sensible page margins (`@page { margin: ...; }`), print-safe colors (`-webkit-print-color-adjust: exact;` and the standard equivalent where backgrounds matter to the design), and page-break control so a handout does not split awkwardly.
 - **A screen-friendly preview** that reasonably matches the print layout, so the DM can proof it before printing.
 
-### Prompt sidecar
+### Art placeholders
 
-Whenever a Foundry fragment or printable page includes an image slot (a letterhead illustration, an item's icon, a portrait, a map fragment), reserve the slot as a placeholder element with explicit `width` and `height` in the HTML, and produce a companion sidecar file alongside it (same base filename, `-IMAGE-PROMPT` suffix, plain markdown). The sidecar contains:
+When a Foundry fragment or printable page has a spot for art (a letterhead illustration, an item's icon, a portrait, a map fragment), leave a visibly marked placeholder block where the image goes. Do not prescribe its dimensions: aspect ratio, size, and format are the DM's call, made against the real image.
 
-- **A positive prompt**, written for Flux2/ComfyUI-style generation: subject, composition, medium, lighting, and the campaign's established visual tone.
-- **A negative prompt**, covering anything that would break the piece's fit (modern artifacts, wrong art style, unwanted text or watermarks, as applicable).
-- **Output settings**, most importantly generation **dimensions that match the HTML slot's pixel dimensions or aspect ratio exactly**, so the DM's generated image drops into the slot without cropping or distortion. Note the project's established house style or checkpoint if one exists.
-- A one-line reminder that the DM generates the image manually and replaces the placeholder once it exists; this skill does not run image generation itself.
-
-Never produce an image slot without its sidecar, and never produce a sidecar whose dimensions do not match the slot it belongs to.
+Writing the image prompt is the `forge-prompt` skill's job, not this one. Name it in the closing summary and move on.
 
 ## Workflow
 
@@ -173,7 +168,7 @@ If the user named specific content items, skip to output-format selection below.
 2. If a session brief exists, read its handout and setpiece candidates.
 3. Confirm with the user in one AskUserQuestion batch which items to generate.
 
-**Choose the output format.** For each item in the work list, confirm the output format (markdown, Foundry fragment, or printable page) and, if HTML, whether it needs an image slot. This is a structured, enumerable decision and goes through AskUserQuestion, batched with the work-list confirmation where practical. Default to markdown for recaps and setpieces unless the DM says otherwise; default to asking explicitly for handouts and timeline visualizations, since those are the types most often destined for Foundry or print.
+**Choose the output format.** For each item in the work list, confirm the output format (markdown, Foundry fragment, or printable page). This is a structured, enumerable decision and goes through AskUserQuestion, batched with the work-list confirmation where practical. Default to markdown for recaps and setpieces unless the DM says otherwise; default to asking explicitly for handouts and timeline visualizations, since those are the types most often destined for Foundry or print.
 
 ### Phase 2: Gather context
 
@@ -195,7 +190,7 @@ The pattern is additive. Future content types may opt in by adding a row above (
 
 Write each piece applying the rules for its content type first. The content type's voice, length, and structure govern what the piece says, before any formatting is applied.
 
-**Render into the chosen output format.** Once the prose is right, wrap it per the Output formats section: plain markdown as-is, or the drafted text carried into a self-contained Foundry fragment or a standalone printable page. If an image slot was requested, size the placeholder and draft its prompt sidecar now, alongside the piece.
+**Render into the chosen output format.** Once the prose is right, wrap it per the Output formats section: plain markdown as-is, or the drafted text carried into a self-contained Foundry fragment or a standalone printable page. If the piece has a spot for art, leave a marked placeholder per the Art placeholders section.
 
 **Self-check before writing to disk:**
 
@@ -203,17 +198,17 @@ Write each piece applying the rules for its content type first. The content type
 - **Handout:** voice matches source? One clear thing plus one ambiguous thing? Feels like an object?
 - **Setpiece:** one off detail? Am I describing PC actions or emotions? Between 80 and 200 words?
 - **Foundry fragment or printable page:** all styling inline (fragment) or in one internal `<style>` block (page)? No external assets? Would it render identically wherever it lands?
-- **Image slot:** does the sidecar's dimensions match the HTML slot exactly?
+- **Art placeholder:** is it visibly marked, and free of prescribed dimensions?
 
 If any check fails, revise before saving.
 
 ### Phase 4: Review and save
 
-**Step 4a: present drafts for review.** Show each drafted piece to the DM. For markdown, show the text. For a Foundry fragment or printable page, show the rendered HTML content (and describe how it will look) along with its prompt sidecar if one exists. Wait for approval, requested changes, or rejection. Do not write any files until the DM approves. If the DM requests changes, revise and re-present. If a revision suggests more than one reasonable direction, offer the drafted options via AskUserQuestion rather than picking one silently.
+**Step 4a: present drafts for review.** Show each drafted piece to the DM. For markdown, show the text. For a Foundry fragment or printable page, show the rendered HTML content and describe how it will look. Wait for approval, requested changes, or rejection. Do not write any files until the DM approves. If the DM requests changes, revise and re-present. If a revision suggests more than one reasonable direction, offer the drafted options via AskUserQuestion rather than picking one silently.
 
-**Step 4b: save approved content.** Write each approved file, and any prompt sidecar, to the content directory using the project's conventions. Create the directory if it does not exist.
+**Step 4b: save approved content.** Write each approved file to the content directory using the project's conventions. Create the directory if it does not exist.
 
-**Update indexes and logs** per the project's conventions, for any markdown file that participates in them. Foundry fragments, printable pages, and prompt sidecars are working files for the table, not KB articles, and do not need index entries unless the project's conventions say otherwise.
+**Update indexes and logs** per the project's conventions, for any markdown file that participates in them. Foundry fragments and printable pages are working files for the table, not KB articles, and do not need index entries unless the project's conventions say otherwise.
 
 **Step 4c: confirm with the user.** Share links to each file. Do not quote the content back; it is meant to be *encountered* rather than reviewed line by line. One line per file describing what it is and when to use it.
 
@@ -241,15 +236,16 @@ For `sessionDate`: if `.professor-orb/pipeline-state.json` already exists (typic
 - **Never exceed the length guidance by more than 20%.** Discipline is the craft.
 - **Never write content that draws on excluded material.** If a scene requires excluded content, stop and ask the DM to reframe.
 - **Never ship a Foundry fragment with external CSS, classes, or scripts.** It has to survive being pasted into a field you cannot predict.
-- **Never produce an image slot without a matching prompt sidecar**, and never let the sidecar's dimensions drift from the slot's.
+- **Never write an image prompt.** That is `forge-prompt`'s job. Leave the placeholder, name the skill, and stop.
 - **Never pick an output format for the DM.** Markdown, Foundry fragment, and printable page are a structured choice; confirm it with AskUserQuestion rather than assuming.
 
 ## How this skill connects to the others
 
 - **Position in the session pipeline:** debrief, then prep, then content and/or chronicler, then the `kb-validator` agent.
 - **Inputs:** the latest report from `debrief` (required), the latest session brief from `prep` (optional but preferred).
-- **Outputs:** content files (markdown, Foundry fragments, printable pages) and any prompt sidecars, in the campaign's content subdirectory.
+- **Outputs:** content files (markdown, Foundry fragments, printable pages) in the campaign's content subdirectory.
 - **Spawns:** the `historian` agent when a timeline visualization is in the work list.
 - **Downstream of `prep`:** reads the session brief's handout and setpiece candidates as its default work list.
+- **Adjacent to `forge-prompt`:** a piece with an art placeholder names that skill in the closing summary. Nothing is handed over and no file is shared; `forge-prompt` reads nothing content produced.
 - **Orthogonal to `chronicler`:** content never modifies KB articles. If writing content reveals a canonical detail worth memorializing, note it in the final summary; do not touch KB articles.
 - **Handoff to `/log`:** `/log` can commit the recap and handouts.
