@@ -620,7 +620,7 @@ Expected: sidecar `0`, IMAGE-PROMPT `0`, forge-prompt at least `4`, em dashes `0
 git diff --stat professor-orb/skills/content/SKILL.md
 ```
 
-Expected: one file changed. Read the full diff and confirm no content-type rule, voice rule, or output-format rule was touched beyond the eleven edits above.
+Expected: one file changed. Read the full diff and confirm no content-type rule, voice rule, or output-format rule was touched beyond the thirteen edits above (Steps 2, 2b, 3 through 8, 8b, 9 through 12).
 
 - [ ] **Step 15: Commit**
 
@@ -927,10 +927,10 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>" -- professor-orb/.claude-
 
 ```bash
 git status --porcelain
-git log --oneline -5
+git log --oneline -7
 ```
 
-Expected: no output from `status`; five commits visible, one per task plus the spec commit.
+Expected: no output from `status`. `-7` surfaces seven commits, newest first: Task 5, Task 4, Task 3, Task 2, Task 1, the plan doc, and the spec doc.
 
 ---
 
