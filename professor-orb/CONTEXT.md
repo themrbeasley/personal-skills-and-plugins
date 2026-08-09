@@ -164,8 +164,9 @@ _Avoid_: calling it a KB writer (it commits, it does not author), merging settin
 
 **log command**:
 The `/log` capture step for the session-reports lane: the reports `debrief` writes,
-the Session Prep briefs `prep` saves beside them, and the recaps and handouts
-`content` writes into the campaign's `content/` subdirectory. Authors none of it.
+the Session Prep briefs `prep` saves beside them, the recaps and handouts `content`
+writes into the campaign's `content/` subdirectory, and the prompts `forge-prompt`
+saves into the campaign's `prompts/` subdirectory. Authors none of it.
 One resolved campaign per invocation, asking rather than guessing when more than one
 has outstanding work. A report missing required frontmatter or carrying an empty
 section is set aside by name while the rest of the lane still commits: a report

@@ -210,7 +210,7 @@ If any check fails, revise before saving.
 
 **Update indexes and logs** per the project's conventions, for any markdown file that participates in them. Foundry fragments and printable pages are working files for the table, not KB articles, and do not need index entries unless the project's conventions say otherwise.
 
-**Step 4c: confirm with the user.** Share links to each file. Do not quote the content back; it is meant to be *encountered* rather than reviewed line by line. One line per file describing what it is and when to use it.
+**Step 4c: confirm with the user.** Share links to each file. Do not quote the content back; it is meant to be *encountered* rather than reviewed line by line. One line per file describing what it is and when to use it. For any piece with an art placeholder, say so here and name `/forge-prompt` as the way to get its image prompt written.
 
 ## Final act: update pipeline state
 
