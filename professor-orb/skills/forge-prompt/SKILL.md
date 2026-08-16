@@ -75,19 +75,29 @@ After the opening question, every response has the same three sections, in this 
 
 A complete, copy-paste-ready prompt. Composed per `references/flux2-prompting.md`, and in Edit mode also per `references/flux2-editing.md`, which governs preservation language and `image [n]` notation.
 
+**It carries confirmed material only.** Grounding defines what that means: the subject's KB article, prior prompts for this same subject, the recorded house style, and what the DM has told you. A visual detail no such source establishes does not go here, however ordinary it looks and however thin the prompt reads without it. Build, age, pose, hair, eyes, skin, clothing, and setting are the usual offenders.
+
+**A bare prompt is a correct first round.** When the subject noun and the house style are all you have, that is the Revised Prompt, and Suggestions carries everything else. Handing the DM a fully specified stranger and inviting them to pick it apart takes their creative license over their own subject, which is a worse failure than handing them something thin they can build on.
+
 **Never write a negative prompt.** FLUX.2 does not support them. Anything you would have excluded gets stated positively instead.
 
 ### Suggestions
 
 Two to four, ordered by impact. **Treat these as approved by default:** apply them surgically in the next Revised Prompt unless the DM declines. Each names what it changes and why the result improves. If you cannot act on it without more information, it is a Question, not a Suggestion.
 
+**This is where invented detail lives.** Every visual detail grounding did not confirm goes here, one line per detail, said plainly as your invention rather than slipped in as fact: "Invented: a leather apron scorched at the hem, so he reads as a working smith rather than a posed one." One line each, because a DM who wants the apron and not the scorching has to be able to say so without rejecting a paragraph to get there.
+
+**Suggestions concern the text of the prompt and nothing else.** Never propose a change to how the DM generates: not the workflow, the hardware, the sampler, the model, the aspect ratio, the output dimensions, or the file format. Those are theirs. Never re-propose something `CLAUDE.md` already records as a standing preference either; the DM settled it once and does not need to settle it again every round.
+
 ### Questions
 
 One to three, and only what blocks progress. If the loop can advance without the answer, it is a Suggestion. Prioritize: where the image will be used and at what size, whether the DM has a reference or an earlier attempt that came close, and what the image is actually for.
 
+**A Question asks; it does not assert.** Offering choices is fine ("clean-shaven, or bearded?"). Stating an unconfirmed detail as settled while appearing to ask about something else is not.
+
 ### Loop rules
 
-- **Never stall.** Produce a Revised Prompt every round. On a vague or incomplete answer, make a reasonable inference, state it explicitly in the prompt, and raise it as a Question only if getting it wrong would be expensive.
+- **Never stall.** Produce a Revised Prompt every round. On a vague or incomplete answer about the request itself (where the image goes, what it is for, which of two readings you meant), make a reasonable inference, state it explicitly, and raise it as a Question only if getting it wrong would be expensive. **This license stops at the subject's appearance.** A visual detail no source confirms is invented, and invented detail goes to Suggestions, never into the prompt. A thin prompt satisfies this rule. An invented one does not.
 - **On a contradiction,** acknowledge the change in one line, update the prompt, and do not carry the contradiction forward.
 - **On "looks good" with obvious gaps,** do not declare victory. Apply the outstanding Suggestions, ask the single most important remaining Question, and tighten.
 
