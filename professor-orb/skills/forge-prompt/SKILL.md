@@ -1,6 +1,6 @@
 ---
 name: forge-prompt
-description: "Image-generation prompt craft for D&D campaign visuals, written for FLUX.2 and ComfyUI. Three entry modes: forge a prompt for a new image from nothing, write an edit prompt against an image the DM has already approved, or diagnose a prompt that produced a disappointing result. Runs an iterative refinement loop rather than a single draft: every round returns a complete copy-paste-ready prompt, two to four suggested improvements that are applied by default unless the DM declines them, and at most three questions, asked only when they block progress. Grounds each prompt in the subject's KB article for canonical appearance, in prior prompts for the same subject so a recurring NPC stays visually consistent, and in the project's CLAUDE.md for campaign visual tone. Use this skill whenever the DM asks for an 'image prompt,' a 'Flux prompt,' a 'prompt for a portrait or map or item,' wants to 'edit this image,' 'change the outfit,' 'fix this prompt,' or says a generated image came out wrong. Standalone, on demand, like homebrew and timeline: not part of the debrief, prep, content, chronicler, kb-validator session pipeline, and never writes pipeline-state.json. Never writes to the knowledge base, and never runs image generation itself."
+description: "Image-generation prompt craft for D&D campaign visuals, written for FLUX.2 and ComfyUI. Three entry modes: forge a prompt for a new image from nothing, write an edit prompt against an image the DM has already approved, or diagnose a prompt that produced a disappointing result. Runs an iterative refinement loop rather than a single draft: every round returns a complete copy-paste-ready prompt, two to four suggested improvements that are applied by default unless the DM declines them, and at most three questions, asked only when they block progress. The prompt carries only what a source confirms: the subject's KB article for canonical appearance, prior prompts for that same subject so a recurring NPC stays visually consistent, the house style recorded in the project's CLAUDE.md, and what the DM says. Every invented detail goes to the suggestions instead, named as invented, so the DM keeps creative license over their own subject and a thin first prompt is correct output rather than a stalled loop. Offers to record a house style in CLAUDE.md when the project has none, and writes it only on approval. Use this skill whenever the DM asks for an 'image prompt,' a 'Flux prompt,' a 'prompt for a portrait or map or item,' wants to 'edit this image,' 'change the outfit,' 'fix this prompt,' or says a generated image came out wrong. Standalone, on demand, like homebrew and timeline: not part of the debrief, prep, content, chronicler, kb-validator session pipeline, and never writes pipeline-state.json. Never writes to the knowledge base, and never runs image generation itself."
 ---
 
 > **Before you begin:** read `../SHARED-PRINCIPLES.md` and apply its rules throughout this workflow.
@@ -135,11 +135,15 @@ The body holds the final prompt, and for Edit mode a one-line note of what the s
 - **Never save mid-loop.** The DM approves once, at the end.
 - **Never draw on excluded material.**
 - **Never run image generation.** You write the prompt; the DM runs it.
+- **Never state an unconfirmed visual detail as settled,** in a Revised Prompt or inside a Question. It goes to Suggestions, named as invented.
+- **Never read a prompt file for any subject but the one being drafted.** Not for house style, not for structure, not for phrasing.
+- **Never propose a change to the DM's generation setup** in Suggestions: workflow, hardware, sampler, model, aspect ratio, dimensions, or format. Never re-propose a preference `CLAUDE.md` already records.
+- **Never write `CLAUDE.md` without explicit approval,** and never treat a proposed house style as recorded before the DM takes it.
 
 ## How this skill connects to the others
 
 - **Standalone:** not in the session pipeline, never writes pipeline state.
-- **Inputs:** the DM's intent, the subject's KB article when one exists, prior prompts in the campaign's `prompts/` directory, and `CLAUDE.md` for visual tone.
-- **Outputs:** one markdown prompt file per saved prompt, in the campaign's `prompts/` directory.
+- **Inputs:** the DM's intent, the subject's KB article when one exists, prior prompts for that same subject in the campaign's `prompts/` directory, and `CLAUDE.md` for the recorded house style.
+- **Outputs:** one markdown prompt file per saved prompt, in the campaign's `prompts/` directory, and, on approval and only when the project records none, a house style block in `CLAUDE.md`.
 - **Adjacent to `content`:** when `content` builds a Foundry fragment or printable page with a spot for art, it leaves a marked placeholder and names this skill. It does not hand anything over, and this skill reads nothing it produced. The two are independent.
-- **Handoff to `/log`:** `/log` commits the campaign lane, which includes `prompts/`.
+- **Handoff to `/log`:** `/log` commits the campaign lane, which includes `prompts/`. It does not reach `CLAUDE.md` at the project root, so that edit stays the DM's to commit.
