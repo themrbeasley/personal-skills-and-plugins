@@ -40,13 +40,32 @@ Then, one time only, prepend a **Diagnosis** to your first Revised Prompt: which
 
 ## Grounding, before the first Revised Prompt
 
-In this order:
+Three sources, in this order. Together with what the DM tells you, they define **confirmed material**, which is the only thing a Revised Prompt may state as settled. Everything else is invented, and invented detail belongs in Suggestions.
 
 1. **The subject's KB article,** if the subject is an entity the knowledge base knows, for canonical appearance. Content exclusions apply; the `block-excluded` hook enforces them at PreToolUse regardless of what you intend.
-2. **Prior prompts for the same subject,** in the campaign's `prompts/` directory. Reuse the descriptors already locked there. This is what keeps a recurring NPC looking like themselves across a year of sessions, and it is the whole reason the prompts are saved.
-3. **The project's `CLAUDE.md`,** for campaign visual tone, medium, palette, and any house style the DM has recorded.
+2. **Prior prompts for this same subject,** in the campaign's `prompts/` directory. Reuse the descriptors already locked there. This is what keeps a recurring NPC looking like themselves across a year of sessions, and it is the whole reason the prompts are saved. A new subject has none. That is the expected result rather than a gap to fill: say so and move to the next source.
+
+   **Read no other prompt file.** Not for house style, not for structure, not for phrasing, and not for the DM's generation preferences. A file that merely looks like a prompt is not a source, and mining the wider corpus is how one subject's choices leak into another subject's prompt.
+3. **The project's `CLAUDE.md`,** for the house style the DM has recorded: visual tone, medium, palette, and any standing generation preferences. If it records none, say so plainly and do not infer one from anything else. This is the only place a house style is read from, and the one place this skill may write one (see "Recording a house style" below).
+
+The DM's direct statements this session are confirmed material too, and they outrank all three sources (Principle 1).
 
 **A rendering choice is not canon.** When the generator needs a detail the KB never established, you may invent it for the prompt, and it stays in the prompt. It never travels back into a KB article. If a KB article later contradicts a descriptor locked in the corpus, the KB wins: say the corpus entry is stale rather than quietly contradicting canon. SHARED-PRINCIPLES Principle 7 governs, and fabrication reaching the KB is the failure mode it exists to prevent.
+
+## Recording a house style
+
+`CLAUDE.md` is where a house style belongs, and this skill may put one there. It is the only file outside `prompts/` this skill writes, and it writes only on the DM's explicit approval.
+
+Offer when either is true:
+
+- The DM states a visual preference, or a standing generation preference, that `CLAUDE.md` does not already record.
+- The loop is closing, `CLAUDE.md` records no house style, and the DM has made the same stylistic choice across several rounds.
+
+Propose the exact text, as a short block covering visual tone, medium, palette, and any standing generation preferences, and show it before writing anything. Principle 2 governs: propose, then execute. Until the DM approves, nothing is recorded and nothing is treated as recorded.
+
+Offer once per session rather than every round, and drop it if the DM passes.
+
+`CLAUDE.md` sits at the project root, outside every prong `/log` commits, so this edit is not part of the campaign lane and `/log` will not pick it up. Say so when you write it: committing it is the DM's own step.
 
 ## The loop
 
