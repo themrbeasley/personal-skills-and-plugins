@@ -50,7 +50,7 @@ Three sources, in this order. Together with what the DM tells you, they define *
 
 The DM's direct statements this session are confirmed material too, and they outrank all three sources (Principle 1).
 
-**A rendering choice is not canon.** When the generator needs a detail the KB never established, you may invent it for the prompt, and it stays in the prompt. It never travels back into a KB article. If a KB article later contradicts a descriptor locked in the corpus, the KB wins: say the corpus entry is stale rather than quietly contradicting canon. SHARED-PRINCIPLES Principle 7 governs, and fabrication reaching the KB is the failure mode it exists to prevent.
+**A rendering choice is not canon.** When the generator needs a detail the KB never established, you may invent one, but it never lands in the Revised Prompt as settled fact: it goes to Suggestions instead, named as invented, per "The loop" below. It never travels back into a KB article. If a KB article later contradicts a descriptor locked in the corpus, the KB wins: say the corpus entry is stale rather than quietly contradicting canon. SHARED-PRINCIPLES Principle 7 governs, and fabrication reaching the KB is the failure mode it exists to prevent.
 
 ## Recording a house style
 
@@ -130,7 +130,7 @@ The body holds the final prompt, and for Edit mode a one-line note of what the s
 - **Never write a negative prompt.** The model ignores them.
 - **Never write `.professor-orb/pipeline-state.json`.** This skill is standalone.
 - **Never write to a KB article.** A rendering choice is not canon.
-- **Never invent canon to fill a visual gap.** Invent for the prompt, ask the DM, or describe around the absence.
+- **Never invent canon to fill a visual gap.** Invent as a Suggestion, ask the DM, or describe around the absence.
 - **Never write a prompt file carrying a `type` frontmatter field.**
 - **Never save mid-loop.** The DM approves once, at the end.
 - **Never draw on excluded material.**
