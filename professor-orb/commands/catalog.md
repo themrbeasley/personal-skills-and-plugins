@@ -75,7 +75,7 @@ First determine whether an entry for this homebrew already exists in the catalog
 Write (or, for a revision, update in place) one markdown file to the homebrew catalog folder (per Step 2). The file is:
 
 1. YAML frontmatter combining the required floor (`name`, `type`, `status`, `version`, `date`) with the type's **[F]** fields from Step 4 and anything `.professor-orb/conventions.json` marks required, in the field order conventions defines. `status` and `version` are set per the command's lifecycle handling, not chosen here.
-2. A body made of the type's **[B]** blocks, each holding the DM's finalized content verbatim. Never edit, reformat, complete, or otherwise improve it. Do not add wikilinks inside the entry: catalog entries sit outside the wikilink graph.
+2. A body made of the type's **[B]** blocks, each holding the DM's finalized content verbatim, plus the shared Design Notes block when one was composed via the homebrew skill's offer or otherwise supplied as part of the finalized content, per that block's own rules in `catalog-type-templates.md`. Never edit, reformat, complete, or otherwise improve it. Do not add wikilinks inside the entry: catalog entries sit outside the wikilink graph.
 
 Follow the project's filename conventions (charset, suffix by type if one applies). The write should pass the PostToolUse validator hook without a warning or block; if a block violation comes back, fix the entry and retry rather than working around the hook.
 
