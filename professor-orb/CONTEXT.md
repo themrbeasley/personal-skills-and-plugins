@@ -88,23 +88,31 @@ work. Three entry modes: forge a prompt from nothing, write an edit prompt again
 an image the DM has already approved, or diagnose one that underperformed. Runs an
 iterative loop borrowed from the DM's own ultimate-prompt-creator skill, whose
 load-bearing rule is that suggestions are approved by default and questions are
-asked only when they block. Saves to `<sessionReportsRoot>/<campaign>/prompts/`,
-carrying no `type` frontmatter field, because the write-time hook skips a typeless
-file and blocks a type it does not recognize. The DM runs generation manually;
-deeper ComfyUI integration remains a flagged future investigation.
-_Avoid_: "the prompt skill" (ambiguous), calling its output canon
+asked only when they block. The Revised Prompt carries confirmed material only, from
+the KB article, prior prompts for that same subject, the recorded house style, and
+the DM; invented detail goes to the suggestions instead, named as invented, so a thin
+first prompt is correct output and a fully specified stranger is not. Saves to
+`<sessionReportsRoot>/<campaign>/prompts/`, carrying no `type` frontmatter field,
+because the write-time hook skips a typeless file and blocks a type it does not
+recognize. May also offer to record a house style in the project's `CLAUDE.md`, the
+only file outside `prompts/` it writes and the one `/log` does not commit. The DM runs
+generation manually; deeper ComfyUI integration remains a flagged future investigation.
+_Avoid_: "the prompt skill" (ambiguous), calling its output canon, calling an invented
+detail confirmed
 
 **prompt corpus**:
-The accumulated prompt files in a campaign's `prompts/` directory. Serves double
-duty, the same way the homebrew catalog does: the DM's record of what was generated,
-and the source `forge-prompt` reads before drafting so a recurring NPC keeps the same
-locked visual descriptors across sessions. Deliberately not a registry in
+The accumulated prompt files in a campaign's `prompts/` directory: the DM's record of
+what was generated, and the source `forge-prompt` reads before drafting so a recurring
+NPC keeps the same locked visual descriptors across sessions. Read for the drafted
+subject alone, never as a style or structure reference for anything else, because a
+corpus mined broadly leaks one subject's choices into another subject's prompt. House
+style lives in `CLAUDE.md`, not here. Deliberately not a registry in
 `.professor-orb/`: Principle 8 licenses exactly one auxiliary document and this is
 not it, and a locked descriptor is authored rather than derived so it could not live
 in the gitignored tier. KB canon outranks the corpus; the corpus holds only the
 rendering delta the generator needed, and a rendering choice never travels back into
 a KB article.
-_Avoid_: "visual registry", treating a locked descriptor as canon
+_Avoid_: "visual registry", treating a locked descriptor as canon, mining it for house style
 
 **prompt sidecar**:
 _Retired in 1.12.0._ Content's former companion file for visual-bearing outputs,
