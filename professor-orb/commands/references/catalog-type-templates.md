@@ -23,6 +23,46 @@ Field sets are grounded in SRD 5.2.1 (2024 rules). See the design spec
   whatever `.professor-orb/conventions.json` marks required. Type-specific fields below are
   additive.
 
+### Design Notes (optional, every type)
+
+A record of the design decisions behind the artifact. Present when the design produced
+decisions worth recording, absent otherwise. Available to every type key.
+
+**Structure.** A list of labeled records, each answering one design question about this
+artifact.
+
+**Every paragraph carries a label, and the label is a design question.** The shapes in use:
+
+- `Why <the design> exists.` — the gap it fills
+- `Rejected: <the alternative>.` — what was cut, and why
+- `<The mechanic>.` — what it was assembled out of, and why that shape
+- `<The question>, raised but not settled.` — deliberately left open
+- `Why <a fiction-driven choice>.` — how the fiction produced the mechanic
+- `Naming.` — naming intent
+- `What the design responded to.` — the campaign, the month and year, and the conditions
+  the design answered
+
+**The body answers the label's question,** about the artifact as a designed object: why it
+is the way it is.
+
+**Where a choice was made among alternatives, the record says it was made and says what was
+cut.** The verbs carrying this are past tense: was cut, was weighed and declined, was
+assembled out of, was chosen for, was kept instead, was set aside, was left in place rather
+than designed around.
+
+**Campaign conditions belong in `What the design responded to.`,** bound to the campaign and
+the month and year, as conditions the design answered. Stated that way, a condition stays
+true after play moves past it.
+
+**Each record is a decision the DM made.**
+
+**The block is shown to the DM and confirmed before the entry is written.** This holds
+however the text came to exist, so it needs no account of who drafted which part.
+
+**Tagging: `[H]` alone.** It has no SRD 5.2.1 basis and never reads as published-rules
+apparatus. It carries no `[B]` tag: `[B]` means content supplied to the command and
+preserved verbatim, and this block's own rules cover how it comes to exist.
+
 ## spell
 
 - **[F]** name; level (0-9, 0 = cantrip); school (enum: Abjuration, Conjuration, Divination,
