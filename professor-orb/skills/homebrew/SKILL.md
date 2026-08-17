@@ -169,6 +169,19 @@ A homebrew design is ready to catalog once you and the DM have finalized it in t
 
 Once the DM confirms a design is finalized, mention the `/catalog` command as the way to capture it into the knowledge base. Say this once, at the natural end of the design flow, not on every message. All catalogued homebrew is playtest material, so the DM can re-run `/catalog` later to version a revision, including tweaks that come out of actually implementing it at the table. This skill does not run cataloging itself and does not write the catalog entry; `/catalog` is a separate command the DM runs when ready.
 
+**Offer the Design Notes block while the reasoning is fresh.** If the design conversation
+produced decisions worth recording — an alternative rejected, a benchmark named, a departure
+from published convention made deliberately, a constraint that shaped the design — offer to
+compose the entry's Design Notes block now, before the DM leaves for `/catalog`. The
+reasoning is freshest here and is largely lost by capture time. Where the design produced
+none of these, the design flow ends as it did before, with the `/catalog` pointer alone.
+
+The block's definition lives in `../../commands/references/catalog-type-templates.md`
+(relative to this skill), under "Shared rules for every template". Read it and follow it
+rather than composing from memory. Show the draft to the DM and get confirmation; the
+confirmed text travels to `/catalog` as part of the finalized design, the same way
+everything else this skill produces reaches capture.
+
 ---
 
 ## Reference Files
