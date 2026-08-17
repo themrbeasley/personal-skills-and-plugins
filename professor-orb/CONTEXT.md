@@ -136,10 +136,25 @@ the homebrew skill matches against when drafting.
 _Avoid_: "homebrew KB", storing skill drafts in it, raw .html entry files
 
 **catalog command**:
-The `/catalog` capture step: DM pastes the locked, post-tweak Foundry HTML; the
-command writes the markdown-wrapped entry, updates the owning Homebrew index, and
-nothing else. Precise and repeatable by design: capture is a command, not a
-reminder.
+The `/catalog` capture step: takes one finalized, DM-confirmed piece of homebrew,
+writes one type-specific entry, stamps its lifecycle status and version, updates the
+owning Homebrew index, and nothing else. Body blocks hold the DM's finalized content
+verbatim. Design Notes is the one block composed during the session rather than
+supplied to the command, so it is shown to the DM and confirmed before the entry is
+written. Precise and repeatable by design: capture is a command, not a reminder.
+_Avoid_: describing it as an HTML paste (superseded by the 2026-07-11 redesign)
+
+**Design Notes**:
+The optional catalog-entry block recording why an artifact was designed the way it
+was: a list of labeled records, each answering one design question about that
+artifact. Specified in `commands/references/catalog-type-templates.md` under the
+shared rules, and offered by the `homebrew` skill at finalization, where the
+reasoning is freshest and from which it is largely lost by capture time. The label
+being a design question is what keeps setting material out, since a world fact
+answers no design question and has no label to sit under. Campaign conditions have
+one home, `What the design responded to.`, bound to a campaign and a date, where a
+condition stays true after play moves past it.
+_Avoid_: lore commentary under this heading, current campaign state, calling it canon
 
 **lane model**:
 The split that governs committing: three prongs, three commands, and a commit that
