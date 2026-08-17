@@ -121,8 +121,8 @@ ecosystem's current contents. That distinction resolves inside the grammar witho
 of its own.
 
 **A note for a future editor:** the grammar is enforceable because it is a property of the
-text. A paragraph either carries a decision label and a past-tense decision verb or it does
-not, checkable by reading it. An earlier iteration of this design proposed a `[D]` tag
+text. A paragraph either carries a decision label or it does not, checkable by reading it.
+An earlier iteration of this design proposed a `[D]` tag
 distinguishing drafted-then-approved content from verbatim DM content, and it was cut: that
 distinction is provenance, unobservable at write time, since nothing marks which text in a
 conversation the DM typed and which the assistant produced. A rule whose precondition the
