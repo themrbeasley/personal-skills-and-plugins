@@ -141,10 +141,17 @@ function statusLines(dir) {
 // or campaign name containing *, ?, or [ is never wildcard-interpreted (see
 // case 3). Plain lane names (cases 1 and 2) are unaffected by the wrapper:
 // :(literal) only changes behavior when the name contains a glob character.
-function stageAndCommitLane(dir, lanePath, message) {
-  const literalPathspec = `:(literal)${lanePath}`;
-  git(dir, ["add", "--", literalPathspec]);
-  return git(dir, ["commit", "-q", "-m", message, "--only", "--", literalPathspec], true);
+//
+// lanePaths accepts a string or an array. /catalog commits more than one
+// path (the entry, its owning index, and any VTT import files for that
+// artifact), so the same mechanism has to hold for N pathspecs, not just
+// one. Case 4 covers that.
+function stageAndCommitLane(dir, lanePaths, message) {
+  const specs = (Array.isArray(lanePaths) ? lanePaths : [lanePaths]).map(
+    (p) => `:(literal)${p}`
+  );
+  git(dir, ["add", "--", ...specs]);
+  return git(dir, ["commit", "-q", "-m", message, "--only", "--", ...specs], true);
 }
 
 console.log(
@@ -321,6 +328,74 @@ console.log(
     "the sibling file is left dirty and untouched: not staged, not committed",
     statusLines(dir),
     [` M ${SIBLING}`]
+  );
+}
+
+console.log(
+  "\n=== case 4: a multi-path commit must carry exactly its enumerated paths ==="
+);
+{
+  // /catalog stages the entry and its owning index, and now also any VTT
+  // import files for that same artifact. Those live in a shared bucket:
+  // homebrew/<setting>/foundryvtt/items/ holds one file per artifact, so
+  // the folder necessarily contains OTHER entries' files. Enumerating paths
+  // is what keeps those out; adding the prong directory does not, which is
+  // the control below.
+  const dir = freshRepo("multi-path");
+  const ENTRY = "homebrew/rolara/magic-items/Bodkin.md";
+  const INDEX = "homebrew/rolara/magic-items/Magic-items-INDEX.md";
+  const IMPORT = "homebrew/rolara/foundryvtt/items/Bodkin.json";
+  const FOREIGN = "homebrew/rolara/foundryvtt/items/Loom.json";
+
+  // Baseline: the index and another artifact's import file already tracked.
+  write(dir, INDEX, "old\n");
+  write(dir, FOREIGN, '{"type":"weapon"}\n');
+  git(dir, ["add", "-A"]);
+  git(dir, ["commit", "-qm", "baseline"]);
+
+  const before = git(dir, ["rev-parse", "HEAD"]);
+
+  write(dir, ENTRY, "new entry\n");                       // new
+  write(dir, INDEX, "modified\n");                        // modified
+  write(dir, IMPORT, '{"type":"weapon"}\n');              // new, nested deeper
+  write(dir, FOREIGN, '{"type":"weapon","touched":true}\n'); // another artifact's
+
+  // Control: the rejected candidate. :(literal) stops glob interpretation
+  // but a directory pathspec still recurses, so adding the prong sweeps the
+  // other artifact's import file in.
+  git(dir, ["add", "--", ":(literal)homebrew/rolara"]);
+  check(
+    "control: adding the prong directory stages the other artifact's import file",
+    stagedPaths(dir).includes(FOREIGN),
+    true,
+    "this is why catalog.md enumerates paths instead of adding the prong"
+  );
+  git(dir, ["reset", "-q"]);
+  check("control: the index is clean again before the real mechanism runs", stagedPaths(dir), []);
+  check("control: HEAD did not move", git(dir, ["rev-parse", "HEAD"]), before);
+
+  const result = stageAndCommitLane(
+    dir,
+    [ENTRY, INDEX, IMPORT],
+    "catalog(rolara): Bodkin v1"
+  );
+  check(
+    "a three-path commit succeeds",
+    !(result && result.failed),
+    true,
+    result && result.failed ? result.stderr : undefined
+  );
+
+  check(
+    "commits exactly the enumerated paths, including the nested import file",
+    filesInHead(dir),
+    [ENTRY, INDEX, IMPORT].sort()
+  );
+
+  check(
+    "the other artifact's import file is left dirty, not staged and not committed",
+    statusLines(dir),
+    [` M ${FOREIGN}`]
   );
 }
 
