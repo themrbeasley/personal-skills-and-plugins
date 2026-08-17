@@ -45,12 +45,11 @@ disk at the time.
 
 ## The specification
 
-Design Notes is a **list of labeled decision records**. That is the whole structure.
+Design Notes is a **list of labeled records, each answering one design question about this
+artifact**. That is the whole structure.
 
-Each record is a label naming a decision, followed by prose stating what was decided and
-why, in past tense.
-
-**Labels name decisions.** The shapes the exemplars use:
+**Every paragraph carries a label, and the label is a design question.** The shapes the
+exemplars use:
 
 - `Why <the design> exists.` — the gap it fills
 - `Rejected: <the alternative>.` — what was cut, and why
@@ -61,11 +60,27 @@ why, in past tense.
 - `What the design responded to.` — the campaign, the month and year, and the conditions
   the design answered
 
-**Each record's verb is a past-tense decision verb**: was cut, was weighed and declined,
-was assembled out of, was chosen for, was kept instead, was set aside, was left in place
-rather than designed around.
+**The body answers the label's question**, and answers it about the artifact as a designed
+object: why it is the way it is.
+
+**Where a choice was made among alternatives, the record says it was made and says what was
+cut.** The verbs carrying this are past tense: was cut, was weighed and declined, was
+assembled out of, was chosen for, was kept instead, was set aside, was left in place rather
+than designed around.
+
+**Campaign conditions are recorded in `What the design responded to.`**, bound to the
+campaign and the month and year, as conditions the design answered. A condition stated that
+way stays true after play moves past it, which is what a plan or a status stated in the
+present cannot do.
 
 **Each record is a decision the DM made.**
+
+**Validated against the exemplars.** Every paragraph in both exemplar entries parses under
+this grammar. An earlier draft required a past-tense decision verb in every record and was
+cut: it rejected three exemplar paragraphs outright, among them `Why a rapier.` and
+`Naming.`, which explain in present tense why a mechanic took the shape it did. The label
+carries the constraint. Tense follows the kind of record and is not itself the rule, so do
+not reinstate it as one.
 
 `What the design responded to.` is required when the design answered a specific campaign
 condition, and honestly omitted when it did not. Both exemplars carry it, and it is what
@@ -91,11 +106,12 @@ A prohibition ships an example of the thing it forbids, and that example is then
 at the moment the block is drafted. Naming the failure keeps it available rather than
 removing it.
 
-The grammar makes the failures unrepresentable instead. A setting fact has no label that
-names a decision and no past-tense decision verb, so it cannot be written into the form.
-Present-tense campaign state has no decision to record. A forward-looking plan is modal
-rather than past. A ruling the DM did not make is not a decision the DM made. None of
-these needs forbidding, because none of them fits.
+The grammar makes the failures unrepresentable instead. A setting fact answers no design
+question about the artifact, so there is no label it can sit under. Campaign state has
+exactly one home, bound to a campaign and a date. A forward-looking plan is absorbed by that
+same home, entering as the dated condition the design answered rather than as a status that
+expires. A ruling the DM did not make is not a decision the DM made. None of these needs
+forbidding, because none of them fits.
 
 The grammar is also generative rather than restrictive. Material that would otherwise
 arrive as a fact-assertion survives, reshaped into decision register: what was decided,
@@ -186,3 +202,7 @@ pathspec. Tracked separately.
 6. **Derive from Loom and Bodkin only.** Recorded above as a standing rule rather than a
    one-time note, because deriving from non-exemplar entries is the mistake that produced
    the superseded field list.
+7. **The label carries the constraint, not the tense.** An earlier draft of the grammar
+   required a past-tense decision verb in every record; validating it against the exemplars
+   rejected three of their paragraphs, so it was cut. Any future revision to the grammar is
+   checked the same way: it holds only if every paragraph of both exemplars parses under it.
