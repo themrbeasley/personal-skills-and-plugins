@@ -34,12 +34,12 @@ artifact.
 **Every paragraph carries a label, and the label is a design question.** The shapes in use:
 
 - `Why <the design> exists.` — the general gap it fills: true of the setting whether or not
-  any particular campaign ever ended up needing the design (the Loom exemplar's "True
-  Resurrection is effectively unreachable in Rolara" holds regardless of which campaign
-  eventually needed the Loom)
+  any particular campaign ever ended up needing the design (for example, a whole category of
+  magic the setting's own rules put out of easy reach, true regardless of which campaign
+  eventually ran into that limit)
 - `Rejected: <the alternative>.` — what was cut, and why
 - `<The mechanic>.` — what it was assembled out of, and why that shape
-- `<The question>, raised but not settled.` — deliberately left open
+- `Raised but not settled.` — deliberately left open
 - `Why <a fiction-driven choice>.` — how the fiction produced the mechanic
 - `Naming.` — naming intent
 - `What the design responded to.` — the campaign, the month and year, and the conditions
