@@ -138,6 +138,27 @@ drafting.
 _Avoid_: "homebrew KB", storing skill drafts in it, describing it as an HTML paste
 (superseded by the 2026-07-11 redesign)
 
+**VTT import file**:
+A Foundry-importable JSON the `homebrew` skill authors for a finalized design, written to
+`homebrew/<setting>/foundryvtt/<bucket>/` and committed by `/catalog` alongside the entry.
+The bucket comes from the JSON's own top-level `type`. Authored fresh against an exemplar
+rather than copied from one, which is why an export carrying importer flags is as good a
+source as a hand-authored file. Distinct from the Foundry fragment, which is `content`'s HTML
+snippet for a rich-text field.
+_Avoid_: "the Foundry export" (that is the DM's own file, read as input), calling it a
+catalog entry
+
+**VTT reference corpus**:
+The DM's Foundry exports under `homebrew/<setting>/foundryvtt/reference/`, the authority for
+schema and version because they come from the install the DM actually runs. Sub-bucketed
+mirroring its sibling buckets once it holds enough to earn it. Read for shape, never copied
+wholesale. Carries no automatic freshness guarantee: the skill states the `systemVersion` and
+`coreVersion` it read and names the file it read them from on every run, and removing a stale
+exemplar is a DM-side edit. Buckets are created on first write, so `/genesis` lays none of
+this down.
+_Avoid_: "the schema reference" (it is the DM's data, not the plugin's), treating a missing
+exemplar as licence to recall a schema from memory
+
 **catalog command**:
 The `/catalog` capture step: takes one finalized, DM-confirmed piece of homebrew,
 writes one type-specific entry, stamps its lifecycle status and version, updates the
