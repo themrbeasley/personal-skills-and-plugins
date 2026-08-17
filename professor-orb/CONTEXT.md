@@ -150,10 +150,10 @@ was: a list of labeled records, each answering one design question about that
 artifact. Specified in `commands/references/catalog-type-templates.md` under the
 shared rules, and offered by the `homebrew` skill at finalization, where the
 reasoning is freshest and from which it is largely lost by capture time. The label
-being a design question is what keeps setting material out, since a world fact
-answers no design question and has no label to sit under. Campaign conditions have
-one home, `What the design responded to.`, bound to a campaign and a date, where a
-condition stays true after play moves past it.
+being a design question anchors every record to the artifact as a designed object:
+each one answers why it is the way it is, as a decision the DM made. Campaign
+conditions have one home, `What the design responded to.`, bound to a campaign and
+the month and year, where a condition stays true after play moves past it.
 _Avoid_: lore commentary under this heading, current campaign state, calling it canon
 
 **lane model**:
