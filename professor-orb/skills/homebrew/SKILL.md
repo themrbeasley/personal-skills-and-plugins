@@ -1,6 +1,6 @@
 ---
 name: homebrew
-description: "D&D 5.5e (2024 rules) homebrew design assistant for creating, reviewing, and advising on homebrew content: spells, items, feats, subclasses, full classes, monsters, and custom mechanics. Use this skill whenever the user is designing new homebrew from scratch, workshopping or brainstorming a mechanic, polishing or balancing something already written, or advising another person on their homebrew. Also trigger when the user wants rules language cleaned up to 2024 standards, a formatted stat block or ability entry produced, a mechanic checked against VTT automation constraints, or anything benchmarked against CR or magic item rarity. If the user mentions homebrew, balancing, stat blocks, spell design, subclass features, magic items, CR, or does this work mechanically, use this skill. Standalone skill that sits outside the debrief, prep, content/chronicler, kb-validator session pipeline and runs on demand at any point; it does not write pipeline state. Once the DM finalizes a homebrew item, including any tweaks made while implementing it in Foundry VTT, this skill points the DM at the /catalog command to capture the finalized version into the knowledge base. Homebrew never catalogs on its own."
+description: "D&D 5.5e (2024 rules) homebrew design assistant for creating, reviewing, and advising on homebrew content: spells, items, feats, subclasses, full classes, monsters, and custom mechanics. Use this skill whenever the user is designing new homebrew from scratch, workshopping or brainstorming a mechanic, polishing or balancing something already written, or advising another person on their homebrew. Also trigger when the user wants rules language cleaned up to 2024 standards, a formatted stat block or ability entry produced, a mechanic checked against VTT automation constraints, a Foundry VTT import file authored for a finalized design, or anything benchmarked against CR or magic item rarity. If the user mentions homebrew, balancing, stat blocks, spell design, subclass features, magic items, CR, getting a finalized design into Foundry, or does this work mechanically, use this skill. Standalone skill that sits outside the debrief, prep, content/chronicler, kb-validator session pipeline and runs on demand at any point; it does not write pipeline state. Once the DM finalizes a homebrew item, including any tweaks made while implementing it in Foundry VTT, this skill points the DM at the /catalog command to capture the finalized version into the knowledge base. Homebrew never catalogs on its own."
 ---
 
 > **Before you begin:** read `../SHARED-PRINCIPLES.md` and apply its rules throughout this workflow.
@@ -146,6 +146,68 @@ For specific VTT platforms, note platform-specific constraints when relevant (e.
 
 ---
 
+## VTT Import-File Authoring
+
+The section above covers judging a design against automation. This one covers the task that follows a finalized design: authoring the file that imports it into the VTT.
+
+Foundry is what this is written for, because it is the platform with a corpus to read. If the project runs a different VTT, say so plainly rather than adapting these steps to it.
+
+### The corpus
+
+Import files live in the homebrew prong, beside the catalog entries:
+
+```
+<homebrewRoot>/foundryvtt/
+  actors/  facilities/  features/  items/  spells/
+  reference/
+    actors/  items/  spells/ ...
+```
+
+`reference/` holds the DM's own Foundry exports. They are the authority for schema and version, because they come from the install the DM actually runs. Nothing about the Foundry schema is written into this skill or recalled from training data.
+
+A file's bucket comes from its own top-level `"type"`, read by parsing the JSON rather than by position in the file:
+
+| `"type"` | bucket |
+|---|---|
+| `spell` | `spells` |
+| `facility` | `facilities` |
+| `feat` | `features` |
+| `weapon`, `equipment`, `consumable`, `tool`, `loot`, `container` | `items` |
+| `npc`, `character`, `vehicle`, `group` | `actors` |
+
+For a `type` outside that table, ask the DM which bucket it belongs in. The bucket list is the DM's convention and stays open-ended.
+
+Create a bucket when you first write into it. Do not lay the tree down in advance.
+
+### When there is no exemplar
+
+Capability follows the corpus: author what there is an exemplar for. An actor exemplar filed into `reference/actors/` extends this skill to actors with no change to the skill itself.
+
+With no exemplar for the type at hand, say so, and ask the DM to export the closest published analogue from Foundry. Offer the mechanics as Windows specifics, named as such: Foundry's exports land in `Downloads/` by default, and Explorer's Ctrl+Shift+C copies a selected file's path. On another platform the DM pastes a path from wherever their exports land. Take the path, file the file into `reference/<bucket>/` yourself, and continue.
+
+Say once that keeping the corpus current is the DM's: a major dnd5e, Foundry, or module update can leave an exemplar describing a schema they no longer run, and removing a stale one is a DM-side edit.
+
+### Authoring
+
+1. Resolve the type and its bucket.
+2. Find an exemplar of that type, in `reference/<bucket>/` first, then `<bucket>/`. Exports already sitting in a type bucket are real exports and are valid sources. With neither, run the acquisition step above.
+3. Read from it: `_stats.systemVersion`, `_stats.coreVersion`, the envelope, the `system` field set for that type, the `activities` map shape, and `damage.parts`.
+4. State those two versions and the exemplar's path to the DM before producing output. This is how a stale corpus becomes visible at the moment it matters.
+5. Author fresh. The file's `flags` object holds only what you deliberately put there. Because the output is authored rather than copied, an export carrying importer flags is exactly as good a source as a hand-authored one.
+6. Generate the identity fields: `_id`, and the keys of the `activities` map. Inherited ones collide on import. The envelope carries the version fields from step 3, so the file declares what it was built against; per-install and per-user identifiers from the exemplar are left out.
+7. Read world-scoped references, never construct them. Where a reference export from the same world carries a compendium UUID (`Compendium.world.<pack>.Item.<id>`), use it. Where none does, leave that activity out and name it in step 8. Same-world is load-bearing: the pack name embeds the world, so a UUID read from one world is wrong in another. Where the corpus shows more than one world, ask the DM which world this file is for.
+
+   Module-scoped asset paths break the same way and just as silently, so the same rule governs them: use one only where a same-world reference carries it, otherwise a core Foundry icon.
+8. Give the DM the handoff list: the activities left out under step 7, and anything else for them to wire after import.
+
+A guessed UUID produces an activity that fails silently when clicked. That is worse than an absent one, because an absent activity is visibly missing while a broken one looks correct until it is needed at the table.
+
+### Committing
+
+These files land in the homebrew prong, so `/catalog` commits them alongside the entry. Point the DM there. Do not commit from this skill.
+
+---
+
 ## Setting
 
 Default to setting-agnostic, generic D&D 5.5e tone. Do not invent flavor text, faction names, deity references, or world-specific detail unless the user provides it. When the user provides setting context, use it.
@@ -167,7 +229,7 @@ Default to setting-agnostic, generic D&D 5.5e tone. Do not invent flavor text, f
 
 A homebrew design is ready to catalog once you and the DM have finalized it in this skill, iterated on and confirmed. It does not need to be implemented in Foundry VTT, on paper, or anywhere else first; the finalized design produced here is the primary thing `/catalog` captures.
 
-Once the DM confirms a design is finalized, mention the `/catalog` command as the way to capture it into the knowledge base. Say this once, at the natural end of the design flow, not on every message. All catalogued homebrew is playtest material, so the DM can re-run `/catalog` later to version a revision, including tweaks that come out of actually implementing it at the table. This skill does not run cataloging itself and does not write the catalog entry; `/catalog` is a separate command the DM runs when ready.
+Once the DM confirms a design is finalized, mention the `/catalog` command as the way to capture it into the knowledge base. Say this once, at the natural end of the design flow, not on every message. All catalogued homebrew is playtest material, so the DM can re-run `/catalog` later to version a revision, including tweaks that come out of actually implementing it at the table. This skill does not run cataloging itself and does not write the catalog entry; `/catalog` is a separate command the DM runs when ready. Where the project names a VTT, mention in the same breath that you can author the import file for this design, per VTT Import-File Authoring above.
 
 **Offer the Design Notes block while the reasoning is fresh.** If the design conversation
 produced decisions worth recording — an alternative rejected, a benchmark named, a departure
@@ -196,12 +258,13 @@ everything else this skill produces reaches capture.
 - **Never flag correct 2024 phrasing as wrong.** Only note genuine violations.
 - **Never guess at a published or catalogued analogue you are not confident about.** State uncertainty plainly instead.
 - **Never catalog homebrew yourself.** Point to `/catalog`; do not write catalog entries or KB files from this skill.
+- **Never construct a compendium UUID or a module asset path.** Read one from a same-world reference export, or leave the activity out and hand it off.
 - **Never write `.professor-orb/pipeline-state.json`.** This skill is outside the session pipeline.
 - **Never use a plain-text question in place of AskUserQuestion for a structured decision** (tier choice, picking between design directions, accepting a balance call). Open-ended creative discussion stays free-form.
 
 ## How this skill connects to the others
 
 - **Standalone**, like `timeline`: usable at any point, independent of the session pipeline's state.
-- **Reads (optionally):** `.professor-orb/conventions.json` or `CLAUDE.md` for VTT platform notes and the homebrew catalog's location; the project's SRD copy if present; existing catalogued homebrew as design precedent.
+- **Reads (optionally):** `.professor-orb/conventions.json` or `CLAUDE.md` for VTT platform notes and the homebrew catalog's location; the project's SRD copy if present; existing catalogued homebrew as design precedent; the project's Foundry exports under `<homebrewRoot>/foundryvtt/` as the authority for VTT schema and versions.
 - **Hands off to `/catalog`:** Once the DM finalizes a design, this skill points them at `/catalog` to capture the finalized version, and again later to version revisions, such as post-implementation tweaks. It never runs that capture itself.
 - **Orthogonal to the session pipeline:** Homebrew design can happen before, during, or after any pipeline skill runs, and does not depend on or feed `debrief`, `prep`, `content`, `chronicler`, or `kb-validator` directly.
