@@ -20,12 +20,17 @@
 
 ## Merge coordination
 
-`professor-orb/commands/catalog.md:103-108` documents a `git commit` invocation with **no `-m` flag**, which places the message after the `--` separator where git reads it as a pathspec. That bug is tracked separately on branch `claude/professor-orb-commit-m-flag-e73120`.
+`claude/professor-orb-commit-m-flag-e73120` (the branch fixing `-m` flag placement in the
+`/scribe`, `/log`, and `/catalog` commit patterns) has landed on `main` as `30705d0` and is
+already merged into this plan's working branch as of `57e226e`. `catalog.md`'s commit block
+now reads:
 
-**Task 2 edits those exact lines.** Before editing, run `git log --oneline main -5` and check whether that fix has landed.
+```
+git commit --only -m "<message>" -- ":(literal)<entry file path>" ":(literal)<index file path>"
+```
 
-- **If it has not landed:** preserve the existing invocation form exactly as written and change only the pathspec list. Do not fix the `-m` bug here; it is another branch's change.
-- **If it has landed:** the corrected form moves the message before the separator, as `git commit --only -m "<message>" -- ":(literal)<path>" ...`. Apply the new pathspec list to that form rather than reintroducing the broken one from this plan's Step 2 block.
+**Task 2 edits that exact form.** No branching check is needed; the coordination this section
+used to require is already resolved.
 
 ---
 
@@ -177,30 +182,48 @@ Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>"
 ### Task 2: Extend /catalog's commit pathspec
 
 **Files:**
-- Modify: `professor-orb/commands/catalog.md:103-108`
+- Modify: `professor-orb/commands/catalog.md:103-112`
 
 **Interfaces:**
 - Consumes: the mechanism proven in Task 1.
 - Produces: the documented pathspec form the `homebrew` skill points at in Task 3's "Committing" subsection.
 
-- [ ] **Step 1: Re-read the merge-coordination note above**
+- [ ] **Step 1: Confirm the current text matches this task's anchors**
 
-Run: `git log --oneline main -5`
-Check whether the `-m` flag fix has landed. Adapt Step 2's replacement text accordingly; change only the pathspec list if it has not.
+Run: `sed -n '103,112p' professor-orb/commands/catalog.md`
 
-- [ ] **Step 2: Replace the Git or GitHub mode block**
+Expected, verbatim (this reflects the `-m` flag fix already merged per the coordination note above):
 
-Replace `professor-orb/commands/catalog.md:103-108` with the following. Zero em dashes.
+```markdown
+**Git or GitHub mode.** Once the entry (Step 5) and the owning index (Step 8) have both been written, stage and commit exactly those two files, by path, never a directory-wide add and never `-A` or `-a`, using the identical mechanism `/scribe` and `/log` use for their own lanes:
+
+```
+git add -- ":(literal)<entry file path>" ":(literal)<index file path>"
+git commit --only -m "<message>" -- ":(literal)<entry file path>" ":(literal)<index file path>"
+```
+
+Never run a bare `git commit` after staging: with no pathspec it commits the entire index, sweeping in anything the DM staged elsewhere. Never run `git commit --only` without the identical prior `git add`: measured against real git, `--only` with nothing staged first silently omits a brand-new file whenever anything else in the index is already modified, exactly the shape of a first capture landing beside an unrelated in-progress edit. Keep the `:(literal)` prefix on both pathspec elements even though an entry filename rarely contains a glob character: the guarantee should not depend on inspecting the name first. Keep `-m "<message>"` before the `--` separator, not after: git parses everything after `--` as a pathspec, so a message placed there is not attached to the commit at all.
+
+**Commit message** (the `<message>` above), naming the setting, the entry, and its version: `catalog(<setting>): <entry> v<version>`, for example `catalog(rolara): Frostbrand Dagger v2`. This applies to every capture against a git- or github-mode catalog, first capture or later revision alike. In this mode the entry carries no changelog block; the commit history is the record.
+```
+
+If the text differs from this, stop and report the actual content rather than guessing at a replacement; something changed since this plan was written.
+
+- [ ] **Step 2: Replace lines 103-112 (the whole block quoted above)**
 
 ```markdown
 **Git or GitHub mode.** Once the entry (Step 5) and the owning index (Step 8) have both been written, stage and commit exactly the files this capture produced, by path, never a directory-wide add and never `-A` or `-a`, using the identical mechanism `/scribe` and `/log` use for their own lanes:
 
 ```
 git add -- ":(literal)<entry file path>" ":(literal)<index file path>" ":(literal)<each VTT import file>"
-git commit --only -- ":(literal)<entry file path>" ":(literal)<index file path>" ":(literal)<each VTT import file>"
+git commit --only -m "<message>" -- ":(literal)<entry file path>" ":(literal)<index file path>" ":(literal)<each VTT import file>"
 ```
 
 **VTT import files.** Where this artifact has import files under `<homebrewRoot>/foundryvtt/<bucket>/`, written by the `homebrew` skill, name each one in both pathspecs. Reference exports the skill filed into `<homebrewRoot>/foundryvtt/reference/` during the same session are named the same way. Enumerate them individually: those buckets hold files belonging to other artifacts, and a directory-wide add would carry those into this entry's commit.
+
+Never run a bare `git commit` after staging: with no pathspec it commits the entire index, sweeping in anything the DM staged elsewhere. Never run `git commit --only` without the identical prior `git add`: measured against real git, `--only` with nothing staged first silently omits a brand-new file whenever anything else in the index is already modified, exactly the shape of a first capture landing beside an unrelated in-progress edit. Keep the `:(literal)` prefix on every pathspec element even though a filename rarely contains a glob character: the guarantee should not depend on inspecting the name first. Keep `-m "<message>"` before the `--` separator, not after: git parses everything after `--` as a pathspec, so a message placed there is not attached to the commit at all.
+
+**Commit message** (the `<message>` above), naming the setting, the entry, and its version: `catalog(<setting>): <entry> v<version>`, for example `catalog(rolara): Frostbrand Dagger v2`. This applies to every capture against a git- or github-mode catalog, first capture or later revision alike. In this mode the entry carries no changelog block; the commit history is the record.
 ```
 
 - [ ] **Step 3: Verify no em dashes were introduced**
