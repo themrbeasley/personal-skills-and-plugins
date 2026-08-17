@@ -123,17 +123,20 @@ forge-prompt skill and the prompt corpus above. The term survives here only so t
 older session transcripts and commits remain legible.
 
 **homebrew catalog**:
-A growing corpus of locked homebrew mechanical text at `homebrew/<setting>/`, a
-sibling prong of the KB root rather than a subfolder inside it
-(`type` holds the artifact key: `spell`, `magic-item`, `monster` and the rest; `publish: false` default), filed verbatim *after* the DM's
-final Foundry tweaks (never the skill's pre-tweak draft). Entries are markdown
-files: YAML frontmatter (name, artifact type, rarity/level, date) wrapping the
-Foundry-ready HTML in a fenced code block. Entries sit outside the wikilink graph
-(no wikilinks in or out; mechanics layer, like DnDBeyond footnotes). Organized with
-sub-indexes per professor-orb's own folder-index parity rules as it grows. Serves
-double duty: the DM's record of what is real at the table, and few-shot exemplars
-the homebrew skill matches against when drafting.
-_Avoid_: "homebrew KB", storing skill drafts in it, raw .html entry files
+A growing corpus of locked, type-specific homebrew entries at `homebrew/<setting>/`,
+a sibling prong of the KB root rather than a subfolder inside it (`type` holds the
+artifact key: `spell`, `magic-item`, `monster` and the rest; `publish: false`
+default). Entries are markdown files: YAML frontmatter (the required floor plus the
+type's own fields) over a body made of the type's named blocks, holding the DM's
+confirmed design verbatim, typically the `homebrew` skill's iterated output. Reading
+an exported Foundry actor or item JSON is a planned Phase 2 enrichment, not yet
+available. Entries sit outside the wikilink graph (no wikilinks in or out; mechanics
+layer, like DnDBeyond footnotes). Organized with sub-indexes per professor-orb's own
+folder-index parity rules as it grows. Serves double duty: the DM's record of what
+is real at the table, and few-shot exemplars the homebrew skill matches against when
+drafting.
+_Avoid_: "homebrew KB", storing skill drafts in it, describing it as an HTML paste
+(superseded by the 2026-07-11 redesign)
 
 **catalog command**:
 The `/catalog` capture step: takes one finalized, DM-confirmed piece of homebrew,
