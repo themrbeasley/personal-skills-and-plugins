@@ -104,12 +104,12 @@ Versioning follows the mode established in Step 3 (`git`, `github`, or `changelo
 
 ```
 git add -- ":(literal)<entry file path>" ":(literal)<index file path>"
-git commit --only -- ":(literal)<entry file path>" ":(literal)<index file path>"
+git commit --only -m "<message>" -- ":(literal)<entry file path>" ":(literal)<index file path>"
 ```
 
-Never run a bare `git commit` after staging: with no pathspec it commits the entire index, sweeping in anything the DM staged elsewhere. Never run `git commit --only` without the identical prior `git add`: measured against real git, `--only` with nothing staged first silently omits a brand-new file whenever anything else in the index is already modified, exactly the shape of a first capture landing beside an unrelated in-progress edit. Keep the `:(literal)` prefix on both pathspec elements even though an entry filename rarely contains a glob character: the guarantee should not depend on inspecting the name first.
+Never run a bare `git commit` after staging: with no pathspec it commits the entire index, sweeping in anything the DM staged elsewhere. Never run `git commit --only` without the identical prior `git add`: measured against real git, `--only` with nothing staged first silently omits a brand-new file whenever anything else in the index is already modified, exactly the shape of a first capture landing beside an unrelated in-progress edit. Keep the `:(literal)` prefix on both pathspec elements even though an entry filename rarely contains a glob character: the guarantee should not depend on inspecting the name first. Keep `-m "<message>"` before the `--` separator, not after: git parses everything after `--` as a pathspec, so a message placed there is not attached to the commit at all.
 
-**Commit message**, naming the setting, the entry, and its version: `catalog(<setting>): <entry> v<version>`, for example `catalog(rolara): Frostbrand Dagger v2`. This applies to every capture against a git- or github-mode catalog, first capture or later revision alike. In this mode the entry carries no changelog block; the commit history is the record.
+**Commit message** (the `<message>` above), naming the setting, the entry, and its version: `catalog(<setting>): <entry> v<version>`, for example `catalog(rolara): Frostbrand Dagger v2`. This applies to every capture against a git- or github-mode catalog, first capture or later revision alike. In this mode the entry carries no changelog block; the commit history is the record.
 
 **Changelog mode.** Track versioning in the entry itself: the `version` frontmatter field (starting at 1, incremented by 1 on each revision), plus a short dated changelog line appended to the entry recording what this capture changed. Where useful, note the honest limitation in that changelog area: without git, there is no full recovery of a prior version's exact content, only the running description of what changed.
 

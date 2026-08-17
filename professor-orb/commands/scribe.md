@@ -1,5 +1,5 @@
 ---
-description: "Commits the setting KB lane (settings/<setting>/, or a v1/v2 project's kbRoot once setup has recorded it) for a git- or github-versioned project. Fed by the chronicler skill's lore updates and the timeline skill's chronology documents, and also captures the DM's own direct Obsidian edits to the KB. Resolves the versioning mode from .professor-orb/versioning.json (performing the one-time conversion from catalog-versioning.json if needed), refuses if no settings array has been recorded, checks the git index for anything staged outside the lane and stops rather than working around it, runs a narrow per-item surprise guard, then stages exactly the lane's changed paths and commits with the identical pathspec: git add -- <lane> followed by git commit --only -- <lane>, never a bare git commit and never commit --only without the prior add. Authors no KB content itself, though it does perform the versioning.json conversion when one is pending. Use whenever the DM wants to commit KB changes chronicler or timeline just wrote, or their own manual KB edits. Standalone, like homebrew, timeline, and catalog: not part of the debrief, prep, content, chronicler, kb-validator pipeline, and never writes pipeline-state.json."
+description: "Commits the setting KB lane (settings/<setting>/, or a v1/v2 project's kbRoot once setup has recorded it) for a git- or github-versioned project. Fed by the chronicler skill's lore updates and the timeline skill's chronology documents, and also captures the DM's own direct Obsidian edits to the KB. Resolves the versioning mode from .professor-orb/versioning.json (performing the one-time conversion from catalog-versioning.json if needed), refuses if no settings array has been recorded, checks the git index for anything staged outside the lane and stops rather than working around it, runs a narrow per-item surprise guard, then stages exactly the lane's changed paths and commits with the identical pathspec: git add -- <lane> followed by git commit --only -m \"<message>\" -- <lane>, never a bare git commit, never commit --only without the prior add, and never -m after the -- separator. Authors no KB content itself, though it does perform the versioning.json conversion when one is pending. Use whenever the DM wants to commit KB changes chronicler or timeline just wrote, or their own manual KB edits. Standalone, like homebrew, timeline, and catalog: not part of the debrief, prep, content, chronicler, kb-validator pipeline, and never writes pipeline-state.json."
 argument-hint: "[optional: setting name if the project has more than one, or \"push\" to push after committing]"
 ---
 
@@ -73,19 +73,20 @@ Once resolved, continue with the rest of the lane; do not re-run the whole guard
 - `git commit --only -- <lane>` with no prior `git add` **silently omits new files**. Measured against real git: in a lane holding one new and one modified article, it committed only the modified one, with no error and exit 0. New articles are the primary artifact of every `chronicler` and `timeline` run, so this fails at precisely the common case, and it fails quietly.
 - `git add -- <lane>` followed by a **bare `git commit`** (no pathspec) commits the **entire index**, including anything the DM staged from another lane. The lane guarantee this command exists to provide would be silently false the moment the DM has staged something themselves.
 - **A bare pathspec is not a literal path.** `--` stops option parsing, but git still reads `*`, `?`, and `[` inside the pathspec that follows as wildcards, not as literal text. Measured against real git: with a lane directory named `settings/zi[st]` sitting next to an unrelated file `settings/zis`, running `git add -- settings/zi[st]` staged `settings/zis` too, and that unrelated file rode along into the commit. A setting name is DM-chosen and can plausibly contain any of those characters. `:(literal)` disables wildcard interpretation for that pathspec element; `--` and `:(literal)` fix different halves of the same line, and neither substitutes for the other.
+- **`-m "<message>"` after the `--` separator is not a commit message.** `--` tells git that everything following it is a pathspec, so a message placed after it is read as an (almost always non-matching) path, not attached to the commit. `-m "<message>"` has to sit before `--`, immediately after `--only`.
 
 The verified mechanism is both steps, in order, with the identical, literal pathspec:
 
 ```
 git add -- ":(literal)<kbRoot>"
-git commit --only -- ":(literal)<kbRoot>"
+git commit --only -m "<message>" -- ":(literal)<kbRoot>"
 ```
 
-Run this once per setting resolved in Step 2. Never substitute `-A`, `.`, or `-a` for the explicit lane pathspec, and never drop the `:(literal)` prefix, even for a setting name that looks safe: the guarantee should not depend on inspecting the name first.
+Run this once per setting resolved in Step 2. Never substitute `-A`, `.`, or `-a` for the explicit lane pathspec, never drop the `:(literal)` prefix even for a setting name that looks safe, and never move `-m "<message>"` after the `--` separator: the guarantee should not depend on inspecting the name first.
 
 If Step 6 set aside an item for temporary exclusion, list the lane's cleared paths explicitly in the pathspec instead of the whole `kbRoot`, each with its own `:(literal)` prefix, so the excluded item is never staged or committed alongside the rest.
 
-**Commit message**, written from what actually changed: `kb(<setting>): <summary>`, for example `kb(rolara): add Thoric article, update Person-INDEX`.
+**Commit message** (the `<message>` above), written from what actually changed: `kb(<setting>): <summary>`, for example `kb(rolara): add Thoric article, update Person-INDEX`.
 
 ## Step 8: Report back
 
@@ -105,6 +106,7 @@ If more than one setting was committed, name each one and its commit hash; do no
 
 - **Never stage or commit a path outside the resolved `kbRoot`.** Not the DM's own foreign-staged path, not another lane, not the project root.
 - **Never run a bare `git commit` after staging the lane**, and **never run `git commit --only` without first running `git add` on the identical pathspec.** Both are measured failure modes, not style preferences.
+- **Never place `-m "<message>"` after the `--` separator.** Git reads it as a pathspec, not a commit message; the message has to come before `--`, right after `--only`.
 - **Never drop the `:(literal)` prefix from a lane pathspec, and never drop the `--` separator either.** They fix different problems (wildcard interpretation vs. option parsing); a setting name with a glob character can otherwise pull in an unrelated file lying next to the lane.
 - **Never resolve a lane from a bare `kbRoot` on a v1 or v2 conventions file.** Refuse and point at setup instead.
 - **Never invent a changelog entry for the KB.** In `changelog` mode there is nothing for this command to do; say so.
