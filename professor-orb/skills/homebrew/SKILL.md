@@ -163,7 +163,7 @@ Import files live in the homebrew prong, beside the catalog entries:
     actors/  items/  spells/ ...
 ```
 
-`reference/` holds the DM's own Foundry exports. They are the authority for schema and version, because they come from the install the DM actually runs. Nothing about the Foundry schema is written into this skill or recalled from training data.
+`reference/` holds the DM's own Foundry exports. They are the authority for schema and version, because they come from the install the DM actually runs. No Foundry schema is reproduced here: the fields the Authoring steps below name are where to look in the exemplar, not an assertion of its shape, and the exemplar's actual shape wins wherever it differs.
 
 A file's bucket comes from its own top-level `"type"`, read by parsing the JSON rather than by position in the file:
 
@@ -185,11 +185,11 @@ Capability follows the corpus: author what there is an exemplar for. An actor ex
 
 With no exemplar for the type at hand, say so, and ask the DM to export the closest published analogue from Foundry. Offer the mechanics as Windows specifics, named as such: Foundry's exports land in `Downloads/` by default, and Explorer's Ctrl+Shift+C copies a selected file's path. On another platform the DM pastes a path from wherever their exports land. Take the path, file the file into `reference/<bucket>/` yourself, and continue.
 
-Say once that keeping the corpus current is the DM's: a major dnd5e, Foundry, or module update can leave an exemplar describing a schema they no longer run, and removing a stale one is a DM-side edit.
+Say once that keeping the corpus current is the DM's job: a major dnd5e, Foundry, or module update can leave an exemplar describing a schema they no longer run, and removing a stale one is a DM-side edit.
 
 ### Authoring
 
-1. Resolve the type and its bucket.
+1. Resolve the type and its bucket, and name the file after the artifact: the same base name the catalog entry for it uses or will use, sanitized per the project's filename conventions, with a `.json` extension. This is what lets `/catalog` find it later without asking.
 2. Find an exemplar of that type, in `reference/<bucket>/` first, then `<bucket>/`. Exports already sitting in a type bucket are real exports and are valid sources. With neither, run the acquisition step above.
 3. Read from it: `_stats.systemVersion`, `_stats.coreVersion`, the envelope, the `system` field set for that type, the `activities` map shape, and `damage.parts`.
 4. State those two versions and the exemplar's path to the DM before producing output. This is how a stale corpus becomes visible at the moment it matters.
@@ -204,7 +204,7 @@ A guessed UUID produces an activity that fails silently when clicked. That is wo
 
 ### Committing
 
-These files land in the homebrew prong, so `/catalog` commits them alongside the entry. Point the DM there. Do not commit from this skill.
+These files land in the homebrew prong, so `/catalog` commits them alongside the entry. Point the DM there, and name the exact bucket and filename you just wrote (and any reference export you filed this session), so a same-session `/catalog` run has the paths without re-deriving them. Do not commit from this skill.
 
 ---
 

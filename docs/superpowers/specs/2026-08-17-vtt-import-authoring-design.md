@@ -210,8 +210,15 @@ Recorded so the implementation does not re-investigate them:
   to a YAML frontmatter read.
 - **The validation sweep does not see them**, per the `*.md` enumeration cited above.
 - **Folder-index parity demands no index in these folders**, for the same reason.
+- **The excluded-tag hook's Grep gate is real friction, not a block on these files.**
+  `hooks/block-excluded.mjs:256-269` blocks a content- or `-o`-mode Grep across any project
+  that configures excluded tags, regardless of file extension, which includes a same-world
+  UUID search under `reference/`. It degrades gracefully: the block's own message names the
+  workaround, `files_with_matches` then a per-file Read, and each JSON Read passes cleanly
+  (the hook's Read/Write path exits at line 279 for anything that isn't `.md`). No exemption
+  needed; worth knowing so the friction isn't mistaken for a real block.
 
-No exemption needs writing for any of the three.
+No exemption needs writing for any of the four.
 
 ## Out of scope
 
