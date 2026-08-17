@@ -33,10 +33,10 @@ artifact.
 
 **Every paragraph carries a label, and the label is a design question.** The shapes in use:
 
-- `Why <the design> exists.` — the general gap it fills, in the mechanical or thematic space
-  at large (for example, "True Resurrection is effectively unreachable in Rolara"). Never a
-  specific, dated campaign condition or a particular PC's situation — those belong only
-  under `What the design responded to.`
+- `Why <the design> exists.` — the general gap it fills: true of the setting whether or not
+  any particular campaign ever ended up needing the design (the Loom exemplar's "True
+  Resurrection is effectively unreachable in Rolara" holds regardless of which campaign
+  eventually needed the Loom)
 - `Rejected: <the alternative>.` — what was cut, and why
 - `<The mechanic>.` — what it was assembled out of, and why that shape
 - `<The question>, raised but not settled.` — deliberately left open
@@ -53,12 +53,10 @@ cut.** The verbs carrying this are past tense: was cut, was weighed and declined
 assembled out of, was chosen for, was kept instead, was set aside, was left in place rather
 than designed around.
 
-**Campaign conditions belong in `What the design responded to.` and nowhere else.** A
-campaign condition is any fact specific to one campaign or table: a PC's situation, an
-ongoing plot thread, a particular table's history. It is bound to the campaign and the month
-and year, as a condition the design answered, and it is never restated or summarized under
-another label — including `Why <the design> exists.`, whose gap is general, not
-campaign-specific. Stated that way, a condition stays true after play moves past it.
+**Campaign conditions have exactly one home, `What the design responded to.`,** bound to
+the campaign and the month and year, as conditions the design answered — a PC's situation,
+an ongoing plot thread, a particular table's history. Stated that way, a condition stays
+true after play moves past it.
 
 **Each record is a decision the DM made.**
 
