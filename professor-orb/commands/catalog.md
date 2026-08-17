@@ -100,14 +100,16 @@ Versioning follows the mode established in Step 3 (`git`, `github`, or `changelo
 
 **Revision or new.** If Step 5 determined this is a revision, it becomes the next version of the existing entry. If not, this is version 1.
 
-**Git or GitHub mode.** Once the entry (Step 5) and the owning index (Step 8) have both been written, stage and commit exactly those two files, by path, never a directory-wide add and never `-A` or `-a`, using the identical mechanism `/scribe` and `/log` use for their own lanes:
+**Git or GitHub mode.** Once the entry (Step 5) and the owning index (Step 8) have both been written, stage and commit exactly the files this capture produced, by path, never a directory-wide add and never `-A` or `-a`, using the identical mechanism `/scribe` and `/log` use for their own lanes:
 
 ```
-git add -- ":(literal)<entry file path>" ":(literal)<index file path>"
-git commit --only -m "<message>" -- ":(literal)<entry file path>" ":(literal)<index file path>"
+git add -- ":(literal)<entry file path>" ":(literal)<index file path>" ":(literal)<each VTT import file>"
+git commit --only -m "<message>" -- ":(literal)<entry file path>" ":(literal)<index file path>" ":(literal)<each VTT import file>"
 ```
 
-Never run a bare `git commit` after staging: with no pathspec it commits the entire index, sweeping in anything the DM staged elsewhere. Never run `git commit --only` without the identical prior `git add`: measured against real git, `--only` with nothing staged first silently omits a brand-new file whenever anything else in the index is already modified, exactly the shape of a first capture landing beside an unrelated in-progress edit. Keep the `:(literal)` prefix on both pathspec elements even though an entry filename rarely contains a glob character: the guarantee should not depend on inspecting the name first. Keep `-m "<message>"` before the `--` separator, not after: git parses everything after `--` as a pathspec, so a message placed there is not attached to the commit at all.
+**VTT import files.** Where this artifact has import files under `<homebrewRoot>/foundryvtt/<bucket>/`, written by the `homebrew` skill, name each one in both pathspecs. Reference exports the skill filed into `<homebrewRoot>/foundryvtt/reference/` during the same session are named the same way. Enumerate them individually: those buckets hold files belonging to other artifacts, and a directory-wide add would carry those into this entry's commit.
+
+Never run a bare `git commit` after staging: with no pathspec it commits the entire index, sweeping in anything the DM staged elsewhere. Never run `git commit --only` without the identical prior `git add`: measured against real git, `--only` with nothing staged first silently omits a brand-new file whenever anything else in the index is already modified, exactly the shape of a first capture landing beside an unrelated in-progress edit. Keep the `:(literal)` prefix on every pathspec element even though a filename rarely contains a glob character: the guarantee should not depend on inspecting the name first. Keep `-m "<message>"` before the `--` separator, not after: git parses everything after `--` as a pathspec, so a message placed there is not attached to the commit at all.
 
 **Commit message** (the `<message>` above), naming the setting, the entry, and its version: `catalog(<setting>): <entry> v<version>`, for example `catalog(rolara): Frostbrand Dagger v2`. This applies to every capture against a git- or github-mode catalog, first capture or later revision alike. In this mode the entry carries no changelog block; the commit history is the record.
 
