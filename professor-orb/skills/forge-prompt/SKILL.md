@@ -144,6 +144,6 @@ The body holds the final prompt, and for Edit mode a one-line note of what the s
 
 - **Standalone:** not in the session pipeline, never writes pipeline state.
 - **Inputs:** the DM's intent, the subject's KB article when one exists, prior prompts for that same subject in the campaign's `prompts/` directory, and `CLAUDE.md` for the recorded house style.
-- **Outputs:** one markdown prompt file per saved prompt, in the campaign's `prompts/` directory, and, on approval and only when the project records none, a house style block in `CLAUDE.md`.
+- **Outputs:** one markdown prompt file per saved prompt, in the campaign's `prompts/` directory, and, on approval, a house style block in `CLAUDE.md` when a stated preference is not already recorded there.
 - **Adjacent to `content`:** when `content` builds a Foundry fragment or printable page with a spot for art, it leaves a marked placeholder and names this skill. It does not hand anything over, and this skill reads nothing it produced. The two are independent.
 - **Handoff to `/log`:** `/log` commits the campaign lane, which includes `prompts/`. It does not reach `CLAUDE.md` at the project root, so that edit stays the DM's to commit.
