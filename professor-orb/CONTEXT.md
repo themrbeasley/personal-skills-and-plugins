@@ -92,9 +92,10 @@ runs an iterative loop borrowed from the DM's own ultimate-prompt-creator skill:
 blocks per round and only three, Revised Prompt, Suggestions, Questions. A Suggestion
 proposes one add, edit, or delete against the prompt's text, and the DM's answer
 decides it, with a decline dropping it, silence adopting it, and a counter replacing it
-in the DM's own words. The Revised Prompt carries confirmed material only, from
-the KB article, prior prompts for that same subject, the resolved style, and
-the DM; invention is offered as a Suggestion instead, so a thin
+in the DM's own words. A Question resolves an ambiguity in what the DM already said,
+never an absence, and an absence is a Suggestion. The Revised Prompt carries confirmed
+material only, from the KB article, prior prompts for that same subject, the resolved
+style, and the DM; invention is offered as a Suggestion instead, so a thin
 first prompt is correct output and a fully specified stranger is not. Saves to
 `<sessionReportsRoot>/<campaign>/prompts/`, carrying no `type` frontmatter field,
 because the write-time hook skips a typeless file and blocks a type it does not
