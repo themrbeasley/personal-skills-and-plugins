@@ -85,17 +85,21 @@ hosting.
 Image-generation prompt craft, split out of `content` in 1.12.0 because the material
 is model-specific, goes stale with the model, and is prep work rather than table
 work. Three entry modes: forge a prompt from nothing, write an edit prompt against
-an image the DM has already approved, or diagnose one that underperformed. Runs an
-iterative loop borrowed from the DM's own ultimate-prompt-creator skill, whose
-load-bearing rule is that suggestions are approved by default and questions are
-asked only when they block. The Revised Prompt carries confirmed material only, from
-the KB article, prior prompts for that same subject, the recorded house style, and
-the DM; invented detail goes to the suggestions instead, named as invented, so a thin
+an image the DM has already approved, or diagnose one that underperformed. Resolves a
+style before drafting anything, from the style the DM names, the house style
+`CLAUDE.md` points at, a recorded opt-out, or one built with the DM on the spot. Then
+runs an iterative loop borrowed from the DM's own ultimate-prompt-creator skill: three
+blocks per round and only three, Revised Prompt, Suggestions, Questions. A Suggestion
+proposes one add, edit, or delete against the prompt's text, and the DM's answer
+decides it, with a decline dropping it, silence adopting it, and a counter replacing it
+in the DM's own words. The Revised Prompt carries confirmed material only, from
+the KB article, prior prompts for that same subject, the resolved style, and
+the DM; invention is offered as a Suggestion instead, so a thin
 first prompt is correct output and a fully specified stranger is not. Saves to
 `<sessionReportsRoot>/<campaign>/prompts/`, carrying no `type` frontmatter field,
 because the write-time hook skips a typeless file and blocks a type it does not
-recognize. May also offer to record a house style in the project's `CLAUDE.md`, the
-only file outside `prompts/` it writes and the one `/log` does not commit. The DM runs
+recognize. May also record which style is the house style in the project's `CLAUDE.md`,
+the only file outside `prompts/` it writes and the one `/log` does not commit. The DM runs
 generation manually; deeper ComfyUI integration remains a flagged future investigation.
 _Avoid_: "the prompt skill" (ambiguous), calling its output canon, calling an invented
 detail confirmed
@@ -105,14 +109,28 @@ The accumulated prompt files in a campaign's `prompts/` directory: the DM's reco
 what was generated, and the source `forge-prompt` reads before drafting so a recurring
 NPC keeps the same locked visual descriptors across sessions. Read for the drafted
 subject alone, never as a style or structure reference for anything else, because a
-corpus mined broadly leaks one subject's choices into another subject's prompt. House
-style lives in `CLAUDE.md`, not here. Deliberately not a registry in
+corpus mined broadly leaks one subject's choices into another subject's prompt. Styles
+live in the style catalog below, not here. Deliberately not a registry in
 `.professor-orb/`: Principle 8 licenses exactly one auxiliary document and this is
 not it, and a locked descriptor is authored rather than derived so it could not live
 in the gitignored tier. KB canon outranks the corpus; the corpus holds only the
 rendering delta the generator needed, and a rendering choice never travels back into
 a KB article.
 _Avoid_: "visual registry", treating a locked descriptor as canon, mining it for house style
+
+**style catalog**:
+The style files in a campaign's `prompts/styles/` directory, one per named visual
+style, each carrying no `type` frontmatter field for the same reason a prompt file
+carries none. `forge-prompt` reads one by name at Step 1, before any prompt is
+drafted, because medium, palette, lighting, and mood are the prompt's opening words
+rather than a finish applied at the end. `CLAUDE.md` holds the pointer naming which
+style is the house style for a campaign, or the line recording that the DM opted out;
+the catalog holds the content. Campaign-scoped, so `/log` commits it with the rest of
+the lane, at the cost of a style used in two campaigns living in both. A recorded
+opt-out and a missing record are distinct states, which is why the opt-out is written
+down rather than inferred from the absence of a style.
+_Avoid_: "house style file" (the house style is a pointer, not a file), keeping style
+content in `CLAUDE.md`
 
 **prompt sidecar**:
 _Retired in 1.12.0._ Content's former companion file for visual-bearing outputs,

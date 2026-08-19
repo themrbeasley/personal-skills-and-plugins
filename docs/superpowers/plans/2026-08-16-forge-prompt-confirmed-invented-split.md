@@ -1,5 +1,7 @@
 # forge-prompt Confirmed/Invented Split Implementation Plan
 
+> **Executed and partially superseded.** See `docs/superpowers/specs/2026-08-18-forge-prompt-style-gate-and-suggestions-design.md`. Task 2 Step 2 of this plan was executed correctly by commit `b718fef`, then undone by commit `15ef497`, which rewrote the Suggestions paragraph this plan explicitly said to leave alone, using text that appears nowhere in this plan or its spec. Do not re-apply Task 2 Step 2 or Task 3's Suggestions-scope bullet; both are replaced by the 08-18 design.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Stop `forge-prompt` from putting invented appearance detail into the Revised Prompt, tighten its corpus reads to the drafted subject alone, and give it a gated path to record a house style in the consumer's `CLAUDE.md`.

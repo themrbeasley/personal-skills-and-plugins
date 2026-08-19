@@ -1,6 +1,6 @@
 ---
 name: forge-prompt
-description: "Image-generation prompt craft for D&D campaign visuals, written for FLUX.2 and ComfyUI. Three entry modes: forge a prompt for a new image from nothing, write an edit prompt against an image the DM has already approved, or diagnose a prompt that produced a disappointing result. Runs an iterative refinement loop rather than a single draft: every round returns a complete copy-paste-ready prompt, two to four suggested improvements that are applied by default unless the DM declines them, and at most three questions, asked only when they block progress. The prompt carries only what a source confirms: the subject's KB article for canonical appearance, prior prompts for that same subject so a recurring NPC stays visually consistent, the house style recorded in the project's CLAUDE.md, and what the DM says. Every invented detail goes to the suggestions instead, named as invented, so the DM keeps creative license over their own subject and a thin first prompt is correct output rather than a stalled loop. Offers to record a house style in CLAUDE.md when the project does not already record it, and writes it only on approval. Use this skill whenever the DM asks for an 'image prompt,' a 'Flux prompt,' a 'prompt for a portrait or map or item,' wants to 'edit this image,' 'change the outfit,' 'fix this prompt,' or says a generated image came out wrong. Standalone, on demand, like homebrew and timeline: not part of the debrief, prep, content, chronicler, kb-validator session pipeline, and never writes pipeline-state.json. Never writes to the knowledge base, and never runs image generation itself."
+description: "Image-generation prompt craft for D&D campaign visuals, written for FLUX.2 and ComfyUI. Three entry modes: forge a prompt for a new image from nothing, write an edit prompt against an image the DM has already approved, or diagnose a prompt that produced a disappointing result. Resolves a visual style before drafting anything: the style the DM names, the house style recorded in the project's CLAUDE.md, a recorded opt-out, or one built with the DM on the spot and offered to the campaign's style catalog. Then runs an iterative refinement loop rather than a single draft, and every round returns exactly three blocks: a complete copy-paste-ready prompt, two to four suggestions that each add, edit, or delete specific text in that prompt, and at most three questions, asked only when they block progress. A suggestion the DM declines is dropped, one they leave alone is adopted, and a counter-offer replaces it in the DM's own words. The prompt states only what a source confirms: the subject's KB article for canonical appearance, prior prompts for that same subject so a recurring NPC stays visually consistent, the resolved style, and what the DM says. Invented detail is offered as a suggestion instead, so the DM keeps creative license over their own subject. Use this skill whenever the DM asks for an 'image prompt,' a 'Flux prompt,' a 'prompt for a portrait or map or item,' wants to 'edit this image,' 'change the outfit,' 'fix this prompt,' or says a generated image came out wrong. Standalone, on demand, like homebrew and timeline: not part of the debrief, prep, content, chronicler, kb-validator session pipeline, and never writes pipeline-state.json. Never writes to the knowledge base, and never runs image generation itself."
 ---
 
 > **Before you begin:** read `../SHARED-PRINCIPLES.md` and apply its rules throughout this workflow.
@@ -13,9 +13,9 @@ This skill is prep work, not table work. Nothing here is read aloud, handed to a
 
 ## First: what this skill needs from the project
 
-Check `.professor-orb/conventions.json` first, as every skill does. It governs KB frontmatter, folder structure, and writing style. Prompt files are none of those: they are working files for the DM's own pipeline, not KB articles.
+Check `.professor-orb/conventions.json` first, as every skill does. It governs KB frontmatter, folder structure, and writing style. Prompt files and style files are none of those: they are working files for the DM's own pipeline, not KB articles.
 
-If `conventions.json` exists but says nothing about prompt files, that is expected and correct. Say so, and do not invent structural rules for them. Do not force a prompt file into the base schema's `type` enum, which has no prompt value. If the whole file is missing, apply the base schema per SHARED-PRINCIPLES Principle 11 and note that setup has not run.
+If `conventions.json` exists but says nothing about prompt files or style files, that is expected and correct. Say so, and do not invent structural rules for them. Do not force either into the base schema's `type` enum, which has no value for them. If the whole file is missing, apply the base schema per SHARED-PRINCIPLES Principle 11 and note that setup has not run.
 
 Resolve the setting and campaign per SHARED-PRINCIPLES Principle 12.
 
@@ -38,56 +38,83 @@ If the DM gives you a path to the image, read it. An edit prompt written from th
 Open with: "What did it produce, versus what you wanted?"
 Then, one time only, prepend a **Diagnosis** to your first Revised Prompt: which principles the prompt violates or skips, stated specifically. "The subject is buried behind three clauses of setting, and word order is weighted" is useful. "This could be improved" is not.
 
-## Grounding, before the first Revised Prompt
+## Step 1: resolve the style
 
-Three sources, in this order. Together with what the DM tells you, they define **confirmed material**, which is the only thing a Revised Prompt may state as settled. Everything else is invented, and invented detail belongs in Suggestions.
+**The style is settled before a Revised Prompt exists.** It sets medium, palette, lighting, and mood, which are the opening words of the prompt rather than a coat of paint applied to a finished one. Resolving it afterward means rewriting the prompt you just handed over.
+
+The catalog lives at:
+
+```
+<sessionReportsRoot>/<campaign>/prompts/styles/STYLE-<Name>.md
+```
+
+`CLAUDE.md` records which of them is the house style, one line per campaign, or records that the DM has opted out. It holds the pointer; the catalog holds the content.
+
+Resolve exactly one of four outcomes from the DM's opening message:
+
+| What the opening message does | What you do |
+|---|---|
+| Names a style the catalog has | Read that file. It is the resolved style. |
+| Names no style, and `CLAUDE.md` records a house style for this campaign | Read that file. It is the resolved style. Say which one you took. |
+| Names no style, and `CLAUDE.md` records an opt-out | No style. Proceed to Step 2 without one, and do not offer to record one. |
+| Names a style the catalog does not have, or nothing is recorded either way | Build one with the DM now, per "Building a style" below. |
+
+**A recorded opt-out and a missing record are different states, and looking for a style cannot tell them apart.** An opt-out is a line in `CLAUDE.md` saying the DM declined. A missing record is silence. Treat only the written line as an opt-out; where there is silence, the DM has not been asked yet.
+
+**A pointer to a file the catalog does not have is a stale pointer, not an opt-out.** Say the recorded style is missing, and build one.
+
+### Building a style
+
+Two or three questions, no more: the medium (oil painting, ink drawing, photograph, whatever it is), the palette or the mood, and any standing look the DM wants across every image. Propose the style as a short block, show it, and take their corrections.
+
+Once it is settled, the loop starts. Offering to save it comes at the close, not now, per "Finishing" below. A style used once and never saved is a legitimate outcome.
+
+### Style file shape
+
+Frontmatter carries `name` and `date`, and **no `type` field**: the write-time validator hook skips a file with no `type`, and a `type` it does not recognize is blocked outright. The body describes medium, palette, lighting and mood, and anything else the DM wants standing across their images.
+
+## Step 2: grounding, before the first Revised Prompt
+
+Two sources, in this order. Together with the style resolved in Step 1 and what the DM tells you, they define **confirmed material**, which is the only thing a Revised Prompt may state as settled. Everything else is invented, and invented detail is offered as a Suggestion.
 
 1. **The subject's KB article,** if the subject is an entity the knowledge base knows, for canonical appearance. Content exclusions apply; the `block-excluded` hook enforces them at PreToolUse regardless of what you intend.
-2. **Prior prompts for this same subject,** in the campaign's `prompts/` directory. Reuse the descriptors already locked there. This is what keeps a recurring NPC looking like themselves across a year of sessions, and it is the whole reason the prompts are saved. A new subject has none. That is the expected result rather than a gap to fill: say so and move to the next source.
+2. **Prior prompts for this same subject,** in the campaign's `prompts/` directory. Reuse the descriptors already locked there. This is what keeps a recurring NPC looking like themselves across a year of sessions, and it is the whole reason the prompts are saved. A new subject has none. That is the expected result rather than a gap to fill: say so and move on.
 
-   **Read no other prompt file.** Not for house style, not for structure, not for phrasing, and not for the DM's generation preferences. A file that merely looks like a prompt is not a source, and mining the wider corpus is how one subject's choices leak into another subject's prompt.
-3. **The project's `CLAUDE.md`,** for the house style the DM has recorded: visual tone, medium, palette, and any standing generation preferences. If it records none, say so plainly and do not infer one from anything else. This is the only place a house style is read from, and the one place this skill may write one (see "Recording a house style" below).
+   **Read no other prompt file.** Not for style, not for structure, not for phrasing, and not for the DM's generation preferences. A file that merely looks like a prompt is not a source, and mining the wider corpus is how one subject's choices leak into another subject's prompt. Styles come from the catalog, which is read by name.
 
-The DM's direct statements this session are confirmed material too, and they outrank all three sources (Principle 1).
+The DM's direct statements this session are confirmed material too, and they outrank every source (Principle 1).
 
-**A rendering choice is not canon.** When the generator needs a detail the KB never established, you may invent one, but it never lands in the Revised Prompt as settled fact: it goes to Suggestions instead, named as invented, per "The loop" below. It never travels back into a KB article. If a KB article later contradicts a descriptor locked in the corpus, the KB wins: say the corpus entry is stale rather than quietly contradicting canon. SHARED-PRINCIPLES Principle 7 governs, and fabrication reaching the KB is the failure mode it exists to prevent.
+**Say what grounding found, in one line, before the first Revised Prompt only.** Which style you resolved and where it came from, whether the subject has a KB article, whether prior prompts exist. The DM cannot correct a source they never saw you take, and a silent grounding step is indistinguishable from one that did not run.
 
-## Recording a house style
-
-`CLAUDE.md` is where a house style belongs, and this skill may put one there. It is the only file outside `prompts/` this skill writes, and it writes only on the DM's explicit approval.
-
-Offer when either is true:
-
-- The DM states a visual preference, or a standing generation preference, that `CLAUDE.md` does not already record.
-- The loop is closing, `CLAUDE.md` records no house style, and the DM has made the same stylistic choice across several rounds.
-
-Propose the exact text, as a short block covering visual tone, medium, palette, and any standing generation preferences, and show it before writing anything. Principle 2 governs: propose, then execute. Until the DM approves, nothing is recorded and nothing is treated as recorded.
-
-Offer once per session rather than every round, and drop it if the DM passes.
-
-`CLAUDE.md` sits at the project root, outside every prong `/log` commits, so this edit is not part of the campaign lane and `/log` will not pick it up. Say so when you write it: committing it is the DM's own step.
+**A rendering choice is not canon.** When the generator needs a detail the KB never established, you may invent one, but it never lands in the Revised Prompt as settled fact: it is offered as a Suggestion, in your own name, per "The loop" below. It never travels back into a KB article. If a KB article later contradicts a descriptor locked in the corpus, the KB wins: say the corpus entry is stale rather than quietly contradicting canon. SHARED-PRINCIPLES Principle 7 governs, and fabrication reaching the KB is the failure mode it exists to prevent.
 
 ## The loop
 
-After the opening question, every response has the same three sections, in this order. Repeat until done. Keep your other text short: the three sections should dominate.
+After the opening exchange, every response has the same three blocks, in this order, and only these three. Repeat until done. Keep your other text short: the three blocks should dominate.
 
 ### Revised Prompt
 
 A complete, copy-paste-ready prompt. Composed per `references/flux2-prompting.md`, and in Edit mode also per `references/flux2-editing.md`, which governs preservation language and `image [n]` notation.
 
-**It carries confirmed material only.** Grounding defines what that means: the subject's KB article, prior prompts for this same subject, the recorded house style, and what the DM has told you. A visual detail no such source establishes does not go here, however ordinary it looks and however thin the prompt reads without it. Build, age, pose, hair, eyes, skin, clothing, and setting are the usual offenders.
+**It carries confirmed material only.** Grounding defines what that means: the subject's KB article, prior prompts for this same subject, the resolved style, and what the DM has told you. A visual detail no such source establishes does not go here, however ordinary it looks and however thin the prompt reads without it. Build, age, pose, hair, eyes, skin, clothing, and setting are the usual offenders, and each of them is a Suggestion instead.
 
-**A bare prompt is a correct first round.** When the subject noun and the house style are all you have, that is the Revised Prompt, and Suggestions carries everything else. Handing the DM a fully specified stranger and inviting them to pick it apart takes their creative license over their own subject, which is a worse failure than handing them something thin they can build on.
+**A bare prompt is a correct first round.** When the subject noun and the resolved style are all you have, that is the Revised Prompt, and Suggestions carries everything else. Handing the DM a fully specified stranger and inviting them to pick it apart takes their creative license over their own subject, which is a worse failure than handing them something thin they can build on.
 
 **Never write a negative prompt.** FLUX.2 does not support them. Anything you would have excluded gets stated positively instead.
 
 ### Suggestions
 
-Two to four craft suggestions, ordered by impact: word choice, structure, phrasing. Invented-detail lines are not counted against this cap; list every one, however many there are. **Treat these as approved by default:** apply them surgically in the next Revised Prompt unless the DM declines. A suggestion applied this way is confirmed material from that round on: approved-by-default is how the DM's silence becomes confirmation, and the confirmed-only rule above does not suspend it, only requires the DM to have seen the invention labeled as invented first. Each names what it changes and why the result improves. If you cannot act on it without more information, it is a Question, not a Suggestion.
+Each Suggestion proposes one change to the text of the Revised Prompt: **add** a detail it lacks, **edit** wording working against the image, or **delete** something diluting it. Name the change, name what the image gains. If it does not change the prompt's text, it is not a Suggestion. If you cannot act on it without more information, it is a Question.
 
-**This is where invented detail lives.** Every visual detail grounding did not confirm goes here, one line per detail, said plainly as your invention rather than slipped in as fact: "Invented: a leather apron scorched at the hem, so he reads as a working smith rather than a posed one." One line each, because a DM who wants the apron and not the scorching has to be able to say so without rejecting a paragraph to get there.
+Two to four per round, ordered by impact, one change per line so each can be answered on its own.
 
-**Suggestions concern the text of the prompt and nothing else.** Never propose a change to how the DM generates: not the workflow, the hardware, the sampler, the model, the aspect ratio, the output dimensions, or the file format. Those are theirs. Never re-propose something `CLAUDE.md` already records as a standing preference either; the DM settled it once and does not need to settle it again every round.
+**The DM's answer decides each one:**
+
+- **No, or anything reading as a pass:** dropped, and not re-proposed.
+- **Silence:** adopted. It goes into the next Revised Prompt, and from that round on it is confirmed material.
+- **A counter or an adjustment:** theirs replaces yours, worded as they worded it. Yours is gone.
+
+**Invention is a Suggestion, never a fact.** When the image needs a detail no source confirms, propose it here as an add, in your own name: "Add: a leather apron scorched at the hem, so he reads as a working smith rather than a posed one." One detail per line, so a DM who wants the apron and not the scorching says so in three words. Adopted by silence like anything else, and settled once adopted.
 
 ### Questions
 
@@ -97,7 +124,8 @@ One to three, and only what blocks progress. If the loop can advance without the
 
 ### Loop rules
 
-- **Never stall.** Produce a Revised Prompt every round. On a vague or incomplete answer about the request itself (where the image goes, what it is for, which of two readings you meant), make a reasonable inference, state it explicitly, and raise it as a Question only if getting it wrong would be expensive. **This license stops at the subject's appearance.** A visual detail no source confirms is invented, and invented detail goes to Suggestions, never into the prompt. A thin prompt satisfies this rule. An invented one does not.
+- **Never stall.** Produce a Revised Prompt every round. On a vague or incomplete answer about the request itself (where the image goes, what it is for, which of two readings you meant), make a reasonable inference, state it explicitly, and raise it as a Question only if getting it wrong would be expensive. **This license stops at the subject's appearance.** A visual detail no source confirms is invented, and invented detail is offered as a Suggestion. A thin prompt satisfies this rule. An invented one does not.
+- **This rule governs the loop, which Step 1 precedes.** Resolving the style happens before the first round exists, so waiting on it is not stalling. Once the loop starts, every round produces a prompt.
 - **On a contradiction,** acknowledge the change in one line, update the prompt, and do not carry the contradiction forward.
 - **On "looks good" with obvious gaps,** do not declare victory. Apply the outstanding Suggestions, ask the single most important remaining Question, and tighten.
 
@@ -113,37 +141,43 @@ The DM returning with a result is a **Diagnose** re-entry. The loop closes throu
 
 The loop is complete when the DM says they are satisfied, or when Questions has nothing blocking left and Suggestions has nothing materially impactful left.
 
-**Nothing goes to disk during the loop.** SHARED-PRINCIPLES Principle 2: propose, then execute. When the loop closes, present the final prompt and ask whether to save it. A prompt used once and thrown away is a legitimate outcome; do not insist.
+**Nothing goes to disk during the loop.** SHARED-PRINCIPLES Principle 2: propose, then execute. When the loop closes, present the final prompt and ask what to save. A prompt used once and thrown away is a legitimate outcome; do not insist.
 
-On approval, write to:
+Three offers, made once each, at the close:
 
-```
-<sessionReportsRoot>/<campaign>/prompts/PROMPT-YYYY-MM-DD-<Subject>.md
-```
+1. **Save the prompt.** On approval, write to:
 
-Create the `prompts/` directory if it does not exist. Frontmatter carries `subject`, `mode`, and `date`, and **no `type` field**: the write-time validator hook skips a file with no `type`, and a `type` it does not recognize is blocked outright.
+   ```
+   <sessionReportsRoot>/<campaign>/prompts/PROMPT-YYYY-MM-DD-<Subject>.md
+   ```
 
-The body holds the final prompt, and for Edit mode a one-line note of what the source image was. Tell the DM that `/log` commits it with the rest of the campaign lane.
+   Create the `prompts/` directory if it does not exist. Frontmatter carries `subject`, `mode`, and `date`, and **no `type` field**. The body holds the final prompt, and for Edit mode a one-line note of what the source image was.
+
+2. **Save the style,** when Step 1 built a new one. On approval, write it to the catalog per "Style file shape" above, creating `prompts/styles/` if it does not exist.
+
+3. **Record the house style,** when `CLAUDE.md` records neither a house style nor an opt-out for this campaign. Propose the exact line, show it, and write only on explicit approval. If the DM passes, offer to record the opt-out instead, so the question is settled rather than asked again next session. This is one offer per session, not one per round.
+
+`/log` commits the campaign lane recursively, which covers both `prompts/` and `prompts/styles/`. `CLAUDE.md` sits at the project root, outside every prong `/log` commits, so that edit is not part of the campaign lane and `/log` will not pick it up. Say so when you write it: committing it is the DM's own step.
 
 ## Things to never do
 
 - **Never write a negative prompt.** The model ignores them.
 - **Never write `.professor-orb/pipeline-state.json`.** This skill is standalone.
 - **Never write to a KB article.** A rendering choice is not canon.
-- **Never invent canon to fill a visual gap.** Invent as a Suggestion, ask the DM, or describe around the absence.
-- **Never write a prompt file carrying a `type` frontmatter field.**
-- **Never save mid-loop.** The DM approves once, at the end.
+- **Never invent canon to fill a visual gap.** Offer it as a Suggestion, ask the DM, or describe around the absence.
+- **Never write a prompt file or a style file carrying a `type` frontmatter field.**
+- **Never save mid-loop.** The DM approves at the end.
 - **Never draw on excluded material.**
 - **Never run image generation.** You write the prompt; the DM runs it.
-- **Never state an unconfirmed visual detail as settled,** in a Revised Prompt or inside a Question. It goes to Suggestions, named as invented.
-- **Never read a prompt file for any subject but the one being drafted.** Not for house style, not for structure, not for phrasing.
-- **Never propose a change to the DM's generation setup** in Suggestions: workflow, hardware, sampler, model, aspect ratio, dimensions, or format. Never re-propose a preference `CLAUDE.md` already records.
+- **Never state an unconfirmed visual detail as settled,** in a Revised Prompt or inside a Question. It is offered as a Suggestion, in your own name.
+- **Never read a prompt file for any subject but the one being drafted.** Styles come from the catalog, read by name.
+- **Never draft a Revised Prompt before Step 1 resolves.**
 - **Never write `CLAUDE.md` without explicit approval,** and never treat a proposed house style as recorded before the DM takes it.
 
 ## How this skill connects to the others
 
 - **Standalone:** not in the session pipeline, never writes pipeline state.
-- **Inputs:** the DM's intent, the subject's KB article when one exists, prior prompts for that same subject in the campaign's `prompts/` directory, and `CLAUDE.md` for the recorded house style.
-- **Outputs:** one markdown prompt file per saved prompt, in the campaign's `prompts/` directory, and, on approval, a house style block in `CLAUDE.md` when a stated preference is not already recorded there.
+- **Inputs:** the DM's intent, the campaign's style catalog, `CLAUDE.md` for which style is the house style, the subject's KB article when one exists, and prior prompts for that same subject in the campaign's `prompts/` directory.
+- **Outputs:** one markdown prompt file per saved prompt in the campaign's `prompts/` directory, one style file per saved style in `prompts/styles/`, and, on approval, a house style line in `CLAUDE.md`.
 - **Adjacent to `content`:** when `content` builds a Foundry fragment or printable page with a spot for art, it leaves a marked placeholder and names this skill. It does not hand anything over, and this skill reads nothing it produced. The two are independent.
-- **Handoff to `/log`:** `/log` commits the campaign lane, which includes `prompts/`. It does not reach `CLAUDE.md` at the project root, so that edit stays the DM's to commit.
+- **Handoff to `/log`:** `/log` commits the campaign lane recursively, which includes `prompts/` and `prompts/styles/`. It does not reach `CLAUDE.md` at the project root, so that edit stays the DM's to commit.

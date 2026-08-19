@@ -1,7 +1,9 @@
 # forge-prompt: Confirmed/Invented Split, Grounding Fix, House Style Capture
 
 **Date:** 2026-08-16
-**Status:** Draft for DM review
+**Status:** Partially superseded by `2026-08-18-forge-prompt-style-gate-and-suggestions-design.md`
+
+> **Read the 08-18 spec before acting on this one.** What survives here: the grounding fix, the corpus scope tightening, and the rule that the Revised Prompt carries confirmed material only. What does not: the invented-detail class inside Suggestions, the exemption of invented lines from the cap, the prohibition-list approach to Suggestions scope, and the free-floating "Recording a house style" section, which shipped inert because nothing in the executed sequence ever called it. House style is now resolved by a gate before the loop, and styles live in a per-campaign catalog.
 **Scope:** `professor-orb/skills/forge-prompt/` only, plus the collateral doc updates that keep the plugin's own inventory honest. Fixes five defects filed against forge-prompt 1.12.0's shipped skill text. No consumer project file is moved, read, or reorganized by this work beyond what the skill itself already touches (`prompts/` and, newly, `CLAUDE.md`).
 
 ## The problem
