@@ -1,6 +1,6 @@
 ---
 name: forge-prompt
-description: "Image-generation prompt craft for D&D campaign visuals, written for FLUX.2 and ComfyUI. Three entry modes: forge a prompt for a new image from nothing, write an edit prompt against an image the DM has already approved, or diagnose a prompt that produced a disappointing result. Resolves a visual style before drafting anything: the style the DM names, the house style recorded in the project's CLAUDE.md, a recorded opt-out, or one built with the DM on the spot and offered to the campaign's style catalog. Then runs an iterative refinement loop rather than a single draft, and every round returns exactly three blocks: a complete copy-paste-ready prompt, two to four suggestions that each add, edit, or delete specific text in that prompt, and at most three questions, asked only when they block progress. A suggestion the DM declines is dropped, one they leave alone is adopted, and a counter-offer replaces it in the DM's own words. The prompt states only what a source confirms: the subject's KB article for canonical appearance, prior prompts for that same subject so a recurring NPC stays visually consistent, the resolved style, and what the DM says. Invented detail is offered as a suggestion instead, so the DM keeps creative license over their own subject. Use this skill whenever the DM asks for an 'image prompt,' a 'Flux prompt,' a 'prompt for a portrait or map or item,' wants to 'edit this image,' 'change the outfit,' 'fix this prompt,' or says a generated image came out wrong. Standalone, on demand, like homebrew and timeline: not part of the debrief, prep, content, chronicler, kb-validator session pipeline, and never writes pipeline-state.json. Never writes to the knowledge base, and never runs image generation itself."
+description: "Image-generation prompt craft for D&D campaign visuals, written for FLUX.2 and ComfyUI. Three entry modes: forge a prompt for a new image from nothing, write an edit prompt against an image the DM has already approved, or diagnose a prompt that produced a disappointing result. Resolves a visual style before drafting anything: the style the DM names, the house style recorded in the project's CLAUDE.md, a recorded opt-out, or one built with the DM on the spot and offered to the campaign's style catalog. Then runs an iterative refinement loop rather than a single draft, and every round returns exactly three blocks: a complete copy-paste-ready prompt, two to four suggestions that each add, edit, or delete specific text in that prompt, and at most three questions, asked only to settle an ambiguity in what the DM has already said. A suggestion the DM declines is dropped, one they leave alone is adopted, and a counter-offer replaces it in the DM's own words. The prompt states only what a source confirms: the subject's KB article for canonical appearance, prior prompts for that same subject so a recurring NPC stays visually consistent, the resolved style, and what the DM says. Invented detail is offered as a suggestion instead, so the DM keeps creative license over their own subject. Use this skill whenever the DM asks for an 'image prompt,' a 'Flux prompt,' a 'prompt for a portrait or map or item,' wants to 'edit this image,' 'change the outfit,' 'fix this prompt,' or says a generated image came out wrong. Standalone, on demand, like homebrew and timeline: not part of the debrief, prep, content, chronicler, kb-validator session pipeline, and never writes pipeline-state.json. Never writes to the knowledge base, and never runs image generation itself."
 ---
 
 > **Before you begin:** read `../SHARED-PRINCIPLES.md` and apply its rules throughout this workflow.
@@ -28,7 +28,7 @@ This skill is **standalone**, like `homebrew`, `timeline`, and `/catalog`. It is
 Before anything else, work out which of three modes you are in. If the DM's opening message is ambiguous, default to Forge and treat what they said as the subject.
 
 **Forge.** A subject, and no image yet.
-Open with: "What is the image for, and where will it end up?"
+Open with the one fork the DM's message leaves open: "Is this a portrait of them, or a scene they are in?" It sets subject, action, and context at once, and the two readings share almost no prompt text. When the message already answers it, skip it and resolve the style.
 
 **Edit.** An image the DM has already approved, plus something to change about it.
 Open with: "What should change, and what has to stay exactly as it is?"
@@ -104,7 +104,7 @@ A complete, copy-paste-ready prompt. Composed per `references/flux2-prompting.md
 
 ### Suggestions
 
-Each Suggestion proposes one change to the text of the Revised Prompt: **add** a detail it lacks, **edit** wording working against the image, or **delete** something diluting it. Name the change, name what the image gains. If it does not change the prompt's text, it is not a Suggestion. If you cannot act on it without more information, it is a Question.
+Each Suggestion proposes one change to the text of the Revised Prompt: **add** a detail it lacks, **edit** wording working against the image, or **delete** something diluting it. Name the change, name what the image gains. If it does not change the prompt's text, it is not a Suggestion. If it turns on which of two readings the DM meant, it is a Question.
 
 Two to four per round, ordered by impact, one change per line so each can be answered on its own.
 
@@ -118,13 +118,17 @@ Two to four per round, ordered by impact, one change per line so each can be ans
 
 ### Questions
 
-One to three, and only what blocks progress. If the loop can advance without the answer, it is a Suggestion. Prioritize: where the image will be used and at what size, whether the DM has a reference or an earlier attempt that came close, and what the image is actually for.
+**A Question resolves an ambiguity, never an absence.** Something the DM has already said reads two ways, the two readings produce different images, and no source settles which one they meant. That is the entire class. A detail nobody has mentioned is not ambiguous, it is missing, and missing detail is a Suggestion adopted by silence.
 
-**A Question asks; it does not assert.** Offering choices is fine ("clean-shaven, or bearded?"). Stating an unconfirmed detail as settled while appearing to ask about something else is not.
+The ambiguity sits in one of the four parts a FLUX.2 prompt is built from: **subject**, **action**, **style**, **context**. "You said the tower fell: is this mid-collapse, or the ruin years after?" is an action fork, and the two prompts share almost no words. "Is he bearded?" is not a fork. Nobody said anything about his face, so it is an add.
+
+Zero to three per round. Zero is the normal state once the readings are settled, and a round with no Questions is a finished round rather than a lazy one. Keep the heading and write "None blocking" under it.
+
+**A Question asks; it does not assert.** Naming both readings is the point. Stating an unconfirmed detail as settled while appearing to ask about something else is not.
 
 ### Loop rules
 
-- **Never stall.** Produce a Revised Prompt every round. On a vague or incomplete answer about the request itself (where the image goes, what it is for, which of two readings you meant), make a reasonable inference, state it explicitly, and raise it as a Question only if getting it wrong would be expensive. **This license stops at the subject's appearance.** A visual detail no source confirms is invented, and invented detail is offered as a Suggestion. A thin prompt satisfies this rule. An invented one does not.
+- **Never stall.** Produce a Revised Prompt every round. On a vague or incomplete answer about which of two readings you meant, make a reasonable inference, state it explicitly, and raise it as a Question only if getting it wrong would be expensive. **This license stops at the subject's appearance.** A visual detail no source confirms is invented, and invented detail is offered as a Suggestion. A thin prompt satisfies this rule. An invented one does not.
 - **This rule governs the loop, which Step 1 precedes.** Resolving the style happens before the first round exists, so waiting on it is not stalling. Once the loop starts, every round produces a prompt.
 - **On a contradiction,** acknowledge the change in one line, update the prompt, and do not carry the contradiction forward.
 - **On "looks good" with obvious gaps,** do not declare victory. Apply the outstanding Suggestions, ask the single most important remaining Question, and tighten.

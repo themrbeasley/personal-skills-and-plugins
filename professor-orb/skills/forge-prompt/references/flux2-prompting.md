@@ -2,7 +2,7 @@
 
 Source: Black Forest Labs documentation, `docs.bfl.ai/guides/prompting_guide_flux2`
 
-Model-specific prompt craft for FLUX.2 generation from scratch. This file is the reason the forge-prompt skill exists as its own component: this material goes stale when the model does, and isolating it here means refreshing it is a bounded task rather than an audit of a skill about read-aloud prose. Check it against the live guide when results stop matching what it describes.
+Model-specific prompt craft for FLUX.2 generation from scratch. This file is the reason the forge-prompt skill exists as its own component: this material goes stale when the model does, and isolating it here means refreshing it is a bounded task rather than an audit of a skill about read-aloud prose. Check it against the live guide when results stop matching what it describes. This file covers prompt text. Generator settings live in ComfyUI and are the DM's, not this skill's.
 
 ---
 
@@ -53,26 +53,6 @@ Repeat detailed, identical character descriptions across every panel or frame. C
 ## Multi-language
 
 Prompting in the native language of the content being depicted often produces more culturally authentic results.
-
-## Aspect ratios and resolution
-
-| Ratio | Typical use |
-|---|---|
-| 1:1 | Social, product shots |
-| 16:9 | Landscapes, cinematic |
-| 9:16 | Mobile, portraits |
-| 4:3 | Magazine, presentation |
-| 21:9 | Panorama |
-
-Limits: 4MP maximum total, 64x64 minimum, dimensions in multiples of 16.
-
-## Parameters
-
-| Parameter | Range or use |
-|---|---|
-| Seed | Reproducibility |
-| Guidance (flex) | 1.5 to 10, prompt adherence |
-| Steps (flex) | Up to 50, quality against speed |
 
 ## Prompt upsampling
 
