@@ -24,7 +24,7 @@ _Avoid_: "the flow", "the loop"
 
 **consumer project**:
 The DM's campaign repository that the plugin operates on. The primary, tested
-consumer is `C:\Users\jorda\OneDrive\Documents\Claude\Projects\World of Rolara`
+consumer is `C:\Users\jorda\GitHub\rolara-project`
 ("Rolara"), but no consumer's specifics are baked in: other DMs may install it, and
 setup must not assume Rolara's artifacts exist. The plugin ships its own base
 schema at `references/base-rules.json`, applied to every consumer.
