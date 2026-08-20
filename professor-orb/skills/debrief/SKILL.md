@@ -68,6 +68,15 @@ This phase is mandatory and every question in it goes through the AskUserQuestio
 
 **Draft the report.** If the project has a report template, use it. If it has existing reports, match their structure. If neither exists, build one covering: metadata, narrative recap, PCs present, NPCs and factions, locations, inventory, lore revelations (new canon and discovered canon), and open threads. The open threads section describes the state of the world, not a list of tasks for the DM. Fill every section; for sections with nothing to report, write a stub rather than omitting it, downstream skills need predictable structure.
 
+**Every report carries a Lore Candidates section, whichever structure source won.** This is the one section to append when a template or the existing reports do not already have one, because it is the durable carrier the `chronicler` skill reads as its backbone; without it chronicler falls back to reading the whole report and pulls campaign material into articles. Seed it in this phase from what you already tracked: entities touched this session that have no KB article, new canon that needs capturing, and anything the DM flagged during interrogation. Write each as an unchecked item so it can be ticked later:
+
+```
+## Lore Candidates
+
+- [ ] Sunken Temple has no article. Referenced twice this session.
+- [ ] New canon: the Cinder Pact sigil predates the Compact.
+```
+
 Cross-reference aggressively using whatever link format the project uses. If unsure whether an article exists, still link it: dead links in reports are acceptable because downstream tools use them to identify article candidates.
 
 **Present the draft for review.** Show the complete report draft to the DM. Wait for approval, requested changes, or rejection (Principle 2). Do not write any files until the DM approves. If the DM requests changes, revise and re-present the affected sections.
@@ -88,9 +97,17 @@ Once the report is written, spawn the `lore` agent with fan-out instructions:
 - Instruct the agent to fan out: one subagent per entity touched in the session, each subagent reading only the session report and that entity's KB article(s). The lore agent fans out per entity when the session touched three or more entities; smaller sessions are analyzed directly.
 - The parent `lore` agent merges the subagents' findings into a single structured proposal: non-obvious connections, contradictions, lore candidates, and entities without articles.
 
-Wait for the `lore` agent to return its findings. Present a summary to the DM (not a raw dump) and point them at the full proposal above in this conversation (the chronicler skill re-derives and persists it when it runs), and tell them the `chronicler` skill is what actually canonizes any of it into the KB.
+Wait for the `lore` agent to return its findings, then **merge them into the report's Lore Candidates section**. This is the second and last write to the report, and it is what makes the agent's analysis durable rather than dying with this conversation. Map its output sections as follows:
 
-If the `lore` agent is unavailable or the DM declines the handoff, note that the report was written without a lore cross-reference and move on. Do not attempt the deep KB cross-referencing yourself; that is the `lore` agent's job.
+- **Entities Without Articles** and the new-article bucket of its **Update Proposal** become Lore Candidates items.
+- The edit and index buckets of its **Update Proposal** become Lore Candidates items too, worded as the change rather than as a new article.
+- **Contradictions** and **Temporal Inconsistencies** do **not** become Lore Candidates. They are chronicler's "Deferred / Flagged" material and the `historian` agent's business. Note under the section that the agent raised N of each and leave them in the conversation for chronicler to pick up.
+- **Non-obvious Connections** are neither; mention them to the DM and do not write them into the report.
+- **Deferred / Flagged** items (the agent's own bucket for items requiring a DM decision, content-excluded, or ambiguous) do not become Lore Candidates either. Like Contradictions and Temporal Inconsistencies, note under the section that the agent flagged N such items and leave them in the conversation for chronicler to pick up into its own Deferred / Flagged bucket.
+
+Present the merged section to the DM for approval (Principle 2), then update the report file. Tell them the `chronicler` skill is what canonizes any of it into the KB.
+
+If the `lore` agent is unavailable or the DM declines the handoff, the Lore Candidates section you seeded in Phase 3 stands as written and final: do not make it conditional on the agent, and skip the second write entirely. The section needs no further annotation: it already reflects debrief's own findings from Phase 3, and Phase 4 simply never runs its merge on this branch. Do not attempt the deep KB cross-referencing yourself; that is the `lore` agent's job.
 
 **Present the report to the DM.** Share a link to the report file and a one-sentence summary. Do not lecture the user about what is in the file.
 
@@ -132,5 +149,5 @@ Apply any additional writing style rules from `conventions.json` or the project'
 - **Outputs:** A session report that `prep`, `content`, and `chronicler` all read as input.
 - **Spawns:** The `lore` agent at the start of Phase 4 for KB cross-referencing, fanned out per entity.
 - **Handoff to `prep`:** After the report is written, suggest the DM run `prep` to plan the next session.
-- **Handoff to `chronicler`:** The `lore` agent's proposal is the input the `chronicler` skill uses to propose and execute KB updates.
+- **Handoff to `chronicler`:** The report's Lore Candidates section is chronicler's input, and it survives this conversation. The `lore` agent's in-conversation proposal supplements it when the same conversation produced one.
 - **Handoff to `/log`:** `/log` can commit the session report.
