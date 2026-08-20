@@ -56,7 +56,11 @@ const LANE_CLAUSES = {
   __proto__: null,
   debrief: " /log can commit the session report.",
   content: " /log can commit the recap and handouts.",
-  chronicler: " /scribe can commit the KB changes.",
+  // Chronicler writes in two lanes now: kbRoot articles that /scribe commits,
+  // and staged articles in the campaign's articles/ folder that /log commits.
+  // The hook reads only pipeline-state.json and versioning.json, so it cannot
+  // know the run's mode; naming both unconditionally is the only correct shape.
+  chronicler: " /scribe can commit the KB changes, and /log the campaign's staged articles.",
 };
 
 // Reads the versioning decision, fail-silent. Tries versioning.json first;

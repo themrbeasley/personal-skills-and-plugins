@@ -118,10 +118,11 @@ console.log("=== speaking cases: lane clause appended ===");
   });
   checkContains("chronicler + git mode: base kb-validator suggestion still present", r.out, KB_VALIDATOR_SUGGESTION, true);
   checkContains("chronicler + git mode: /scribe clause appended", r.out, "/scribe", true);
+  checkContains("chronicler + git mode: /log clause appended", r.out, "/log", true);
   check(
     "chronicler + git mode: clause wording is exact",
     r.out,
-    "Next: the kb-validator agent can audit the changes, and /timeline can record events in the campaign chronology. /scribe can commit the KB changes.\n"
+    "Next: the kb-validator agent can audit the changes, and /timeline can record events in the campaign chronology. /scribe can commit the KB changes, and /log the campaign's staged articles.\n"
   );
 }
 
