@@ -34,7 +34,12 @@ If CLAUDE.md points to other reference documents, read those too.
 
 #### Step 1a: Gather inputs
 
-1. **Identify the target report.** If the user named one, use it. If not, find the most recent report from `debrief`. If there are multiple campaigns, ask.
+1. **Decide the run mode, then identify inputs.** This decision governs where new articles go (see "Where an article goes"), so make it first and state it in the proposal header.
+
+   - **Session-driven run.** The DM named a session report or a prep file, or `debrief` or `prep` just ran in this conversation. Use the named report; if the DM named a campaign but no specific report, use that campaign's most recent one. If there are multiple campaigns and the DM named none, ask.
+   - **Standalone run.** The DM invoked this skill on its own subject: "write up the Vela article," "tidy the faction pages," "the Cinder Pact needs an entry." No report and no prep file are in scope.
+
+   **Do not go hunting for the most recent report on a standalone run.** Auto-discovering a report is what makes a run session-driven, so discovering one turns a standalone request into a session-driven pass and sends its articles to staging. If the DM's request names a subject rather than a session, the run is standalone and the rest of Step 1a's report reading does not apply.
 2. **Read the report end-to-end.** The lore candidates section is your backbone, but also read the narrative, new canon, discovered canon, and open threads sections.
 3. **Read the matching prep file from `prep` if it exists.** If it has a lore resolution section, treat P0 items as priority for this pass.
 4. **Check for a lore agent proposal.** If the `lore` agent was spawned during `debrief`'s Phase 4 in the same conversation, read its structured proposal. The agent's contradiction checks, temporal flags, and update proposals are pre-validated analysis you can incorporate directly. Cross-reference against your own reading of the report: the agent may have caught things you would not, and vice versa. (If this is a fresh session without a prior lore run, the proposal will not be available in the chat history; mark the lore proposal as "not available" in your proposal template at line 70. You may optionally suggest the DM re-run a lore analysis if they want that analysis incorporated.)
@@ -196,7 +201,7 @@ For `sessionDate`: if `.professor-orb/pipeline-state.json` already exists (typic
 ## How this skill connects to the others
 
 - **Position in the session pipeline:** debrief, then prep, then content and/or chronicler, then the `kb-validator` agent.
-- **Inputs:** Report from `debrief` (required). Prep file from `prep` (optional, raises priority of P0 lore items). Proposal from the `lore` agent, produced during `debrief`'s Phase 4 (optional, provides pre-validated contradiction and temporal analysis).
+- **Inputs:** On a session-driven run, the report from `debrief` (required for that mode) and the prep file from `prep` when one exists (its Lore Resolution section names which lore items are priorities). On a standalone run, the DM's named subject and the KB itself; no report is required or sought. Either way, the `lore` agent's in-conversation proposal is an optional supplement when the same conversation produced one.
 - **Outputs:** The proposal file in `.professor-orb/proposals/`, new and edited KB articles, index updates, log entries. No changes to session reports or prep files.
 - **Downstream of `debrief`:** This is the designated follow-up for the Lore Candidates section and the `lore` agent's proposal.
 - **Handoff to `kb-validator`:** After execution, the `kb-validator` agent can audit the touched articles' frontmatter, cross-references, and index ownership as a post-write QA pass.
