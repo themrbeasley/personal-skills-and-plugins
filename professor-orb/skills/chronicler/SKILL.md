@@ -184,13 +184,15 @@ Update the file's "Status" line to "Executing" before you begin, so a re-read mi
 For every article touched, follow `.professor-orb/conventions.json` (the base schema per Principle 11 only if that file is missing) so the PostToolUse validator hook passes silently:
 
 - **Frontmatter is mandatory** and must match the schema from the conventions and from neighbors.
+- **Set `publish` explicitly on every article you create, as the first frontmatter field.** The base rule set enforces its presence at `warn`, not `block`, so a missing field is written successfully and falls back to the site's default, which is how an unmarked secret article reaches a player-facing wiki. Write the value the DM approved in the proposal: `false` for a staged article, the approved value for a `kbRoot` article. `frontmatterFieldOrder` requires `publish` before `type` and `tags`, so put it first.
+- **On an edit to an existing article that has no `publish` field, leave the field alone.** Do not insert one. Setting a disclosure flag on an article you did not create is the DM's call, and guessing it would either hide finished lore or leak secret lore, which is the same reason `/migrate` refuses to default it in bulk. List the article under "Deferred / Flagged" and note that `/sweep` reports articles missing `publish`.
 - **Cross-reference aggressively** but only to entities with actual articles (or articles you are creating in the same pass). No dead links in lore articles. (Session reports may have dead links; lore articles may not.)
 - **Respect the ownership rule** (if the project has one). Each article's link appears in exactly one index. Cross-references elsewhere go in prose, not tables.
 - **Match tone and length to neighbors.** If existing entries in a category are four paragraphs of narrative prose, your new entry should match. Do not impose a template the project does not use.
 - **Apply special framing rules** where relevant.
 - **Never invent canon** (Principle 7). Everything you write must be traceable to the session report, the prep plan, an existing article, the DM's direct statements, or a convention in the project's conventions.
 
-If a write trips a block-level violation from the validator hook, fix the write and retry rather than working around it.
+If a write trips a block-level violation from the validator hook, fix the write and retry rather than working around it. Warn-level violations are advisory in general, with one exception: on an article you are **creating**, a warning that `publish` is missing is treated as blocking. Fix it and retry before moving on. The exception does not extend to edits, per the rule above.
 
 #### Step 2d: Log changes
 
