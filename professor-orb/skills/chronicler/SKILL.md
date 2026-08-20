@@ -92,9 +92,9 @@ A passage fenced in `%%` is hidden from rendered views, including a published si
    - **Standalone run.** The DM invoked this skill on its own subject: "write up the Vela article," "tidy the faction pages," "the Cinder Pact needs an entry." No report and no prep file are in scope.
 
    **Do not go hunting for the most recent report on a standalone run.** Auto-discovering a report is what makes a run session-driven, so discovering one turns a standalone request into a session-driven pass and sends its articles to staging. If the DM's request names a subject rather than a session, the run is standalone and the rest of Step 1a's report reading does not apply.
-2. **Read the report end-to-end.** The lore candidates section is your backbone, but also read the narrative, new canon, discovered canon, and open threads sections.
-3. **Read the matching prep file from `prep` if it exists.** If it has a lore resolution section, treat P0 items as priority for this pass.
-4. **Check for a lore agent proposal.** If the `lore` agent was spawned during `debrief`'s Phase 4 in the same conversation, read its structured proposal. The agent's contradiction checks, temporal flags, and update proposals are pre-validated analysis you can incorporate directly. Cross-reference against your own reading of the report: the agent may have caught things you would not, and vice versa. (If this is a fresh session without a prior lore run, the proposal will not be available in the chat history; mark the lore proposal as "not available" in your proposal template at line 70. You may optionally suggest the DM re-run a lore analysis if they want that analysis incorporated.)
+2. **Read the report end-to-end, and know what each section is for.** The **Lore Candidates** section is your backbone: it is the durable record of the `lore` agent's findings plus what `debrief` itself flagged. **New canon** and **discovered canon** are article material. The **narrative recap** and **open threads** sections are context: read them to understand what happened and what is now true, then leave them where they are. Open threads in particular is defined by `debrief` as what has changed in the world that the party does not yet know about, which makes it both a rich source of world facts and a guaranteed source of campaign material. Take the facts, leave the framing (see "What an article is").
+3. **Read the matching prep file from `prep` if it exists, for priorities only.** A prep brief is DM planning material. Its five sections are Work Review, Last Session Recap, North Stars, Handouts, and **Lore Resolution**. Only Lore Resolution concerns you: it names the outstanding lore items and their tier, and items under `Needed for next session` are this pass's priority. Nothing else in the brief is article content. North Stars in particular are scenes the DM has not run yet, which makes anything sourced from them a plan, excluded by "What an article is". If the brief has no Lore Resolution section, or it is empty, that is the normal case; move on.
+4. **Check for a lore agent proposal.** If the `lore` agent was spawned during `debrief`'s Phase 4 in the same conversation, read its structured proposal. The agent's contradiction checks, temporal flags, and update proposals are pre-validated analysis you can incorporate directly. Cross-reference against your own reading of the report: the agent may have caught things you would not, and vice versa. (The agent's findings are not lost when the conversation is: `debrief` writes them into the report's Lore Candidates section in its Phase 4, which is why that section is your backbone. A same-conversation lore run is a supplement to it, not the only source. If none ran in this conversation, mark the **Lore agent proposal** header field of the proposal as "not available in conversation; read from the report's Lore Candidates section" and carry on.)
 5. **Read the conventions** (`.professor-orb/conventions.json`, or the base schema per Principle 11 if that file is missing). The conventions are what you enforce during execution.
 6. **Check relevant category indexes.** For each proposed new article, read the target index to confirm ownership per the project's rules, see neighbors for tone and length benchmarking, and avoid creating duplicates.
 
@@ -102,7 +102,7 @@ A passage fenced in `%%` is hidden from rendered views, including a published si
 
 Organize proposed changes into buckets. Adapt the buckets to this project's conventions: not every project uses all of these.
 
-1. **New articles to create.** For each: proposed filename, target folder, target owning index, article type, estimated length (stub, short, medium, or full), and a two-sentence summary.
+1. **New articles to create.** For each: proposed filename, destination (the campaign's `articles/` folder on a session-driven run, a `kbRoot` folder on a standalone run), the proposed `publish` value, article type, estimated length (stub, short, medium, or full), and a two-sentence summary. Target owning index applies only to a `kbRoot` destination; a staged article has none, and that is correct.
 2. **Existing articles to edit.** For each: filename, section(s) being changed, description of the edit, change type (major rewrite, minor addition, correction, or contradiction remedy).
 3. **Index updates.** For each index file being touched: what is changing (new row, removal, reordering, new sub-index). Apply the project's ownership rules. If ownership is non-obvious, name the chosen index and justify in one line.
 4. **New indexes to create.** Apply the project's exact thresholds. Quote the rules, do not paraphrase.
@@ -116,15 +116,16 @@ Write the complete structured proposal to `.professor-orb/proposals/YYYY-MM-DD-p
 ```
 # Lore Update Proposal: [Campaign] / [Session Title]
 
-**Source report:** [link]
+**Run mode:** [session-driven / standalone]
+**Source report:** [link, or "None (standalone run)"]
 **Source prep:** [link or "None"]
-**Lore agent proposal:** [incorporated / not available]
+**Lore agent proposal:** [incorporated / not available in conversation, read from the report]
 **Status:** Awaiting DM review
 **Total changes:** N new articles, M edits, K index updates
 
 ## 1. New Articles (count)
-| Filename | Folder | Owning Index | Type | Length | Summary |
-|----------|--------|--------------|------|--------|---------|
+| Filename | Destination | Publish | Owning Index | Type | Length | Summary |
+|----------|-------------|---------|--------------|------|--------|---------|
 
 ## 2. Edits to Existing Articles (count)
 | Filename | Change type | Section(s) | Description |
@@ -138,6 +139,10 @@ Write the complete structured proposal to `.professor-orb/proposals/YYYY-MM-DD-p
 
 ## 5. Artifact Cleanup (count)
 - [file]: [what to clean]
+
+## 6. Lore Items to Mark Resolved (count)
+| Item | Carrier(s) | How it was resolved |
+|------|-----------|---------------------|
 
 ## Deferred / Flagged
 - [candidate]: [reason for deferring, or a temporal question carried forward from the lore agent]
