@@ -62,6 +62,22 @@ Two destinations are normal, and the run mode from Step 1a decides which is the 
 
 Frontmatter rules, filename rules, and the content rules in "What an article is" apply in full at both destinations. Staging is about readiness, never about relaxing the standard.
 
+## DM Eyes-Only blocks
+
+A passage fenced in `%%` is hidden from rendered views, including a published site. The DM may ask for one.
+
+**Only when the DM asks.** Never wrap a passage on your own initiative, and never unwrap one. Removing a fence exposes content to players, so the rule binds harder on removal than on creation: an existing block is not yours to open even when the material inside it now looks public.
+
+**The default for an unrevealed in-world fact is plain prose, not a block.** "What an article is" already puts the fact in the article, and on a session-driven run the article is staged anyway, so location is carrying the secrecy. A block is what the DM reaches for when they want one passage hidden inside an article that is already published.
+
+**Preserve every block you encounter.** An edit made for any other reason must not reflow, relocate, split, or dissolve a block, and must not quote its contents into another article's visible prose or into an index entry.
+
+**Never put campaign material inside a block.** `%%` governs who sees a fact, not whether the fact belongs. The four categories in "What an article is" stay out whether hidden or not.
+
+**Placement, when the DM asks for one:** immediately after the prose it relates to, not in a trailing section, so that an eventual unwrap is a clean edit rather than a rewrite.
+
+**When a report shows the party has learned something an existing block covers,** note it under "Deferred / Flagged" in the proposal and let the DM decide. Do not unwrap it, and do not treat the reveal as an approved edit.
+
 ## Two phases: propose, then execute
 
 **Never edit KB files before getting plan approval.** The DM reviews the plan as a whole. Once approved, you execute without asking permission for each individual file (Principle 2).
