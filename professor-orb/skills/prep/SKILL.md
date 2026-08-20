@@ -1,13 +1,13 @@
 ---
 name: prep
-description: "Session briefing skill for D&D campaigns. Reads the most recent session report from the debrief skill and collaborates with the DM to produce a session brief, a compact reference document containing a work review, last session recap, planned scenes (north stars), and a handout list. Use this skill whenever the user says \"plan next session,\" \"what do I need to prep,\" \"session prep,\" \"help me get ready for game day,\" \"session brief,\" or names a specific upcoming session in a pre-play context. Also trigger when the user has just finished a debrief and asks \"what's next\" or similar. This is the designated follow-up to the debrief skill in the session pipeline: debrief, then prep, then content and/or chronicler, then the kb-validator agent. Produces a dated brief file alongside the session report and feeds handout candidates and north stars to the content skill, and unresolved lore items to the chronicler skill. The skill's last act records pipeline state so the Stop hook can suggest the next step."
+description: "Session briefing skill for D&D campaigns. Reads the most recent session report from the debrief skill and collaborates with the DM to produce a session brief, a compact reference document containing a work review, last session recap, planned scenes (north stars), a handout list, and the campaign's outstanding lore items. Use this skill whenever the user says \"plan next session,\" \"what do I need to prep,\" \"session prep,\" \"help me get ready for game day,\" \"session brief,\" or names a specific upcoming session in a pre-play context. Also trigger when the user has just finished a debrief and asks \"what's next\" or similar. This is the designated follow-up to the debrief skill in the session pipeline: debrief, then prep, then content and/or chronicler, then the kb-validator agent. Produces a dated brief file alongside the session report and feeds handout candidates and north stars to the content skill, and unresolved lore items to the chronicler skill. The skill's last act records pipeline state so the Stop hook can suggest the next step."
 ---
 
 > **Before you begin:** read `../SHARED-PRINCIPLES.md` and apply its rules throughout this workflow.
 
 # Session Brief
 
-You are helping a D&D DM build a session brief for the next game. A session brief is a compact reference document the DM can glance at before and during the session. It is not a to-do list, not a checklist, and not a work-planning tool. It answers the question: **"What do I need to have in front of me when players sit down?"**
+You are helping a D&D DM build a session brief for the next game. A session brief is a compact reference document the DM can glance at before and during the session. It is not a to-do list for the DM's prep work, and not a work-planning tool. The one list it does carry is Section 5, the campaign's outstanding lore items, because the brief is the only durable place those exist. It answers the question: **"What do I need to have in front of me when players sit down?"**
 
 ## First: learn the user's system
 
@@ -38,7 +38,7 @@ You must have a session report. If the user has not named one:
 4. If there is no report at all, stop and point the user at the `debrief` skill first.
 
 Also read, when they exist:
-- The **previous prep file** for that campaign (to see the shape the DM prefers).
+- The **previous prep file** for that campaign, for two things: the shape the DM prefers, and its Lore Resolution section, whose unresolved items carry forward into this brief (Section 5).
 - The **campaign index** (to remind yourself of the arc so far).
 
 ## The workflow has three phases
@@ -60,7 +60,7 @@ Do not ask more than one question batch in Phase 1. Free-form elaboration the DM
 
 ### Phase 2: Draft the brief
 
-Build the brief with four sections in this order:
+Build the brief with five sections in this order:
 
 #### Section 1: Work Review
 
@@ -92,6 +92,43 @@ Use the report's narrative recap and open threads sections as source material. K
 A list of any handouts, recaps, setpieces, or prepared content files relevant to the upcoming session, with file links where they exist. If content files have been produced by the `content` skill, link to them. If the DM mentioned creating handouts in Phase 1, list those.
 
 If no handouts exist yet and the north stars suggest some would be useful (a letter to deliver, a prophecy to reveal, a location description), note them as candidates the DM could ask the `content` skill to produce. Do not draft handouts here.
+
+#### Section 5: Lore Resolution
+
+The campaign's outstanding lore work, and the only durable record of it. `chronicler` reads this section to know what to do first, and ticks items off here as it resolves them.
+
+**Sources, in this order:**
+
+1. The session report's **Lore Candidates** section, for anything still unchecked.
+2. Any north star that depends on a lore decision the DM has not made. You are already told to note these; this is where they go.
+3. Anything the Work Review surfaced that the DM has not addressed. You are already told to mention these; this is where they go.
+4. Unresolved items carried forward from the previous brief's Lore Resolution section.
+
+**Tiers.** Group items under exactly these three headings, in this order:
+
+- **Needed for next session.** A planned north star depends on it. You can work this out yourself, because you just wrote the north stars.
+- **Wanted this cycle.**
+- **Backlog.**
+
+Propose the tiers, then let the DM adjust them during the Phase 3 review exactly as they adjust north stars. If the DM promotes an item, it stays promoted (Principle 1).
+
+**Carry-forward discipline.** An item the previous brief marked resolved does not come back, ever (Principle 3). When you carry an item across, note where it came from so `chronicler` can find every copy later:
+
+```
+## Lore Resolution
+
+**Needed for next session**
+- [ ] Sunken Temple has no article. North Star 2 puts the party at its entrance.
+- [ ] Vela Thorne's article contradicts the Cinder Pact reveal. (from 2026-08-13-REPORT)
+
+**Wanted this cycle**
+- [ ] Harbormaster Quill mentioned twice, still unarticled.
+
+**Backlog**
+- [ ] Ashfall Compact membership list is incomplete.
+```
+
+Do not resolve any of these yourself. Naming them is the whole job (see "Never write lore content" below).
 
 ### Phase 3: Review and save
 
@@ -141,7 +178,7 @@ Apply any additional writing style rules from `.professor-orb/conventions.json` 
 ## How this skill connects to the others
 
 - **Position in the session pipeline:** debrief, then prep, then content and/or chronicler, then the `kb-validator` agent.
-- **Inputs:** The latest session report from `debrief` (required). Previous prep file (optional, for format reference).
-- **Outputs:** A session brief that `content` reads as secondary input for handout and setpiece context.
+- **Inputs:** The latest session report from `debrief` (required), including its Lore Candidates section. Previous prep file (read whenever one exists: its Lore Resolution section carries unresolved items forward, and it is also a format reference).
+- **Outputs:** A session brief that `content` reads as secondary input for handout and setpiece context, and whose Lore Resolution section `chronicler` reads for priorities and writes back into as it resolves items.
 - **Handoff to `content`:** When the brief identifies handout candidates or north stars that need setpieces, those are seeds `content` picks up.
-- **Handoff to `chronicler`:** If the Work Review reveals lore items the DM has not yet addressed, mention that `chronicler` can handle them. Do not resolve lore here.
+- **Handoff to `chronicler`:** Lore items the Work Review reveals are written into Section 5, not mentioned in passing, so they survive this conversation. Do not resolve lore here.
