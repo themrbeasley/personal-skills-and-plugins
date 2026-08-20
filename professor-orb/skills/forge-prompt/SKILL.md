@@ -77,14 +77,14 @@ Frontmatter carries `name` and `date`, and **no `type` field**: the write-time v
 
 Two sources, in this order. Together with the style resolved in Step 1 and what the DM tells you, they define **confirmed material**, which is the only thing a Revised Prompt may state as settled. Everything else is invented, and invented detail is offered as a Suggestion.
 
-1. **The subject's KB article,** if the subject is an entity the knowledge base knows, for canonical appearance. Content exclusions apply; the `block-excluded` hook enforces them at PreToolUse regardless of what you intend.
+1. **The subject's KB article,** if the subject is an entity the knowledge base knows, for canonical appearance. Look in `kbRoot` and in the campaign's `articles/` folder, where `chronicler` stages new articles on a session-driven run; an entity canonized in the last session is normally staged rather than published. Say which of the two you found it in, so the DM knows the article's status. Content exclusions apply; the `block-excluded` hook enforces them at PreToolUse regardless of what you intend.
 2. **Prior prompts for this same subject,** in the campaign's `prompts/` directory. Reuse the descriptors already locked there. This is what keeps a recurring NPC looking like themselves across a year of sessions, and it is the whole reason the prompts are saved. A new subject has none. That is the expected result rather than a gap to fill: say so and move on.
 
    **Read no other prompt file.** Not for style, not for structure, not for phrasing, and not for the DM's generation preferences. A file that merely looks like a prompt is not a source, and mining the wider corpus is how one subject's choices leak into another subject's prompt. Styles come from the catalog, which is read by name.
 
 The DM's direct statements this session are confirmed material too, and they outrank every source (Principle 1).
 
-**Say what grounding found, in one line, before the first Revised Prompt only.** Which style you resolved and where it came from, whether the subject has a KB article, whether prior prompts exist. The DM cannot correct a source they never saw you take, and a silent grounding step is indistinguishable from one that did not run.
+**Say what grounding found, in one line, before the first Revised Prompt only.** Which style you resolved and where it came from, whether the subject has a KB article and, if so, whether it came from `kbRoot` or the campaign's staged `articles/` folder, whether prior prompts exist. The DM cannot correct a source they never saw you take, and a silent grounding step is indistinguishable from one that did not run.
 
 **A rendering choice is not canon.** When the generator needs a detail the KB never established, you may invent one, but it never lands in the Revised Prompt as settled fact: it is offered as a Suggestion, in your own name, per "The loop" below. It never travels back into a KB article. If a KB article later contradicts a descriptor locked in the corpus, the KB wins: say the corpus entry is stale rather than quietly contradicting canon. SHARED-PRINCIPLES Principle 7 governs, and fabrication reaching the KB is the failure mode it exists to prevent.
 

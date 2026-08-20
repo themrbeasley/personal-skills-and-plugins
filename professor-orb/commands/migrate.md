@@ -22,7 +22,7 @@ This command is **standalone**. It is not part of the debrief, prep, content, ch
 
 Invoked with no argument, do **not** ask "what would you like to migrate?" Two components already record outstanding structural work, and both currently produce output nothing consumes. Read them and offer what they hold, alongside the option of a scope the DM states themselves.
 
-**Source 1: setup's deferred items.** Setup's after-action report names them: git-ignored files inside a prong, absorb candidates, split proposals, `-TIMELINE` and `-HISTORY` files, and prose path references in `CLAUDE.md` or elsewhere. **Re-derive these from the current tree rather than trusting the report**, which may be months old and may name work the DM has since done by hand. Do not offer articles missing `publish` as a scope: the planner declines it at plan time and the executor declines it again at apply time, on purpose, because no unattended process ever inserts that flag. A bulk default would publish unmarked secret lore. Set it per article; the sweep reports which articles are missing it.
+**Source 1: setup's deferred items.** Setup's after-action report names them: git-ignored files inside a prong, absorb candidates, split proposals, `-TIMELINE` and `-HISTORY` files, and prose path references in `CLAUDE.md` or elsewhere. **Re-derive these from the current tree rather than trusting the report**, which may be months old and may name work the DM has since done by hand. Do not offer articles missing `publish` as a scope: the planner declines it at plan time and the executor declines it again at apply time, on purpose, because no unattended process ever inserts that flag. A bulk default would publish unmarked secret lore. `chronicler` is the component that does set `publish`, per article, in a proposal the DM approves before execution. That is not the bulk default this rule refuses; it is the opposite of it. Set it per article; the sweep reports which articles are missing it.
 
 **Source 2: the validation sweep's needs-judgment findings**, if a sweep has run in this project. Each carries a `question` field, which is exactly the input scope negotiation needs. Ownership conflicts, ambiguous types, multi-index folders, and `tagImpliesPath` location violations (excluded content sitting outside the folder its permission deny rule covers) all land there. If no sweep has run, say so in one line and point at `/sweep`; do not run one yourself here, since a sweep is a long operation with its own command and the DM did not invoke this one to start it.
 
@@ -32,7 +32,7 @@ Present the first two as a structured pick-one-or-several menu with AskUserQuest
 
 ## Step 2: Resolve the scope
 
-The scope arrives as free text: "clean up items/", "rename the Ashfall Compact to the Cinder Pact everywhere", "split my continent article into one per region", "retire the Karsk campaign", "start a second setting".
+The scope arrives as free text: "clean up items/", "rename the Ashfall Compact to the Cinder Pact everywhere", "split my continent article into one per region", "retire the Karsk campaign", "start a second setting", "promote the staged Vela Thorne article out of the campaign's `articles/` folder into the KB".
 
 Resolution is a conversation, not a parse. **Restate the scope as you understood it, name what it would touch, and ask about anything genuinely ambiguous.** Do not interrogate: one clarifying exchange, then a plan.
 
