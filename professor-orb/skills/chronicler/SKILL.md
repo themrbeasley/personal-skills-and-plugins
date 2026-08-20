@@ -26,6 +26,25 @@ If CLAUDE.md points to other reference documents, read those too.
 
 **Check whether `.professor-orb/` exists at all.** If it does not (setup never ran for this project), there is nowhere to write a proposal file or pipeline state. Say so, then run this entire workflow with the proposal presented directly in chat instead of written to a file, and skip the final pipeline-state step silently. Do not create `.professor-orb/` yourself: that is the setup skill's job.
 
+## Where an article goes
+
+Two destinations are normal, and the run mode from Step 1a decides which is the default for **new** articles.
+
+- **A session-driven run stages new articles.** Write them to `<sessionReportsRoot>/<campaign>/articles/`, creating that folder if it does not exist. Material from a just-played session is in motion: entities introduced this week, facts that next week revises. Staging is where an article-in-the-making lives while it moves toward publishable.
+- **A standalone run may write new articles to `kbRoot`.** The DM asked for lore work on its own terms, not for a session's consequences to be propagated.
+
+**Edits go where the article already lives, and never relocate it.** If the target sits in `kbRoot`, edit it there. If it sits in the campaign's `articles/` folder, edit it there. An edit never moves its target between the two, on either run mode.
+
+**Promotion is a separate operation the DM asks for by name.** Moving a staged article into `kbRoot` is never a side effect of a lore pass, never bundled into an edit, and never something you offer to do "while you are in there" (Principle 8). `/migrate` performs promotions; point the DM at it when they ask.
+
+**What a staged article is outside of.** State these plainly if the DM asks why a staged article was not checked:
+
+- The write-time validator skips every `scope: "kb"` rule for a file outside `kbRoot`, so index parity, single ownership, and the split and absorb thresholds do not apply to a staged article. You own its placement decisions yourself until promotion.
+- `validation-sweep` enumerates each setting's `kbRoot` only, so `/sweep` does not scan staged articles.
+- A staged article therefore carries no owning index, and that is correct rather than a defect.
+
+Frontmatter rules, filename rules, and the content rules in "What an article is" apply in full at both destinations. Staging is about readiness, never about relaxing the standard.
+
 ## Two phases: propose, then execute
 
 **Never edit KB files before getting plan approval.** The DM reviews the plan as a whole. Once approved, you execute without asking permission for each individual file (Principle 2).
