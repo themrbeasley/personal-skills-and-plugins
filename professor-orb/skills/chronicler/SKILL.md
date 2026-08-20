@@ -1,6 +1,6 @@
 ---
 name: chronicler
-description: "KB lore-update skill for D&D campaigns, and the only pipeline component that writes to the knowledge base. Consumes the session report from debrief and optionally incorporates the lore agent's structured proposal if it ran in the current conversation. Drafts or refines a complete lore-update plan, writes it to a proposal file for DM review and approval, then executes exactly what the approved file says. Use this skill whenever the user says \"update the lore,\" \"update the KB,\" \"canonize last session,\" \"make the lore updates,\" \"apply the session changes,\" or asks to write or edit KB articles based on session events. Also trigger when the user has finished prep and mentions working through lore candidates. Position in the pipeline: debrief, then prep, then content and/or chronicler, then the kb-validator agent, which chronicler hands off to for post-write QA. The skill's last act records pipeline state so the Stop hook can suggest the next step."
+description: "KB lore-update skill for D&D campaigns, and the only pipeline component that writes KB articles. Consumes the session report from debrief and optionally incorporates the lore agent's structured proposal if it ran in the current conversation. Drafts or refines a complete lore-update plan, writes it to a proposal file for DM review and approval, then executes exactly what the approved file says. New articles from a session-driven run are staged in the campaign's articles folder rather than written straight to the knowledge base. Use this skill whenever the user says \"update the lore,\" \"update the KB,\" \"canonize last session,\" \"make the lore updates,\" \"apply the session changes,\" or asks to write or edit KB articles based on session events. Also trigger when the user has finished prep and mentions working through lore candidates. Position in the pipeline: debrief, then prep, then content and/or chronicler, then the kb-validator agent, which chronicler hands off to for post-write QA. The skill's last act records pipeline state so the Stop hook can suggest the next step."
 ---
 
 > **Before you begin:** read `../SHARED-PRINCIPLES.md` and apply its rules throughout this workflow.
@@ -178,6 +178,14 @@ Update the file's "Status" line to "Executing" before you begin, so a re-read mi
 4. **Update indexes** after the articles they reference are settled.
 5. **Create new indexes** last (and clean up ownership in parent indexes).
 6. **Apply artifact cleanup** as you edit each article, not as a separate pass.
+7. **Mark resolved lore items last**, once every article they refer to exists. For each row of the proposal's "Lore Items to Mark Resolved" table, tick the item's checkbox and append a one-line note of how it was resolved, in every carrier that holds it: the session report's Lore Candidates section and the prep brief's Lore Resolution section, both, wherever each exists. Use this shape:
+
+   ```
+   - [x] Sunken Temple has no article. North Star 2 puts the party at its entrance.
+         **Resolved 2026-08-20 by chronicler:** created `Sunken-Temple.md` (staged).
+   ```
+
+   If a carrier does not exist (no prep brief was written, or the report has been archived), mark the ones that do and say plainly in the report-back which carrier was missing. A missing carrier is never a reason to fail the run. Mark an item resolved even where you satisfied it incidentally rather than by working from the list: the point of the record is that nobody is later unsure whether the work was done.
 
 #### Step 2c: Enforce the project's conventions
 
@@ -210,6 +218,7 @@ Return a concise diff summary:
 **Indexes updated (K):** [list]
 **New indexes:** [list or "None"]
 **Artifacts cleaned:** N items across M articles
+**Lore items marked resolved (N):** [list, naming any carrier that was missing]
 **Deferred for DM decision:** [list or "None"]
 ```
 
@@ -252,7 +261,7 @@ For `sessionDate`: if `.professor-orb/pipeline-state.json` already exists (typic
 - **Never skip reading the conventions fresh.** Read `.professor-orb/conventions.json` (or the base schema) every run.
 - **Never do a "while I'm in there" rewrite outside of documented artifact cleanup.** Fix documented artifacts. Do not rewrite paragraphs, retitle sections, or reformat tables beyond what the proposal specifies (Principle 8).
 - **Never leave dead cross-references in lore articles.**
-- **Never edit session reports or prep files.** Those are historical records belonging to `debrief` and `prep`.
+- **Never edit narrative content in session reports or prep files.** Those are historical records belonging to `debrief` and `prep`. You may update **work-tracking state** in them, and only that: ticking a lore item's checkbox in the report's Lore Candidates section or the brief's Lore Resolution section and appending the one-line resolution note. A checkbox in a work list is not history. The recap is. Do not touch a narrative recap, an open thread, a North Star, a Work Review entry, or anything else in either file.
 - **Never resolve a temporal inconsistency yourself.** Carry it forward as a flag; the DM resolves it, optionally with the `historian` agent.
 - **Never ignore the DM's direct statements or direct file edits.** If the DM corrects something during approval, or edits the proposal file, that is canon (Principle 1).
 - **Never ask a structured go/no-go decision outside AskUserQuestion.** Plain-text approval requests in chat are not a substitute for the Step 1c approval choice.
@@ -261,8 +270,9 @@ For `sessionDate`: if `.professor-orb/pipeline-state.json` already exists (typic
 
 - **Position in the session pipeline:** debrief, then prep, then content and/or chronicler, then the `kb-validator` agent.
 - **Inputs:** On a session-driven run, the report from `debrief` (required for that mode) and the prep file from `prep` when one exists (its Lore Resolution section names which lore items are priorities). On a standalone run, the DM's named subject and the KB itself; no report is required or sought. Either way, the `lore` agent's in-conversation proposal is an optional supplement when the same conversation produced one.
-- **Outputs:** The proposal file in `.professor-orb/proposals/`, new and edited KB articles, index updates, log entries. No changes to session reports or prep files.
-- **Downstream of `debrief`:** This is the designated follow-up for the Lore Candidates section and the `lore` agent's proposal.
+- **Outputs:** The proposal file in `.professor-orb/proposals/`; new articles (in the campaign's `articles/` folder on a session-driven run, in `kbRoot` on a standalone run); edited articles and index updates where those articles live; log entries; and work-tracking updates marking lore items resolved in the source report and prep brief. Never narrative changes to a report or a brief.
+- **Downstream of `debrief`:** This is the designated follow-up for the report's Lore Candidates section, which `debrief` writes and which survives the conversation that produced it.
+- **Downstream of `prep`:** The brief's Lore Resolution section names which lore items are priorities for this pass, and its `Needed for next session` tier is what to clear first.
 - **Handoff to `kb-validator`:** After execution, the `kb-validator` agent can audit the touched articles' frontmatter, cross-references, and index ownership as a post-write QA pass.
-- **Handoff to `/scribe`:** `/scribe` can commit the KB changes.
+- **Handoff to `/scribe` and `/log`:** `/scribe` commits changes in `kbRoot`. `/log` commits the campaign lane, which includes staged articles in the `articles/` folder and the write-backs to the report and brief. A session-driven run usually produces work for both.
 - **Orthogonal to `prep` and `content`:** This skill does not write prep briefs or player-facing content.
