@@ -26,6 +26,23 @@ If CLAUDE.md points to other reference documents, read those too.
 
 **Check whether `.professor-orb/` exists at all.** If it does not (setup never ran for this project), there is nowhere to write a proposal file or pipeline state. Say so, then run this entire workflow with the proposal presented directly in chat instead of written to a file, and skip the final pipeline-state step silently. Do not create `.professor-orb/` yourself: that is the setup skill's job.
 
+## What an article is
+
+An article records the world. It does not record the campaign's progress through the world.
+
+Write what is true about the subject: what it is, what it does, where it sits, who it is connected to, what has happened to it. A fact stays in scope even when the party has not learned it yet. "Vela Thorne killed Duke Aldric" is a fact about Vela, and it belongs in her article whether or not anyone at the table has worked it out. How plainly you frame such a fact is a judgment call that can change over the course of an adventure; whether the fact belongs is not.
+
+Four kinds of sentence are about the campaign rather than the world. None of them belongs in an article, at either destination, in any article type:
+
+- **The party.** What the PCs did, saw, said, or suspected. "The party met her at the Rusty Anchor and found her evasive." An article about a person does not narrate someone else's visit.
+- **The session.** Anything indexed to a session number or a real-world date of play. "In Session 12..." Session-scoped narrative belongs to the report, which already has it.
+- **The players.** What the table knows or does not know. "The party does not yet know her true identity."
+- **The plan.** Anything not yet run: a planned reveal, an intended scene, a prepared contingency. "She will flee the city if confronted." Sourced from a prep brief, it describes an event that has not happened.
+
+**The test is the sentence's subject, not your judgment about sensitivity.** If a sentence is about the party, a session, the players, or a plan, it is campaign material. Rewrite it as a world fact or leave it out. All four already live in the session report and the prep brief, where they are correct; a second copy inside an article drifts out of sync with the first.
+
+**One carve-out: temporal declarations.** A time-travel interpretation the DM declared through the `timeline` skill (loop, branch, rewrite, or unresolved) is canon about a world phenomenon, not campaign status, and is in scope. A declaration article belongs in `kbRoot` regardless of run mode, because `timeline` reads only `kbRoot`.
+
 ## Where an article goes
 
 Two destinations are normal, and the run mode from Step 1a decides which is the default for **new** articles.
