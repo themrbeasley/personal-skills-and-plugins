@@ -565,7 +565,7 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 
 **Interfaces:**
 - Consumes: the `Lore Items to Mark Resolved` table from Task 5.
-- Produces: the term **work-tracking state**, referenced by Tasks 9 and 11.
+- Produces: the term **work-tracking state**, referenced by Task 12.
 
 - [ ] **Step 1: Add the write-back step to Step 2b**
 
