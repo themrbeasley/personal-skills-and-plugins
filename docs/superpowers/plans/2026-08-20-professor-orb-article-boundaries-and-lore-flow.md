@@ -764,6 +764,7 @@ Wait for the `lore` agent to return its findings, then **merge them into the rep
 - The edit and index buckets of its **Update Proposal** become Lore Candidates items too, worded as the change rather than as a new article.
 - **Contradictions** and **Temporal Inconsistencies** do **not** become Lore Candidates. They are chronicler's "Deferred / Flagged" material and the `historian` agent's business. Note under the section that the agent raised N of each and leave them in the conversation for chronicler to pick up.
 - **Non-obvious Connections** are neither; mention them to the DM and do not write them into the report.
+- **Deferred / Flagged** items (the agent's own bucket for items requiring a DM decision, content-excluded, or ambiguous) do not become Lore Candidates either. Like Contradictions and Temporal Inconsistencies, note under the section that the agent flagged N such items and leave them in the conversation for chronicler to pick up into its own Deferred / Flagged bucket.
 
 Present the merged section to the DM for approval (Principle 2), then update the report file. Tell them the `chronicler` skill is what canonizes any of it into the KB.
 ```
@@ -779,7 +780,7 @@ If the `lore` agent is unavailable or the DM declines the handoff, note that the
 Replace with:
 
 ```
-If the `lore` agent is unavailable or the DM declines the handoff, the Lore Candidates section you seeded in Phase 3 stands as written and final: do not make it conditional on the agent, and skip the second write entirely. Note inside the section that no lore cross-reference ran, so a later reader knows the list is debrief's own and not the agent's. Do not attempt the deep KB cross-referencing yourself; that is the `lore` agent's job.
+If the `lore` agent is unavailable or the DM declines the handoff, the Lore Candidates section you seeded in Phase 3 stands as written and final: do not make it conditional on the agent, and skip the second write entirely. The section needs no further annotation: it already reflects debrief's own findings from Phase 3, and Phase 4 simply never runs its merge on this branch. Do not attempt the deep KB cross-referencing yourself; that is the `lore` agent's job.
 ```
 
 - [ ] **Step 4: Fix the connections line at 135**
