@@ -77,9 +77,13 @@ The observable discriminator is the run's own inputs:
 - A **session-driven run** has a session report or prep file in scope, which is every run following `debrief` or `prep`. Its material is in motion. New articles stage.
 - A **standalone run** has neither. `kbRoot` is a normal destination for its new articles.
 
-Edits go where the article already lives and never relocate it. Promotion out of staging is a distinct operation the DM asks for by name, never a side effect of a lore pass.
+Edits go where the article already lives and never relocate it. Promotion out of staging is a distinct operation the DM asks for by name, never a side effect of a lore pass, and `/migrate` is what performs it.
 
-**Locating the staging area** is a structural question the base schema does not answer, so Principle 11 forbids inventing it. Chronicler follows precedent already in the campaign folder; where none exists it asks once via AskUserQuestion and records the answer in the proposal header.
+**Determining the run mode is an explicit decision, not a side effect.** Chronicler's Step 1a currently makes a report mandatory and, absent a named one, goes and finds the most recent one. Left as-is there is no reachable standalone run: every run would be session-driven, every new article would stage, and chronicler would silently stop writing to `kbRoot` altogether. Step 1a must therefore decide the mode first. A run is session-driven when the DM named a report or prep file, or when `debrief` or `prep` just ran. A run is standalone when the DM invoked chronicler on its own subject ("write up the Vela article", "tidy the faction pages"), and a standalone run does not go hunting for a report.
+
+**The staging area is a fixed subdirectory, not a configured path.** It is `<sessionReportsRoot>/<campaign>/articles/`, created on demand. This follows the precedent professor-orb already sets for campaign subdirectories: `content/` (`skills/content/SKILL.md:20`, "default to a `content/` subdirectory inside that campaign folder") and `prompts/` (`skills/forge-prompt/SKILL.md:158`, "Create the `prompts/` directory if it does not exist"). Neither is recorded in `conventions.json`, neither is asked about, and `/log` commits the campaign lane recursively so both are covered without further work.
+
+This raises no Principle 11 problem. Principle 11 forbids *inferring* structure from a consumer's prose or inventing it on the spot. A fixed name professor-orb ships is neither: CLAUDE.md states that professor-orb imposes its own structural schema and that assigning an organization method is its purpose. No `stagingRoot` field is added to `conventions.json`, no `schemaVersion` bump is needed, and `setup`, `/genesis`, and the resync path are untouched.
 
 ### 3. DM Eyes-Only blocks are opt-in only
 
@@ -174,9 +178,34 @@ Fed by three sources prep already has or is already told to notice: the report's
 
 ## Deliberately unchanged
 
-- **`agents/lore.md` needs no change.** `agents/lore.md:60` already instructs the agent to extract lore candidates from the report. Once the report has that section, the instruction becomes true instead of aspirational.
-- **`references/base-rules.json` is not touched.** Raising `frontmatterPublishPresence` to `block` would start failing writes in existing consumer knowledge bases full of articles with no `publish` field. Chronicler binds itself instead.
+- **`references/base-rules.json` rule set is not touched.** Raising `frontmatterPublishPresence` to `block` would start failing writes in existing consumer knowledge bases full of articles with no `publish` field. Chronicler binds itself instead. No `schemaVersion` bump either, since no schema field is added.
 - **No new validator check.** A regex for campaign-status prose would misfire on legitimate lore, and the blast radius reaches every consumer via `setup`.
+- **`skills/setup/SKILL.md`, `commands/genesis.md`, and the conventions schema are untouched**, because staging is a fixed subdirectory rather than a configured root.
+
+## Findings from the conflict sweep
+
+A five-lens sweep with adversarial verification of every claim (135 agents) found five confirmed conflicts and a set of gaps in the areas no lens covered. All were verified by hand against the files before being accepted. The material corrections to the design as first written:
+
+1. **`chronicler:37` and `chronicler:199` make the report mandatory**, so the standalone run was unreachable and the placement rule would have staged everything. Corrected in Decision 2 above. This was a blocker: the feature would have silently stopped chronicler writing to `kbRoot` at all.
+2. **`chronicler:200` states the no-edit rule a second time** ("No changes to session reports or prep files") in the connections section. The design named only `chronicler:191`. Both must change together, along with the frontmatter description at `chronicler:3`, which frames chronicler as writing only the KB.
+3. **`hooks/pipeline-next.mjs:59` is deterministic code**, not prose: `LANE_CLAUSES.chronicler` is `" /scribe can commit the KB changes."` and it fires after every chronicler run. Staged articles commit through `/log`. `hooks/pipeline-next.test.mjs:123` pins the string with an exact-equality assertion, so the hook and its test change together.
+4. **`debrief:69`'s section list is the third fallback**, reached only when the project has neither a report template nor existing reports. In any real consumer the structure comes from the template or from existing reports, so adding Lore Candidates to that list alone would never take effect. The section must be unconditional.
+5. **`agents/lore.md` does need a change.** `lore.md:60` governs what the agent *reads*; its Output format at `lore.md:146` has no Lore Candidates bucket, returning Contradiction Check, Temporal Inconsistencies, Update Proposal, Non-obvious Connections, and Entities Without Articles. Debrief's Phase 4 needs an explicit mapping, and `lore.md:5`, `:30`, and `:183` still claim chronicler is the sole carrier of the proposal.
+6. **`commands/log.md:59`'s surprise guard** stops on "a file inside the lane that does not match the schema". A `type: Person` article inside the session-reports lane is exactly that, so the guard needs `articles/` exempted the way `.obsidian/` already is.
+7. **`frontmatterFieldOrder` requires `publish` first** (`references/base-rules.json`, `fields: [publish, type, tags]`, `orderMatters: true`), and it is unscoped so it applies in the staging prong too. Chronicler must write `publish` as the first frontmatter field.
+8. **The publish self-binding applies to creates only.** `validate-write.mjs` fires on Edit as well as Write, so an edit to a legacy article missing `publish` would otherwise force chronicler to invent a disclosure value, which is exactly the bulk-default failure `migrate.mjs:1167` refuses. On an edit, chronicler leaves the field alone and flags the article for `/sweep`.
+9. **Staged articles are outside several safety nets.** `validate-write.mjs:960` skips every `scope: "kb"` rule for a non-KB prong, so index parity, single ownership, and the split and absorb thresholds do not apply to a staged article. `validation-sweep.mjs` enumerates only each setting's `kbRoot`, so staged articles are never scanned. `kb-validator` would flag every staged article as orphaned from any index. These are stated as consequences, and `kb-validator` gets an exemption.
+10. **The session-reports lane is enumerated in five places** that all omit staged articles: `commands/log.md:2`, `:43`, `:133`, `skills/orb/SKILL.md:42`, `README.md:24`, and `CONTEXT.md:232`.
+11. **`prep:63` says "four sections"** in the body, in addition to the frontmatter description. Four enumeration sites total: `prep:3`, `prep:63`, `orb:30`, `README:23`.
+12. **`orb:32` and `README:29` call chronicler "the only pipeline skill that writes the KB"**, which needs softening to "writes KB articles" now that it also writes outside the KB.
+13. **Both version files must be bumped to 1.16.0.** CLAUDE.md requires `version` to match in `.claude-plugin/marketplace.json` and `professor-orb/.claude-plugin/plugin.json`. This is new behavior, not a fix.
+14. **`chronicler:40` points at "your proposal template at line 70"**, a hardcoded line number that is already wrong (the field is at line 64) and that the new columns shift again. Replace with the field name.
+15. **`chronicler:48`** (Step 1b's prose field list) must gain destination and publish alongside the template, and make owning index conditional on a `kbRoot` destination.
+16. **`timeline`'s temporal declarations** are canon about a world phenomenon, not campaign status, and must be carved out of the campaign-material exclusion explicitly. A declaration article goes to `kbRoot` regardless of run mode, since `timeline` reads only `kbRoot`.
+17. **`prep:10`** defines the brief as not a checklist, which Section 5 contradicts head-on and must be narrowed.
+18. **`prep:41` and `prep:144`** scope the previous-brief read to format only; carry-forward needs its content.
+19. **`forge-prompt:81`** resolves "the subject's KB article" and will miss a staged article, which is precisely the case right after a session-driven chronicler run.
+20. **`CONTEXT.md`** is the project glossary and CLAUDE.md requires reading it before writing user-facing prose. It needs a staging entry and amendments to the lane model.
 
 ## Risks
 
