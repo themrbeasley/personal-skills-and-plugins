@@ -200,12 +200,22 @@ conditions have one home, `What the design responded to.`, bound to a campaign a
 the month and year, where a condition stays true after play moves past it.
 _Avoid_: lore commentary under this heading, current campaign state, calling it canon
 
+**staging area**:
+The campaign's `articles/` folder, `<sessionReportsRoot>/<campaign>/articles/`, where
+`chronicler` writes new articles on a session-driven run. An article lives there while it
+moves toward publishable, and reaches `kbRoot` only when the DM promotes it. Staged
+articles sit outside folder-index parity, `/sweep`, and every `scope: "kb"` validator rule
+until promotion.
+_Avoid_: "staging root" (it is a fixed subdirectory, not a configured path), and "draft
+folder" (a staged article is finished prose, not a draft).
+
 **lane model**:
 The split that governs committing: three prongs, three commands, and a commit that
 never mixes them. `/catalog` owns the homebrew prong (`homebrew/<setting>/`) and
 commits the entry and index it just wrote; `/scribe` owns the setting KB
 (`settings/<setting>/`); `/log` owns one campaign's session reports
-(`session-reports/<setting>/<campaign>/`). Lane roots resolve from the conventions
+(`session-reports/<setting>/<campaign>/`), which includes the campaign's `articles/`
+staging area. Lane roots resolve from the conventions
 file's `settings` array, never from a bare `kbRoot`: on a v1 or v2 shape that root
 physically contains all three prongs, so `/scribe` and `/log` refuse rather than
 sweep the other two into a commit labelled for one. A command that spots
@@ -232,8 +242,10 @@ _Avoid_: calling it a KB writer (it commits, it does not author), merging settin
 **log command**:
 The `/log` capture step for the session-reports lane: the reports `debrief` writes,
 the Session Prep briefs `prep` saves beside them, the recaps and handouts `content`
-writes into the campaign's `content/` subdirectory, and the prompts `forge-prompt`
-saves into the campaign's `prompts/` subdirectory. Authors none of it.
+writes into the campaign's `content/` subdirectory, the prompts `forge-prompt`
+saves into the campaign's `prompts/` subdirectory, and the articles `chronicler`
+stages into the campaign's `articles/` staging area on a session-driven run.
+Authors none of it.
 One resolved campaign per invocation, asking rather than guessing when more than one
 has outstanding work. A report missing required frontmatter or carrying an empty
 section is set aside by name while the rest of the lane still commits: a report
@@ -291,6 +303,8 @@ The Master-INDEX is simply the KB root's one index. Parity also feeds the DM's
 separate wiki-website project, where folders/indexes define the site's categories.
 Rolara needs a one-time migration to parity (its `items/` folder alone holds 6
 sub-index files today): snapshot commit, unattended execution, after-action report.
+A staged article sitting in the campaign's `articles/` folder is outside parity
+entirely until the DM promotes it; parity governs `kbRoot` only.
 _Avoid_: free-floating thematic indexes without a folder, multiple indexes per folder
 
 **index maintenance**:
