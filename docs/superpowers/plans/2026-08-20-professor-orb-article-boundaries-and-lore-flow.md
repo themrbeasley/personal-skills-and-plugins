@@ -1499,13 +1499,20 @@ grep -rn "lore resolution section\|P0 lore items\|P0 items" professor-orb/ ; ech
 grep -rn "No changes to session reports or prep files\|Never edit session reports or prep files" professor-orb/ ; echo "(expect no output)"
 ```
 
-- [ ] **No em dashes anywhere in the plugin**
+- [ ] **No em dashes anywhere in the plugin, outside two pre-existing files this plan does not touch**
 
 ```bash
-grep -rl "—" professor-orb/ --include="*.md" --include="*.mjs" --include="*.json" ; echo "(expect no output)"
+grep -rl "—" professor-orb/ --include="*.md" --include="*.mjs" --include="*.json"
 ```
 
-The plugin has zero em dashes today (verified before this plan was written), so any hit is something this work introduced.
+Expected output is exactly these two lines, nothing else:
+
+```
+professor-orb/commands/references/catalog-type-templates.md
+professor-orb/skills/homebrew/SKILL.md
+```
+
+Correction found during Task 14: these two files carry em dashes and predate this plan entirely (both last touched 2026-08-17, three days before this plan's first commit). The original baseline check that produced this plan's earlier "zero em dashes" claim was run incorrectly; these two files were always there. Neither is in any task's file list, and fixing them is out of scope for this plan (Principle 8: no "while I'm in there" rewrites). Any line beyond these exact two is what this work introduced.
 
 - [ ] **Versions match**
 
