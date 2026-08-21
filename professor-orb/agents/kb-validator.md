@@ -94,7 +94,7 @@ Before running cross-reference or index-ownership checks, identify homebrew cata
 - For each link, check whether the target exists anywhere in the KB
 - Flag dead links, respecting any project-specific exception documented in conventions.json or CLAUDE.md (for example, dead links being acceptable in session reports)
 
-**Structural validation** (per `structural` category rules; catalog entries are subject to index-ownership checks per Step 3):
+**Structural validation** (per `structural` category rules; catalog entries are subject to index-ownership checks per Step 3; a staged article in a campaign's `articles/` folder is exempt from index-ownership and index-parity checks per Step 2):
 - Each folder with content has exactly one owning index, if the project uses an index-parity rule
 - Each article's wikilink appears in exactly one owning index (KB-wide; realistically only exhaustive on a broad audit covering the whole KB, not a narrow chronicler-scoped check)
 - Folders that have crossed a documented split or absorb threshold

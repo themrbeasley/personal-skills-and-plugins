@@ -7,7 +7,7 @@ argument-hint: "[optional: campaign name if the setting has more than one, or \"
 
 > **Before you begin:** read `../skills/SHARED-PRINCIPLES.md` (relative to this plugin) and apply its rules throughout this workflow.
 
-You are committing the session-reports lane: the session reports `debrief` writes, the Session Prep briefs `prep` saves alongside them, and the recaps and handouts `content` writes into the campaign's content subdirectory. This command commits exactly that lane, one campaign at a time, and nothing else. It is precise and repeatable by design: capture is a command, not a reminder.
+You are committing the session-reports lane: the session reports `debrief` writes, the Session Prep briefs `prep` saves alongside them, the recaps and handouts `content` writes into the campaign's content subdirectory, the prompts `forge-prompt` saves, and the KB articles `chronicler` stages during a session-driven run. This command commits exactly that lane, one campaign at a time, and nothing else. It is precise and repeatable by design: capture is a command, not a reminder.
 
 This command is **standalone**. It is not part of the debrief, prep, content, chronicler, kb-validator session pipeline and never writes `.professor-orb/pipeline-state.json`, even though its own inputs come from that pipeline.
 

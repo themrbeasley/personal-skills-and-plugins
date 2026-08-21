@@ -97,7 +97,7 @@ Once the report is written, spawn the `lore` agent with fan-out instructions:
 - Instruct the agent to fan out: one subagent per entity touched in the session, each subagent reading only the session report and that entity's KB article(s). The lore agent fans out per entity when the session touched three or more entities; smaller sessions are analyzed directly.
 - The parent `lore` agent merges the subagents' findings into a single structured proposal: non-obvious connections, contradictions, lore candidates, and entities without articles.
 
-Wait for the `lore` agent to return its findings, then **merge them into the report's Lore Candidates section**. This is the second and last write to the report, and it is what makes the agent's analysis durable rather than dying with this conversation. Map its output sections as follows:
+Wait for the `lore` agent to return its findings, then **merge them into the report's Lore Candidates section**. This is the second and last write to the report, and it is what makes the agent's analysis durable rather than dying with this conversation. If the agent's response includes its own "Lore Candidates" bucket, use it directly: it is already the items from Update Proposal and Entities Without Articles, restated as checkboxes. Otherwise, map its output sections yourself, as follows:
 
 - **Entities Without Articles** and the new-article bucket of its **Update Proposal** become Lore Candidates items.
 - The edit and index buckets of its **Update Proposal** become Lore Candidates items too, worded as the change rather than as a new article.
