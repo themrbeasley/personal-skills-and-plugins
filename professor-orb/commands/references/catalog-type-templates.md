@@ -14,14 +14,27 @@ Field sets are grounded in SRD 5.2.1 (2024 rules). See the design spec
 
 - **Preservation:** the body holds the DM's finalized content verbatim. The medium follows
   the source: content designed in the homebrew skill is preserved as the finalized formatted
-  text; content exported from Foundry (Phase 2) is preserved as raw HTML in fenced blocks.
-  Never silently rewrite the DM's content.
+  text. Content from a Foundry export is rendered as clean markdown: the export's HTML
+  becomes markdown headings, paragraphs, lists, and emphasis, with its words unchanged, and
+  never goes into a fenced HTML block. The export itself is kept byte-for-byte in
+  `foundryvtt/<bucket>/` beside the entry, so nothing is lost by rendering it. Never
+  silently rewrite the DM's content.
 - **Skeleton vs content:** the template defines the frontmatter fields and which named body
   blocks exist for the type. The source fills each block verbatim.
 - **Required frontmatter floor (all types):** `name`, `type` (the artifact type key),
   `status` (lifecycle; see the command), `version`, `date` (capture date, today), plus
   whatever `.professor-orb/conventions.json` marks required. Type-specific fields below are
   additive.
+
+### Sheets from other game systems
+
+The field sets below are D&D 5e's. A Foundry export records its game system in
+`_stats.systemId`. When that value is anything other than `dnd5e` (for example
+`invincible`, Invincible: The Roleplaying Game), keep the type's basic layout: the required
+frontmatter floor, then a `## Lore` section, then a `## Stat Block` section. Fill the stat
+block with that system's own fields, named and ordered as the export has them. Leave out
+the D&D-only **[F]** fields (AC, CR, XP, the six ability scores, and the rest). Do not map
+another system's stats onto them. The reference entry is `homebrew/supers/npcs/D-Vine.md`.
 
 ### Design Notes (optional, every type)
 

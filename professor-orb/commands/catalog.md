@@ -21,7 +21,7 @@ This command is **standalone**, like `homebrew` and `timeline`. It is not part o
 
 The primary source is the finalized homebrew the DM just confirmed, typically the homebrew skill's iterated output, whether pasted or referenced in the same message, or confirmed earlier in this conversation. This needs no Foundry. If the DM instead supplies a manual paste of finalized content, use that.
 
-Reading an exported Foundry actor or item JSON is a planned enrichment and is not yet available in this version. For now, capture from the finalized design or a paste; do not ask the DM for a Foundry export.
+An exported Foundry actor or item JSON the DM attaches is finalized source material too: it is the as-built version from the DM's own install. Copy it unchanged into `<homebrewRoot>/foundryvtt/<bucket>/`, with the bucket taken from its top-level `type` per the `homebrew` skill's bucket table, named with the entry's own filename stem and a `.json` extension so Step 7 finds it. Then build the entry from it. The export's `_stats.systemId` names its game system; carry that into Step 4. Capture from what the DM supplied; never ask for an export they did not attach.
 
 Catalog only finalized, confirmed homebrew. The guard is not "only a fresh paste"; it is "only content the DM has finalized." The DM invoking /catalog on content they just confirmed is the approval. Do not re-paste what the assistant already authored, and do not catalog an unfinished draft.
 
@@ -64,9 +64,11 @@ Carry the established mode (`git`, `github`, or `changelog`) forward to Step 7, 
 
 Determine the artifact's type. If the DM named it, or it is unambiguous from the finalized content itself (a stat block is plainly a monster or npc, a five-level progression table is plainly a class), use that. If it is genuinely ambiguous, ask with AskUserQuestion, offering the ten type keys: `spell`, `magic-item`, `feat`, `feature`, `monster`, `npc`, `species`, `subclass`, `class`, `other`.
 
-Read `references/catalog-type-templates.md` (relative to this command) and use the `## <type key>` section matching the chosen type. For `monster` or `npc`, both keys draw on the shared `## monster and npc (shared stat-block schema)` section; `npc` additionally populates that section's flavor fields.
+Read `references/catalog-type-templates.md` (relative to this command) and use the `## <type key>` section matching the chosen type. For `monster` or `npc`, both keys draw on the shared `## monster and npc (shared stat-block schema)` section; `npc` additionally populates that section's flavor fields. For a Foundry export whose `_stats.systemId` is anything other than `dnd5e`, apply that file's `## Sheets from other game systems` rule as well.
 
-Each template section tags its fields: **[F]** frontmatter fields, **[B]** the named body blocks, and **[H]** homebrew-only fields with no SRD basis. Fill the **[F]** fields from what is evident in the DM's finalized content. For anything ambiguous, missing, or not decidable from the content alone, use AskUserQuestion to confirm it before writing; never guess a frontmatter value. Treat the **[B]** blocks per the template's Preservation rule: they hold the DM's finalized content and are carried into the entry verbatim, not rewritten or filled in from your own judgment.
+Then read an existing entry of the same type in this catalog as the worked example: its frontmatter, its section headings, and how its body renders the source. In the Rolara catalog, `npcs/Dame-Ayda-Zoranda.md` is the example for an `npc` captured from a Foundry export. Follow the example's shape.
+
+Each template section tags its fields: **[F]** frontmatter fields, **[B]** the named body blocks, and **[H]** homebrew-only fields with no SRD basis. Fill the **[F]** fields from the DM's finalized content, using the example entry to settle how a field is filled. Use AskUserQuestion only for a value that neither the source nor the existing entries settle; never guess a frontmatter value. Treat the **[B]** blocks per the template's Preservation rule: they hold the DM's finalized content and are carried into the entry verbatim, not rewritten or filled in from your own judgment.
 
 ## Step 5: Assemble the entry
 
@@ -157,7 +159,5 @@ Keep it short: a handful of facts, not a restatement of the entry's contents.
 - **Standalone**, like `homebrew` and `timeline`: runs on demand, independent of the session pipeline's state, and never writes `.professor-orb/pipeline-state.json`.
 - **Fed by:** the `homebrew` skill (`professor-orb/skills/homebrew/SKILL.md`), which points the DM here once a design is finalized, and again later once that design is implemented in Foundry, but never runs this capture itself.
 - **Reads:** `.professor-orb/conventions.json` (CLAUDE.md fallback) for KB structure and frontmatter rules, and `references/catalog-type-templates.md` (relative to this command) for the type-specific field and body-block schema.
-- **Writes:** one markdown entry in the homebrew catalog folder (new, or updated in place on a revision), the owning Homebrew index, and, on the first capture that establishes versioning, the `.professor-orb/versioning.json` marker. Nothing else.
+- **Writes:** one markdown entry in the homebrew catalog folder (new, or updated in place on a revision), the owning Homebrew index, an attached Foundry export copied unchanged into its `foundryvtt/<bucket>/`, and, on the first capture that establishes versioning, the `.professor-orb/versioning.json` marker. Nothing else.
 - **Read back by:** the `homebrew` skill, which treats catalogued entries as design precedent alongside published material when checking for design overlap.
-
-Foundry-JSON sourcing (reading an exported actor or item JSON directly, per Step 1) arrives in Phase 2 and is not available in this version.
