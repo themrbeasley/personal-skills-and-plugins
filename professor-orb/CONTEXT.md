@@ -147,9 +147,9 @@ a sibling prong of the KB root rather than a subfolder inside it (`type` holds t
 artifact key: `spell`, `magic-item`, `monster` and the rest; `publish: false`
 default). Entries are markdown files: YAML frontmatter (the required floor plus the
 type's own fields) over a body made of the type's named blocks, holding the DM's
-confirmed design verbatim, typically the `homebrew` skill's iterated output. Reading
-an exported Foundry actor or item JSON as an entry's source is a planned Phase 2
-enrichment, not yet available. Entries sit outside the wikilink graph (no wikilinks in
+confirmed design verbatim, typically the `homebrew` skill's iterated output. An
+exported Foundry actor or item JSON the DM attaches is finalized source too: copied
+unchanged into `foundryvtt/<bucket>/` and rendered into the entry as markdown. Entries sit outside the wikilink graph (no wikilinks in
 or out; mechanics layer, like DnDBeyond footnotes). Organized with sub-indexes per
 professor-orb's own
 folder-index parity rules as it grows. Serves double duty: the DM's record of what
