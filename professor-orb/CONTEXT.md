@@ -91,8 +91,9 @@ style before drafting anything, from the style the DM names, the house style
 runs an iterative loop borrowed from the DM's own ultimate-prompt-creator skill: three
 blocks per round and only three, Revised Prompt, Suggestions, Questions. A Suggestion
 proposes one add, edit, or delete against the prompt's text, and the DM's answer
-decides it, with a decline dropping it, silence adopting it, and a counter replacing it
-in the DM's own words. A Question resolves an ambiguity in what the DM already said,
+decides it: a yes adopts it, a decline drops it, a counter replaces it in the DM's own
+words, and silence holds it outside the prompt until they rule. A Question resolves an
+ambiguity in what the DM already said,
 never an absence, and an absence is a Suggestion. The Revised Prompt carries confirmed
 material only, from the KB article, prior prompts for that same subject, the resolved
 style, and the DM; invention is offered as a Suggestion instead, so a thin
@@ -103,7 +104,7 @@ recognize. May also record which style is the house style in the project's `CLAU
 the only file outside `prompts/` it writes and the one `/log` does not commit. The DM runs
 generation manually; deeper ComfyUI integration remains a flagged future investigation.
 _Avoid_: "the prompt skill" (ambiguous), calling its output canon, calling an invented
-detail confirmed
+detail confirmed, calling an unanswered Suggestion adopted
 
 **prompt corpus**:
 The accumulated prompt files in a campaign's `prompts/` directory: the DM's record of

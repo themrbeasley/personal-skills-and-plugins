@@ -1,6 +1,6 @@
 ---
 name: forge-prompt
-description: "Image-generation prompt craft for D&D campaign visuals, written for FLUX.2 and ComfyUI. Three entry modes: forge a prompt for a new image from nothing, write an edit prompt against an image the DM has already approved, or diagnose a prompt that produced a disappointing result. Resolves a visual style before drafting anything: the style the DM names, the house style recorded in the project's CLAUDE.md, a recorded opt-out, or one built with the DM on the spot and offered to the campaign's style catalog. Then runs an iterative refinement loop rather than a single draft, and every round returns exactly three blocks: a complete copy-paste-ready prompt, two to four suggestions that each add, edit, or delete specific text in that prompt, and at most three questions, asked only to settle an ambiguity in what the DM has already said. A suggestion the DM declines is dropped, one they leave alone is adopted, and a counter-offer replaces it in the DM's own words. The prompt states only what a source confirms: the subject's KB article for canonical appearance, prior prompts for that same subject so a recurring NPC stays visually consistent, the resolved style, and what the DM says. Invented detail is offered as a suggestion instead, so the DM keeps creative license over their own subject. Use this skill whenever the DM asks for an 'image prompt,' a 'Flux prompt,' a 'prompt for a portrait or map or item,' wants to 'edit this image,' 'change the outfit,' 'fix this prompt,' or says a generated image came out wrong. Standalone, on demand, like homebrew and timeline: not part of the debrief, prep, content, chronicler, kb-validator session pipeline, and never writes pipeline-state.json. Never writes to the knowledge base, and never runs image generation itself."
+description: "Image-generation prompt craft for D&D campaign visuals, written for FLUX.2 and ComfyUI. Three entry modes: forge a prompt for a new image from nothing, write an edit prompt against an image the DM has already approved, or diagnose a prompt that produced a disappointing result. Resolves a visual style before drafting anything: the style the DM names, the house style recorded in the project's CLAUDE.md, a recorded opt-out, or one built with the DM on the spot and offered to the campaign's style catalog. Then runs an iterative refinement loop rather than a single draft, and every round returns exactly three blocks: a complete copy-paste-ready prompt, two to four suggestions that each add, edit, or delete specific text in that prompt, and at most three questions, asked only to settle an ambiguity in what the DM has already said. A suggestion enters the prompt only when the DM takes it: a yes adopts it, a decline drops it, a counter-offer replaces it in the DM's own words, and one left unanswered stays listed, outside the prompt, until the DM rules on it. The prompt states only what a source confirms: the subject's KB article for canonical appearance, prior prompts for that same subject so a recurring NPC stays visually consistent, the resolved style, and what the DM says. Invented detail is offered as a suggestion instead, so the DM keeps creative license over their own subject. Use this skill whenever the DM asks for an 'image prompt,' a 'Flux prompt,' a 'prompt for a portrait or map or item,' wants to 'edit this image,' 'change the outfit,' 'fix this prompt,' or says a generated image came out wrong. Standalone, on demand, like homebrew and timeline: not part of the debrief, prep, content, chronicler, kb-validator session pipeline, and never writes pipeline-state.json. Never writes to the knowledge base, and never runs image generation itself."
 ---
 
 > **Before you begin:** read `../SHARED-PRINCIPLES.md` and apply its rules throughout this workflow.
@@ -108,17 +108,18 @@ Each Suggestion proposes one change to the text of the Revised Prompt: **add** a
 
 Two to four per round, ordered by impact, one change per line so each can be answered on its own.
 
-**The DM's answer decides each one:**
+**The DM's answer decides each one, and only a yes or a counter puts one in the prompt:**
 
+- **Yes:** adopted. It goes into the next Revised Prompt, and from that round on it is confirmed material.
 - **No, or anything reading as a pass:** dropped, and not re-proposed.
-- **Silence:** adopted. It goes into the next Revised Prompt, and from that round on it is confirmed material.
 - **A counter or an adjustment:** theirs replaces yours, worded as they worded it. Yours is gone.
+- **Hold, not yet, or no answer:** held. It stays out of the prompt and is listed again next round, word for word, until the DM rules on it. Held Suggestions count toward the four, and new ones take the room that is left.
 
-**Invention is a Suggestion, never a fact.** When the image needs a detail no source confirms, propose it here as an add, in your own name: "Add: a leather apron scorched at the hem, so he reads as a working smith rather than a posed one." One detail per line, so a DM who wants the apron and not the scorching says so in three words. Adopted by silence like anything else, and settled once adopted.
+**Invention is a Suggestion, never a fact.** When the image needs a detail no source confirms, propose it here as an add, in your own name: "Add: a leather apron scorched at the hem, so he reads as a working smith rather than a posed one." One detail per line, so a DM who wants the apron and not the scorching says so in three words. Like any Suggestion, it enters the prompt on a yes, and is settled once it does.
 
 ### Questions
 
-**A Question resolves an ambiguity, never an absence.** Something the DM has already said reads two ways, the two readings produce different images, and no source settles which one they meant. That is the entire class. A detail nobody has mentioned is not ambiguous, it is missing, and missing detail is a Suggestion adopted by silence.
+**A Question resolves an ambiguity, never an absence.** Something the DM has already said reads two ways, the two readings produce different images, and no source settles which one they meant. That is the entire class. A detail nobody has mentioned is not ambiguous, it is missing, and missing detail is a Suggestion.
 
 The ambiguity sits in one of the four parts a FLUX.2 prompt is built from: **subject**, **action**, **style**, **context**. "You said the tower fell: is this mid-collapse, or the ruin years after?" is an action fork, and the two prompts share almost no words. "Is he bearded?" is not a fork. Nobody said anything about his face, so it is an add.
 
@@ -131,7 +132,7 @@ Zero to three per round. Zero is the normal state once the readings are settled,
 - **Never stall.** Produce a Revised Prompt every round. On a vague or incomplete answer about which of two readings you meant, make a reasonable inference, state it explicitly, and raise it as a Question only if getting it wrong would be expensive. **This license stops at the subject's appearance.** A visual detail no source confirms is invented, and invented detail is offered as a Suggestion. A thin prompt satisfies this rule. An invented one does not.
 - **This rule governs the loop, which Step 1 precedes.** Resolving the style happens before the first round exists, so waiting on it is not stalling. Once the loop starts, every round produces a prompt.
 - **On a contradiction,** acknowledge the change in one line, update the prompt, and do not carry the contradiction forward.
-- **On "looks good" with obvious gaps,** do not declare victory. Apply the outstanding Suggestions, ask the single most important remaining Question, and tighten.
+- **On "looks good,"** the prompt stands exactly as shown, and held Suggestions stay held, out of it. Ask a Question only if one still blocks; otherwise the prompt is stable, so hand it over per the next section.
 
 ## The test runs in ComfyUI, not here
 
