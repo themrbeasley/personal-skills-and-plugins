@@ -56,7 +56,7 @@ Build the scope into the structure `buildScopedPlan` takes: `{projectRoot, setti
 
 **If a collision is found, say so instead of asking for approval as though the plan will run.** Write the proposal as usual so the DM can see exactly what collided and where, but do not present it for approval: name the colliding path or pair, point at the file's Prechecks section, and ask the DM to change the scope (rename one side, exclude the colliding path, point at a different destination, or, when the collision's own reason says an operation in the plan frees the path but only later, reorder the scope so that freeing operation comes first) so the plan can be rebuilt without the collision. Return to the top of this step once the scope changes; do not carry a plan with failed prechecks forward into Step 5.
 
-Write the proposal with `renderProposal` to `.professor-orb/proposals/migrate-<short-slug>.md`, following the same proposal-file convention `chronicler` uses: the DM may edit the file on disk, and execution reads that file rather than the conversation. Give the DM a summary and a pointer to the file in chat; do not paste the whole plan into the conversation.
+Write the proposal with `renderProposal` to `.professor-orb/proposals/migrate-<short-slug>.md`, following the same proposal-file convention `chronicler` uses: the DM may edit the file on disk, and execution reads that file rather than the conversation. Give the DM a summary in chat and deliver the file itself per SHARED-PRINCIPLES Principle 2; do not paste the whole plan into the conversation.
 
 **Then wait.** The DM may approve, or edit the file and then approve. Say plainly that editing it is expected and that what runs is what the file says.
 

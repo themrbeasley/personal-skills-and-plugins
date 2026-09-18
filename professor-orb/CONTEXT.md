@@ -358,8 +358,9 @@ _Avoid_: paraphrased contradiction reports, haiku for lore judgment calls
 
 **proposal file**:
 Chronicler's lore-update proposal, written to a temporary file in
-`.professor-orb/` rather than pushed into chat (chat gets a summary and a
-pointer). The DM reviews the file, may edit it directly, and approves; chronicler
+`.professor-orb/` rather than pushed into chat (chat gets a summary, and the DM gets
+the file itself with its absolute path). The DM reviews the file, may edit it
+directly, and approves; chronicler
 then executes exactly what the approved file says rather than re-deriving intent
 from the discussion. What you approved is what lands on disk.
 _Avoid_: proposal dumps in chat, chronicler improvising beyond the approved text

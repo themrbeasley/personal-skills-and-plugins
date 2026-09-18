@@ -151,15 +151,15 @@ Write the complete structured proposal to `.professor-orb/proposals/YYYY-MM-DD-p
 
 **Question discipline.** The proposal is the only hard checkpoint. Do the reading, make the calls, present the full plan. If you hit a genuinely ambiguous call, either make the call in the proposal and explain your reasoning, or flag it in "Deferred / Flagged."
 
-**Chat gets a summary, not the dump.** In the conversation, give the DM a short summary (the totals from the header, and any items flagged for their attention) and a pointer to the proposal file's path. Do not paste the full table structure into chat.
+**Chat gets a summary, not the dump.** In the conversation, give the DM a short summary (the totals from the header, and any items flagged for their attention), and deliver the file itself per SHARED-PRINCIPLES Principle 2. Do not paste the full table structure into chat.
 
-**The DM may edit the file directly.** Tell the DM they can open the proposal file and revise it by hand (reword a summary, cut a row, change a target folder) instead of dictating changes back through chat. Either path is fine. What matters is that the file on disk, not the conversation, is what Phase 2 executes.
+**The DM may edit the file directly.** Tell the DM they can revise the file by hand at the absolute path you gave (reword a summary, cut a row, change a target folder) instead of dictating changes back through chat. Either path is fine. What matters is that the file on disk, not the conversation, is what Phase 2 executes.
 
 **Ask for approval as a structured decision.** Use AskUserQuestion to offer the DM a choice: approve as written, approve with edits they will make directly in the file, walk through items together, or reject. Free-form back-and-forth about specific items (why a folder was chosen, whether a summary reads right) is open-ended creative discussion and stays plain conversation; only the go/no-go decision itself needs AskUserQuestion.
 
 #### Step 1d: Incorporate feedback
 
-If the DM asks for changes through chat rather than editing the file directly, revise the proposal file and update its "Status" line, then re-summarize only the changed sections in chat. Do not proceed to Phase 2 until the DM has given a clear approval signal for the current state of the file.
+If the DM asks for changes through chat rather than editing the file directly, revise the proposal file and update its "Status" line, then re-summarize only the changed sections in chat and deliver the revised file (Principle 2). Do not proceed to Phase 2 until the DM has given a clear approval signal for the current state of the file.
 
 ### Phase 2: Execute
 
