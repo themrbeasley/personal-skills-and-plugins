@@ -42,6 +42,8 @@ They move together because a house-style line recorded early, for a style saved 
 
 An answer that already asks for both is the approval: the file is copied and the line written in that turn. Finishing keeps one offer, saving the prompt.
 
+Step 1 points at the offers from every row, not only from Building a style. The 08-18 spec found a section nothing in the executed sequence called, and it shipped inert; a pointer from one row alone would repeat that for every other row.
+
 ### Another campaign's style is read from its file
 
 Step 1 gains a row for a style named from another campaign, by its own name or as that campaign's house style, and the row's action is reading that file. An instruction to read closes off working from a recollection without having to name it. The last row changes from a style "the catalog does not have" to one "no catalog has"; otherwise both rows would claim a style that only another campaign holds.
@@ -94,7 +96,7 @@ Proposals are still not pasted into chat in full; the glossary's rule against pr
 
 **Step 0.** "If the DM's opening message is ambiguous, default to Forge and treat what they said as the subject." is replaced:
 
-> When the subject has an image the DM has approved (one they have shared, pointed to, or reported rendering), a message describing what changes or what stays ("still has green hair," "the background becomes an alley") is Edit. When the opening message could still be asking for either an edit or a fresh render, ask one question before anything else: "An edit of that image, or a fresh render?" An edit prompt and a generation prompt share almost no text.
+> When the subject has an image the DM has approved (one they have shared, pointed to, or reported rendering), a message describing what changes or what stays ("still has green hair," "the background becomes an alley") is Edit. When the opening message could still be asking for either an edit or a fresh render, ask one question first: "An edit of that image, or a fresh render?" An edit prompt and a generation prompt share almost no text.
 
 **Step 1.** "Resolve exactly one of four outcomes" becomes "five outcomes". The table gains a row after its first:
 
@@ -104,9 +106,9 @@ The last row's first cell becomes:
 
 > Names a style no catalog has, or names none and nothing is recorded either way
 
-And a sentence after the table:
+And a paragraph after the table:
 
-> Another campaign's catalog sits at the same path under that campaign's folder, in whichever setting's `sessionReportsRoot` holds it (Principle 12).
+> Another campaign's catalog sits at the same path under that campaign's folder, in whichever setting's `sessionReportsRoot` holds it (Principle 12). Whichever row resolves the style, the offers in "Recording the style" below come next, before the first Revised Prompt.
 
 **Building a style.** "Propose the style as a short block, show it, and take their corrections." becomes:
 
@@ -233,7 +235,7 @@ Step 4: "Give the DM a summary and a pointer to the file in chat; do not paste t
 
 Each gains one line under its header pointing here, so a session reading it before a change does not act on a superseded rule:
 
-- `2026-08-09-forge-prompt-skill-design.md`: approved-by-default Suggestions, Step 0's default to Forge, and multi-reference composition in the editing reference are superseded.
+- `2026-08-09-forge-prompt-skill-design.md`: approved-by-default Suggestions, Step 0's default to Forge, and multi-reference composition in the editing reference are superseded. Its Status line also changes from "Draft for DM review" to "Implemented (`89a6516`)".
 - `2026-08-16-forge-prompt-grounding-and-invention-design.md`: approved-by-default Suggestions are superseded.
 - `2026-08-18-forge-prompt-style-gate-and-suggestions-design.md`: silence as an answer, and the style offers at the close, are superseded.
 - `2026-08-18-forge-prompt-question-definition-design.md`: its Status line changes from "Approved, not yet implemented" to "Implemented (`7d62069`)", and its pointer notes that silence no longer adopts a Suggestion.
