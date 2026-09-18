@@ -93,8 +93,8 @@ skill: three blocks per round and only three, Revised Prompt, Suggestions, Quest
 Suggestion proposes one add, edit, or delete against the prompt's text, and the DM's
 answer decides it: a yes adopts it, a decline drops it, a counter replaces it in the
 DM's own words, and silence holds it outside the prompt until they rule. A Question
-resolves an ambiguity in what the DM already said, never an absence, and an absence is a
-Suggestion. The Revised Prompt carries confirmed
+resolves an ambiguity in what the DM already said, never an absence,
+and an absence is a Suggestion. The Revised Prompt carries confirmed
 material only, from the KB article, prior prompts for that same subject, the resolved
 style, and the DM; invention is offered as a Suggestion instead, so a thin
 first prompt is correct output and a fully specified stranger is not. Saves to
