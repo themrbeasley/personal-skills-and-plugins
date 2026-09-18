@@ -1,7 +1,8 @@
 # forge-prompt: Splitting Image Prompt Craft Out of Content
 
 **Date:** 2026-08-09
-**Status:** Draft for DM review
+**Status:** Implemented (`89a6516`)
+**Superseded in part by:** `2026-09-17-forge-prompt-held-suggestions-and-proposal-delivery-design.md`, for approved-by-default Suggestions, Step 0's default to Forge, and multi-reference composition in the editing reference.
 **Scope:** professor-orb plugin only. One new skill, one skill reduced, and the collateral doc updates that keep the plugin's own inventory honest. No consumer project file is moved, read, or reorganized by this work.
 
 ## The problem

@@ -1,7 +1,8 @@
 # forge-prompt: What a Question Is
 
 **Date:** 2026-08-18
-**Status:** Approved, not yet implemented
+**Status:** Implemented (`7d62069`)
+**Superseded in part by:** `2026-09-17-forge-prompt-held-suggestions-and-proposal-delivery-design.md`, for what silence does to a Suggestion: it now holds one rather than adopting it.
 **Scope:** `professor-orb/skills/forge-prompt/SKILL.md`, `professor-orb/skills/forge-prompt/references/flux2-prompting.md`, `professor-orb/CONTEXT.md`.
 **Extends:** `2026-08-18-forge-prompt-style-gate-and-suggestions-design.md`. That document gave the Suggestions block a positive definition and left the Questions block untouched. This one applies the same treatment to Questions. Nothing in it is superseded.
 

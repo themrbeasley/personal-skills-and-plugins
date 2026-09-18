@@ -2,6 +2,7 @@
 
 **Date:** 2026-08-18
 **Status:** Implemented
+**Superseded in part by:** `2026-09-17-forge-prompt-held-suggestions-and-proposal-delivery-design.md`, for silence as one of the DM's answers, and the style offers at the close.
 **Scope:** `professor-orb/skills/forge-prompt/SKILL.md` plus the three inventory files that describe it.
 **Supersedes:** the Suggestions and house-style portions of `2026-08-16-forge-prompt-grounding-and-invention-design.md`. That document's grounding fix and confirmed-only rule survive; its invented-detail class and its floating "Recording a house style" section do not.
 

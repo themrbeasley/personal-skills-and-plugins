@@ -1,7 +1,7 @@
 # forge-prompt: Held Suggestions, Edit Detection, and Prompt Text; Proposal Delivery
 
 **Date:** 2026-09-17
-**Status:** Approved, not yet implemented
+**Status:** Implemented in 1.17.0
 **Scope:** `professor-orb/skills/forge-prompt/SKILL.md` and both of its reference files; Principle 2 of `professor-orb/skills/SHARED-PRINCIPLES.md`; `professor-orb/skills/chronicler/SKILL.md`; `professor-orb/commands/migrate.md`; `professor-orb/CONTEXT.md`; the header lines of four earlier forge-prompt specs; both version manifests.
 **Source:** the DM's report, `docs/professor-orb-report-2026-09-17.md` in the rolara-project repository (commit `1dca2c7`), compiled from that project's sessions of 2026-08-19 through 2026-09-17. Every skill quote in it still matched 1.16.1.
 **Supersedes:** Suggestions approved by default, decided in `2026-08-09-forge-prompt-skill-design.md` and confirmed in `2026-08-16-forge-prompt-grounding-and-invention-design.md`; silence as one of the DM's three answers, and the style offers anchored at the close, from `2026-08-18-forge-prompt-style-gate-and-suggestions-design.md`; Step 0's default to Forge, from the 08-09 design.
