@@ -10,6 +10,14 @@ Prompt craft for editing an image that already exists rather than generating one
 
 Three parts, all required: the **change** (what becomes different), the **preservation** (what must survive untouched), and the **context** (scene and pose continuity). Omitting the preservation clause is the single most common cause of an edit that alters things you did not ask it to.
 
+Written out, the frame opens on the image and the change, then names what survives:
+
+```
+Edit image [1]: <the change>. Preserve exactly: <everything the edit could disturb, by visible property>.
+```
+
+Context goes in whichever clause it belongs to: a new setting is part of the change, an unchanged pose is part of what is preserved. The subject is whoever is in image [1], so the prompt refers to it through the image and by what it looks like.
+
 ## Preservation language
 
 Name the things that must survive, specifically, by their visible properties. Working patterns from the source guide:
@@ -19,9 +27,9 @@ Name the things that must survive, specifically, by their visible properties. Wo
 
 The rule generalized: for every attribute the edit could plausibly disturb (texture, transparency, pattern, highlight, fold, pose, lighting direction, background), either change it deliberately or preserve it explicitly.
 
-## Multi-reference notation
+## Input images
 
-Refer to input images as `image [1]`, `image [2]`, and so on. State the role each input plays rather than merely listing them: which supplies the garment, which the subject, which the setting. The source guide composes editorial scenes from five or six inputs (shoes, jacket, jeans, shirt, cap, accessories) synthesized into one styled result.
+An edit prompt is written against the inputs the DM's edit workflow takes. One is the default: the image being edited is `image [1]`, and anything else the edit needs (a garment, a setting, a region to change) is described in words. When the DM says an edit takes more inputs, number them `image [2]` onward and state the role each one plays: which supplies the garment, which the subject, which the setting.
 
 ## Color control in edits
 

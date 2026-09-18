@@ -25,7 +25,7 @@ This skill is **standalone**, like `homebrew`, `timeline`, and `/catalog`. It is
 
 ## Step 0: determine the mode
 
-Before anything else, work out which of three modes you are in. If the DM's opening message is ambiguous, default to Forge and treat what they said as the subject.
+Before anything else, work out which of three modes you are in. When the subject has an image the DM has approved (one they have shared, pointed to, or reported rendering), a message describing what changes or what stays ("still has green hair," "the background becomes an alley") is Edit. When the opening message could still be asking for either an edit or a fresh render, ask one question first: "An edit of that image, or a fresh render?" An edit prompt and a generation prompt share almost no text.
 
 **Forge.** A subject, and no image yet.
 Open with the one fork the DM's message leaves open: "Is this a portrait of them, or a scene they are in?" It sets subject, action, and context at once, and the two readings share almost no prompt text. When the message already answers it, skip it and resolve the style.
@@ -110,7 +110,7 @@ After the opening exchange, every response has the same three blocks, in this or
 
 ### Revised Prompt
 
-A complete, copy-paste-ready prompt. Composed per `references/flux2-prompting.md`, and in Edit mode also per `references/flux2-editing.md`, which governs preservation language and `image [n]` notation.
+A complete, copy-paste-ready prompt. Composed per `references/flux2-prompting.md`, and in Edit mode also per `references/flux2-editing.md`, which governs the edit frame, preservation language, and how input images are numbered.
 
 **It carries confirmed material only.** Grounding defines what that means: the subject's KB article, prior prompts for this same subject, the resolved style, and what the DM has told you. A visual detail no such source establishes does not go here, however ordinary it looks and however thin the prompt reads without it. Build, age, pose, hair, eyes, skin, clothing, and setting are the usual offenders, and each of them is a Suggestion instead.
 
