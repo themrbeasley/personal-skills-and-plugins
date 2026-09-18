@@ -50,14 +50,17 @@ The catalog lives at:
 
 `CLAUDE.md` records which of them is the house style, one line per campaign, or records that the DM has opted out. It holds the pointer; the catalog holds the content.
 
-Resolve exactly one of four outcomes from the DM's opening message:
+Resolve exactly one of five outcomes from the DM's opening message:
 
 | What the opening message does | What you do |
 |---|---|
 | Names a style the catalog has | Read that file. It is the resolved style. |
+| Names a style from another campaign, by the style's name or as that campaign's house style | Read that file from that campaign's catalog; for a house style, `CLAUDE.md` names which one. It is the resolved style. |
 | Names no style, and `CLAUDE.md` records a house style for this campaign | Read that file. It is the resolved style. Say which one you took. |
 | Names no style, and `CLAUDE.md` records an opt-out | No style. Proceed to Step 2 without one, and do not offer to record one. |
-| Names a style the catalog does not have, or nothing is recorded either way | Build one with the DM now, per "Building a style" below. |
+| Names a style no catalog has, or names none and nothing is recorded either way | Build one with the DM now, per "Building a style" below. |
+
+Another campaign's catalog sits at the same path under that campaign's folder, in whichever setting's `sessionReportsRoot` holds it (Principle 12). Whichever row resolves the style, the offers in "Recording the style" below come next, before the first Revised Prompt.
 
 **A recorded opt-out and a missing record are different states, and looking for a style cannot tell them apart.** An opt-out is a line in `CLAUDE.md` saying the DM declined. A missing record is silence. Treat only the written line as an opt-out; where there is silence, the DM has not been asked yet.
 
@@ -67,7 +70,20 @@ Resolve exactly one of four outcomes from the DM's opening message:
 
 Two or three questions, no more: the medium (oil painting, ink drawing, photograph, whatever it is), the palette or the mood, and any standing look the DM wants across every image. Propose the style as a short block, show it, and take their corrections.
 
-Once it is settled, the loop starts. Offering to save it comes at the close, not now, per "Finishing" below. A style used once and never saved is a legitimate outcome.
+Once it is settled, make the offers in "Recording the style" below, then start the loop.
+
+### Recording the style
+
+Two offers, made once each, in the turn the style resolves and ahead of the first Revised Prompt. An answer left for the close is lost whenever a session ends without one.
+
+1. **Save it to this campaign's catalog,** when it is not there already: a style built here, or one read from another campaign's catalog. On approval, write it per "Style file shape" below, creating `prompts/styles/` if it does not exist. A style from another campaign is copied as it is.
+2. **Record it as the house style,** when `CLAUDE.md` records neither a house style nor an opt-out for this campaign. Propose the exact line, show it, and write only on explicit approval. A yes saves the style to this campaign's catalog too, if it is not there yet, because the line must point at a file this catalog holds. If the DM passes, offer to record the opt-out instead, so the question is settled rather than asked again next session.
+
+**An answer that already asks for this is the approval.** When the DM's own words request it ("copy that campaign's house style over to this one"), copy the file and write the line in that turn, and show the line you wrote.
+
+`CLAUDE.md` sits at the project root, outside every prong `/log` commits. Say so when you write it: committing it is the DM's own step.
+
+A style used once and never saved is a legitimate outcome, and so is a DM who takes neither offer.
 
 ### Style file shape
 
@@ -148,21 +164,17 @@ The loop is complete when the DM says they are satisfied, or when Questions has 
 
 **Nothing goes to disk during the loop.** SHARED-PRINCIPLES Principle 2: propose, then execute. When the loop closes, present the final prompt and ask what to save. A prompt used once and thrown away is a legitimate outcome; do not insist.
 
-Three offers, made once each, at the close:
+One offer at the close: **save the prompt.** On approval, write to:
 
-1. **Save the prompt.** On approval, write to:
+```
+<sessionReportsRoot>/<campaign>/prompts/PROMPT-YYYY-MM-DD-<Subject>.md
+```
 
-   ```
-   <sessionReportsRoot>/<campaign>/prompts/PROMPT-YYYY-MM-DD-<Subject>.md
-   ```
+Create the `prompts/` directory if it does not exist. Frontmatter carries `subject`, `mode`, and `date`, and **no `type` field**. The body holds the final prompt, and for Edit mode a one-line note of what the source image was.
 
-   Create the `prompts/` directory if it does not exist. Frontmatter carries `subject`, `mode`, and `date`, and **no `type` field**. The body holds the final prompt, and for Edit mode a one-line note of what the source image was.
+The style offers come earlier, in the turn the style resolves, per "Recording the style" in Step 1.
 
-2. **Save the style,** when Step 1 built a new one. On approval, write it to the catalog per "Style file shape" above, creating `prompts/styles/` if it does not exist.
-
-3. **Record the house style,** when `CLAUDE.md` records neither a house style nor an opt-out for this campaign. Propose the exact line, show it, and write only on explicit approval. If the DM passes, offer to record the opt-out instead, so the question is settled rather than asked again next session. This is one offer per session, not one per round.
-
-`/log` commits the campaign lane recursively, which covers both `prompts/` and `prompts/styles/`. `CLAUDE.md` sits at the project root, outside every prong `/log` commits, so that edit is not part of the campaign lane and `/log` will not pick it up. Say so when you write it: committing it is the DM's own step.
+`/log` commits the campaign lane recursively, which covers both `prompts/` and `prompts/styles/`.
 
 ## Things to never do
 
@@ -182,7 +194,7 @@ Three offers, made once each, at the close:
 ## How this skill connects to the others
 
 - **Standalone:** not in the session pipeline, never writes pipeline state.
-- **Inputs:** the DM's intent, the campaign's style catalog, `CLAUDE.md` for which style is the house style, the subject's KB article when one exists, and prior prompts for that same subject in the campaign's `prompts/` directory.
+- **Inputs:** the DM's intent, the campaign's style catalog, and another campaign's when the DM names a style from it, `CLAUDE.md` for which style is the house style, the subject's KB article when one exists, and prior prompts for that same subject in the campaign's `prompts/` directory.
 - **Outputs:** one markdown prompt file per saved prompt in the campaign's `prompts/` directory, one style file per saved style in `prompts/styles/`, and, on approval, a house style line in `CLAUDE.md`.
 - **Adjacent to `content`:** when `content` builds a Foundry fragment or printable page with a spot for art, it leaves a marked placeholder and names this skill. It does not hand anything over, and this skill reads nothing it produced. The two are independent.
 - **Handoff to `/log`:** `/log` commits the campaign lane recursively, which includes `prompts/` and `prompts/styles/`. It does not reach `CLAUDE.md` at the project root, so that edit stays the DM's to commit.

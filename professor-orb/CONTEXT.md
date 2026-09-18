@@ -86,8 +86,9 @@ Image-generation prompt craft, split out of `content` in 1.12.0 because the mate
 is model-specific, goes stale with the model, and is prep work rather than table
 work. Three entry modes: forge a prompt from nothing, write an edit prompt against
 an image the DM has already approved, or diagnose one that underperformed. Resolves a
-style before drafting anything, from the style the DM names, the house style
-`CLAUDE.md` points at, a recorded opt-out, or one built with the DM on the spot. Then
+style before drafting anything, from a style the DM names from any campaign's catalog,
+the house style `CLAUDE.md` points at, a recorded opt-out, or one built with the DM on
+the spot. Then
 runs an iterative loop borrowed from the DM's own ultimate-prompt-creator skill: three
 blocks per round and only three, Revised Prompt, Suggestions, Questions. A Suggestion
 proposes one add, edit, or delete against the prompt's text, and the DM's answer
