@@ -88,14 +88,13 @@ work. Three entry modes: forge a prompt from nothing, write an edit prompt again
 an image the DM has already approved, or diagnose one that underperformed. Resolves a
 style before drafting anything, from a style the DM names from any campaign's catalog,
 the house style `CLAUDE.md` points at, a recorded opt-out, or one built with the DM on
-the spot. Then
-runs an iterative loop borrowed from the DM's own ultimate-prompt-creator skill: three
-blocks per round and only three, Revised Prompt, Suggestions, Questions. A Suggestion
-proposes one add, edit, or delete against the prompt's text, and the DM's answer
-decides it: a yes adopts it, a decline drops it, a counter replaces it in the DM's own
-words, and silence holds it outside the prompt until they rule. A Question resolves an
-ambiguity in what the DM already said,
-never an absence, and an absence is a Suggestion. The Revised Prompt carries confirmed
+the spot. Then runs an iterative loop borrowed from the DM's own ultimate-prompt-creator
+skill: three blocks per round and only three, Revised Prompt, Suggestions, Questions. A
+Suggestion proposes one add, edit, or delete against the prompt's text, and the DM's
+answer decides it: a yes adopts it, a decline drops it, a counter replaces it in the
+DM's own words, and silence holds it outside the prompt until they rule. A Question
+resolves an ambiguity in what the DM already said, never an absence, and an absence is a
+Suggestion. The Revised Prompt carries confirmed
 material only, from the KB article, prior prompts for that same subject, the resolved
 style, and the DM; invention is offered as a Suggestion instead, so a thin
 first prompt is correct output and a fully specified stranger is not. Saves to
@@ -359,10 +358,9 @@ _Avoid_: paraphrased contradiction reports, haiku for lore judgment calls
 **proposal file**:
 Chronicler's lore-update proposal, written to a temporary file in
 `.professor-orb/` rather than pushed into chat (chat gets a summary, and the DM gets
-the file itself with its absolute path). The DM reviews the file, may edit it
-directly, and approves; chronicler
-then executes exactly what the approved file says rather than re-deriving intent
-from the discussion. What you approved is what lands on disk.
+the file itself with its absolute path). The DM reviews the file, may edit it directly,
+and approves; chronicler then executes exactly what the approved file says rather than
+re-deriving intent from the discussion. What you approved is what lands on disk.
 _Avoid_: proposal dumps in chat, chronicler improvising beyond the approved text
 
 **temporal triage**:
