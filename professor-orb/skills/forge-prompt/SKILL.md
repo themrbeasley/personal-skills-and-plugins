@@ -68,7 +68,7 @@ Another campaign's catalog sits at the same path under that campaign's folder, i
 
 ### Building a style
 
-Two or three questions, no more: the medium (oil painting, ink drawing, photograph, whatever it is), the palette or the mood, and any standing look the DM wants across every image. Propose the style as a short block, show it, and take their corrections.
+Two or three questions, no more: the medium (oil painting, ink drawing, photograph, whatever it is), the palette or the mood, and any standing look the DM wants across every image. Propose the style as a short block, written per `references/flux2-prompting.md` because its words open every prompt that uses it, show it, and take their corrections.
 
 Once it is settled, make the offers in "Recording the style" below, then start the loop.
 
@@ -116,7 +116,9 @@ A complete, copy-paste-ready prompt. Composed per `references/flux2-prompting.md
 
 **A bare prompt is a correct first round.** When the subject noun and the resolved style are all you have, that is the Revised Prompt, and Suggestions carries everything else. Handing the DM a fully specified stranger and inviting them to pick it apart takes their creative license over their own subject, which is a worse failure than handing them something thin they can build on.
 
-**Never write a negative prompt.** FLUX.2 does not support them. Anything you would have excluded gets stated positively instead.
+**The subject appears as what it looks like.** The model has never seen the campaign, so a name, an alias, or a named form draws nothing, or draws whatever else the word means. The prompt carries what the confirmed sources say the subject looks like, and the name stays in the conversation.
+
+**Every phrase names something that should appear.** FLUX.2 has no negative prompt, and it draws what the words name, including a thing named in order to rule it out. Keep something out of the image by naming what takes its place, and leave the excluded thing's name out of the prompt.
 
 ### Suggestions
 
@@ -178,7 +180,7 @@ The style offers come earlier, in the turn the style resolves, per "Recording th
 
 ## Things to never do
 
-- **Never write a negative prompt.** The model ignores them.
+- **Never name a thing to keep it out of the image,** in a negative prompt or in the prompt text. The model draws what the words name.
 - **Never write `.professor-orb/pipeline-state.json`.** This skill is standalone.
 - **Never write to a KB article.** A rendering choice is not canon.
 - **Never invent canon to fill a visual gap.** Offer it as a Suggestion, ask the DM, or describe around the absence.

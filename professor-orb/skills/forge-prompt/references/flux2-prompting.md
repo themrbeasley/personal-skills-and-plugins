@@ -8,9 +8,9 @@ Model-specific prompt craft for FLUX.2 generation from scratch. This file is the
 
 ## Core principles
 
-1. FLUX.2 does not support negative prompts. Describe what you want, not what you do not want. Replace an exclusion with a positive specification: "sharp focus" rather than "no blur."
+1. **Every phrase names something that should appear.** FLUX.2 has no negative prompt, and it draws what the words name, including a thing named in order to rule it out. Keep something out by naming what takes its place, such as "sharp focus," and leave the excluded thing's name out of the prompt.
 2. Word order carries weight. Elements placed early receive more attention from the model.
-3. Describe positively throughout.
+3. **Describe the subject by what it looks like.** The model has never seen the campaign, so a character's name, an alias, or a named form draws nothing, or draws whatever else the word means. Build, face, hair, clothing, and pose carry the subject.
 
 ## Prompt anatomy
 
@@ -29,6 +29,8 @@ The four-part frame: **Subject** (the main focus), **Action** (what it does, or 
 Reference specific eras, cameras, lenses, and film stocks. Examples: "shot on Sony A7IV," "80s vintage photo," "Kodak Portra 400."
 
 ## Typography and text rendering
+
+Text appears where the prompt asks for it, and naming a printed object asks for it: the object's lettering comes with the name, and the model writes titles nobody chose. Name a look by its technique and medium instead: inked linework, cel-shaded color, halftone dots.
 
 - Put the literal text in quotation marks: the text 'OPEN' appears in red neon.
 - Specify placement relative to other elements.
