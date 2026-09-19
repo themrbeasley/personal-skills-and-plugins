@@ -66,8 +66,9 @@ _Avoid_: "phase one" (the old skill's framing that caused the skip bug)
 
 **interrogation**:
 The debrief skill's namesake phase: free-form probing follow-up questions, asked
-via the AskUserQuestion tool (mandatory mechanism, not optional), continuing until
-the DM explicitly ends it. The skill never decides on its own that it has enough.
+via the AskUserQuestion tool (mandatory mechanism, not optional), each round
+preceded by a lookup in the project's files (Principle 14), continuing until the
+DM explicitly ends it. The skill never decides on its own that it has enough.
 _Avoid_: "phase two", "the interview"
 
 **Foundry fragment**:

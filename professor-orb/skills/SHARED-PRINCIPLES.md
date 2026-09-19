@@ -83,3 +83,13 @@ Do not retry the same read with a different tool. Do not reach for Bash when Rea
 A denial is not an obstacle in front of the task; it is the answer to it. The DM configured that rule deliberately, and the most likely reason is content they have decided you do not read. Working around it defeats the only mechanism they have, and doing so helpfully, in service of finishing the job, is exactly the failure this principle exists to prevent.
 
 Excluded content is bounded work, not blocked work. Note the article as excluded, say what you could not check because of it, and carry on with everything else.
+
+## 14. Look it up before you ask
+
+Before each AskUserQuestion call, read what the project's files say about each thing a question in that call turns on: its KB article or staged article, the campaign's earlier session reports, and any other file the project keeps on it, such as a character sheet or a prep brief. The lookup covers those files, for the questions at hand. Content exclusions and Principle 13 bound it like any other read.
+
+Each question then takes one of three forms:
+
+- **The files answer it.** The question drops out, and its answer goes in the call's text with its source, where the DM can correct a stale file in the same reply: "From the files: Vela Thorne is the harbormaster's sister ([[Vela Thorne]])." If no question is left to ask, say it in chat instead.
+- **The files and the DM disagree.** Ask about the disagreement, quoting both sides. The DM's answer settles it (Principle 1).
+- **The files say nothing.** Ask the question.

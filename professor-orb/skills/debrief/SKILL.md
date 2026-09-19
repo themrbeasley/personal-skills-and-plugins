@@ -48,7 +48,7 @@ If it is a new campaign, ask for the campaign's display name in the same questio
 
 This phase is mandatory and every question in it goes through the AskUserQuestion tool. Never substitute a plain-text question in chat for a structured question during interrogation, and never skip this phase because bulk memory in Phase 1 seemed thorough. Always run at least one full round of AskUserQuestion here, regardless of how much the DM already covered.
 
-**What to probe.** Compare what you already know from intake against this checklist, and only ask about gaps:
+**What to probe.** Before every round, look up each entity the round will touch, per SHARED-PRINCIPLES Principle 14: its article, the campaign's earlier reports, and any character sheet. Compare what intake and the files tell you against this checklist, and ask about what neither answers:
 
 1. **Session metadata.** IRL session date. In-game date and passage of time. Session title (offer 2-3 suggestions, let them pick or write their own).
 2. **Players and PCs present.** Which PCs were at the table, which players were absent, how absent PCs were handled.
@@ -58,7 +58,7 @@ This phase is mandatory and every question in it goes through the AskUserQuestio
 6. **Lore revelations, split into two buckets.** New canon established (things the DM invented or decided at the table that are now true) versus canon discovered (things the PCs learned that were already true).
 7. **Cliffhangers and open threads.** What is unresolved? What was foreshadowed? What has changed in the world that the party does not yet know about?
 
-**Round discipline.** Batch questions 2-4 per AskUserQuestion call. Do not ask about anything already answered in intake or a prior round. Do not ask filler.
+**Round discipline.** Batch questions 2-4 per AskUserQuestion call. Do not ask about anything already answered in intake, a prior round, or the files. Do not ask filler.
 
 **The DM ends interrogation, not you.** Every round's batch must include an explicit option letting the DM stop: something like "Done, write the report" alongside "Keep going." Do not decide on your own that you have enough and move to Phase 3; keep running rounds until the DM picks the option to stop. If you genuinely have no more gaps to probe, say so and offer the same explicit choice rather than silently ending the phase.
 
@@ -107,7 +107,7 @@ Wait for the `lore` agent to return its findings, then **merge them into the rep
 
 Present the merged section to the DM for approval (Principle 2), then update the report file. Tell them the `chronicler` skill is what canonizes any of it into the KB.
 
-If the `lore` agent is unavailable or the DM declines the handoff, the Lore Candidates section you seeded in Phase 3 stands as written and final: do not make it conditional on the agent, and skip the second write entirely. The section needs no further annotation: it already reflects debrief's own findings from Phase 3, and Phase 4 simply never runs its merge on this branch. Do not attempt the deep KB cross-referencing yourself; that is the `lore` agent's job.
+If the `lore` agent is unavailable or the DM declines the handoff, the Lore Candidates section you seeded in Phase 3 stands as written and final: do not make it conditional on the agent, and skip the second write entirely. The section needs no further annotation: it already reflects debrief's own findings from Phase 3, and Phase 4 simply never runs its merge on this branch. Do not attempt the deep KB cross-referencing yourself; that is the `lore` agent's job. Phase 2's lookups served its questions and end with them.
 
 **Present the report to the DM.** Share a link to the report file and a one-sentence summary. Do not lecture the user about what is in the file.
 
