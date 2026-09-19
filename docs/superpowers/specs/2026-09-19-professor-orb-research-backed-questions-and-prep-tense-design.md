@@ -1,7 +1,7 @@
 # professor-orb: Research Before Asking, Questions That State Their Subject, and Prep's Two Tenses
 
 **Date:** 2026-09-19
-**Status:** Approved, not yet implemented
+**Status:** Implemented in 1.18.0
 **Scope:** `professor-orb/skills/SHARED-PRINCIPLES.md` (two new principles); `professor-orb/skills/debrief/SKILL.md`; `professor-orb/skills/prep/SKILL.md`; `professor-orb/skills/chronicler/SKILL.md`; `professor-orb/skills/timeline/SKILL.md`; `professor-orb/skills/setup/SKILL.md`; `professor-orb/CONTEXT.md`; both version manifests.
 **Source:** the DM's report, `docs/professor-orb-report-2026-09-19.md` in the rolara-project repository (commit `0dd728c`), compiled from one worktree session that ran `prep`, `debrief`, and `chronicler` for the campaign Adjustice.
 
