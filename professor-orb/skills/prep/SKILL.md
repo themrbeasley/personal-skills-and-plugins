@@ -52,7 +52,7 @@ Also read, when they exist:
 1. **What have you done since the debrief?** (VTT work, handouts written, lore articles updated, scenes built, NPC prep, anything.) Let the DM dump whatever they have.
 2. **When is the next session?** (date, "TBD," or "same time next week")
 3. **Any new inputs since the report was written?** (a player sent a message, someone announced absence, a character retired, a plot thread changed, etc.)
-4. **What scenes or encounters are you planning for this session?** Let the DM describe what they're hoping to run. If they're not sure yet, that's fine; you'll draft candidates from the report in Phase 2.
+4. **What scenes or encounters are you planning for this session?** Let the DM describe what they're hoping to run. If they're not sure yet, that's fine; you'll draft candidates from the report in Phase 2. An option you draw from the report is written in the two-part form under Section 3's "Building the list."
 
 Do not ask more than one question batch in Phase 1. Free-form elaboration the DM volunteers alongside their answers is welcome and stays as regular conversation; it is only the question set itself that must go through AskUserQuestion.
 
@@ -83,6 +83,7 @@ Use the report's narrative recap and open threads sections as source material. K
 - Start with whatever the DM described in Phase 1 (Step 1b, question 4). Those are the anchors.
 - If the DM provided fewer than 3, supplement from the report's open threads: unresolved hooks, foreshadowed events, NPC reactions, and world-state changes that could become scenes.
 - If supplementing, clearly mark which north stars came from the DM and which you are proposing from the report, so the DM can cut or keep during review.
+- **Write anything drawn from the report in two parts.** **Last session:** what happened, in past tense. **Next:** the scene that follows from it, which is the north star. For example: **Last session:** Vela Thorne fled the harbor with the ledger. **Next:** the Compact's agents come asking who helped her.
 - For each north star, write a brief description (2 to 3 sentences): what the scene is, who is involved, and what makes it interesting.
 
 **Do not include player objectives as north stars.** "The party needs to figure out how to get underwater" is a player problem. "The party arrives at the Sunken Temple entrance and discovers the Astral Elf submersible is already there" is a DM-prepared scene (Principle 4).
