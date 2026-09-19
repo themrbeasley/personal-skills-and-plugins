@@ -90,7 +90,7 @@ Before each AskUserQuestion call, read what the project's files say about each t
 
 Each question then takes one of three forms:
 
-- **The files answer it.** The question drops out, and its answer goes in the call's text with its source, where the DM can correct a stale file in the same reply: "From the files: Vela Thorne is the harbormaster's sister ([[Vela Thorne]])." If no question is left to ask, say it in chat instead.
+- **The files answer it.** The question drops out, and its answer goes in the text of a question in that call, with its source, where the DM can correct a stale file in the same reply: "From the files: Vela Thorne is the harbormaster's sister ([[Vela Thorne]])." If no question is left to ask, say it in chat instead.
 - **The files and the DM disagree.** Ask about the disagreement, quoting both sides. The DM's answer settles it (Principle 1).
 - **The files say nothing.** Ask the question.
 
