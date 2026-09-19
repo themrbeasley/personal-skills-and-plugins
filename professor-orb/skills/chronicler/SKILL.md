@@ -155,7 +155,7 @@ Write the complete structured proposal to `.professor-orb/proposals/YYYY-MM-DD-p
 
 **The DM may edit the file directly.** Tell the DM they can revise the file by hand at the absolute path you gave (reword a summary, cut a row, change a target folder) instead of dictating changes back through chat. Either path is fine. What matters is that the file on disk, not the conversation, is what Phase 2 executes.
 
-**Ask for approval as a structured decision.** Use AskUserQuestion to offer the DM a choice: approve as written, approve with edits they will make directly in the file, walk through items together, or reject. Free-form back-and-forth about specific items (why a folder was chosen, whether a summary reads right) is open-ended creative discussion and stays plain conversation; only the go/no-go decision itself needs AskUserQuestion.
+**Ask for approval as a structured decision.** Use AskUserQuestion, with the summary stated in the question itself (Principle 15), to offer the DM a choice: approve as written, approve with edits they will make directly in the file, walk through items together, or reject. Free-form back-and-forth about specific items (why a folder was chosen, whether a summary reads right) is open-ended creative discussion and stays plain conversation; only the go/no-go decision itself needs AskUserQuestion.
 
 #### Step 1d: Incorporate feedback
 

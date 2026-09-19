@@ -58,7 +58,7 @@ This phase is mandatory and every question in it goes through the AskUserQuestio
 6. **Lore revelations, split into two buckets.** New canon established (things the DM invented or decided at the table that are now true) versus canon discovered (things the PCs learned that were already true).
 7. **Cliffhangers and open threads.** What is unresolved? What was foreshadowed? What has changed in the world that the party does not yet know about?
 
-**Round discipline.** Batch questions 2-4 per AskUserQuestion call. Do not ask about anything already answered in intake, a prior round, or the files. Do not ask filler.
+**Round discipline.** Batch questions 2-4 per AskUserQuestion call. Do not ask about anything already answered in intake, a prior round, or the files. Do not ask filler. Anything a question proposes, such as a dice pool, is written out in the question itself (Principle 15).
 
 **The DM ends interrogation, not you.** Every round's batch must include an explicit option letting the DM stop: something like "Done, write the report" alongside "Keep going." Do not decide on your own that you have enough and move to Phase 3; keep running rounds until the DM picks the option to stop. If you genuinely have no more gaps to probe, say so and offer the same explicit choice rather than silently ending the phase.
 

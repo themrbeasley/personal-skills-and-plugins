@@ -93,3 +93,10 @@ Each question then takes one of three forms:
 - **The files answer it.** The question drops out, and its answer goes in the call's text with its source, where the DM can correct a stale file in the same reply: "From the files: Vela Thorne is the harbormaster's sister ([[Vela Thorne]])." If no question is left to ask, say it in chat instead.
 - **The files and the DM disagree.** Ask about the disagreement, quoting both sides. The DM's answer settles it (Principle 1).
 - **The files say nothing.** Ask the question.
+
+## 15. A question states what it asks about
+
+Each AskUserQuestion question carries, in its own text or its options, the content of the thing it asks about: enough to answer with nothing else on screen. Earlier messages are not always in view when a question appears; the Claude desktop app sometimes folds them into a one-line summary. Explanations, drafts, and files can still come first, and the question restates what the decision turns on:
+
+- A proposal is written out: "Morale roll: 5 dice. 3 for the militia's numbers, 2 for the fortified gate, 1 for the paladin's speech, minus 1 for the fallen captain. Use it as written?"
+- Something long is summarized by what the decision turns on: "Approve the lore update: 3 new articles (Sunken Temple, Vela Thorne, Cinder Pact), 5 edits, 2 items that need your call?"

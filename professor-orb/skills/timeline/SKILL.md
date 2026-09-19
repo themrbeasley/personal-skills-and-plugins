@@ -62,7 +62,7 @@ If the historian returned zero flagged inconsistencies, skip to Phase 4. Otherwi
 
 For each flagged inconsistency in the historian's report, present it to the DM as a question, never as an error to be fixed. Quote the flag's own text (both source quotes, verbatim, with file paths, exactly as the historian formatted it) so the DM sees the same evidence you do. This is the same quote-anchored question format the `lore` agent uses for temporal flags it surfaces during `debrief`; it is one shared triage flow, not two, so a lore-flagged tension the DM brings to this skill goes through the same steps below.
 
-**Step 3a: Ask which way to take it.** Use AskUserQuestion with these four routes:
+**Step 3a: Ask which way to take it.** Use AskUserQuestion with these four routes, stating in the question the two claims that conflict, a line each, with the file each comes from (Principle 15):
 
 1. **Request deeper research.** The DM wants more digging before deciding. Either spawn the `historian` again with a narrower scope (the specific entities, date range, or sources this flag touches) or dig manually with Read, Glob, and Grep yourself. When the research is done, return to Step 3a with whatever new evidence turned up; this can loop more than once.
 2. **Supply missing context.** The DM has information that resolves the tension without changing anything in the KB, or that points to a small factual correction. If no KB change is needed, note the DM's explanation in the chronology document's Gaps and Open Questions section and move on. If a small correction is needed, treat it like Step 3a route 3 below, scoped to just that correction.

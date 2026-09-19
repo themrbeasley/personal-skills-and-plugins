@@ -88,7 +88,7 @@ Read its rules, its extras layer, and its per-rule enforcement levels into memor
 
 ## Step 7: discover the prongs and confirm the mapping
 
-This is the one confirmation the migration asks for. Enumerate the candidate locations of all three prongs (the setting knowledge base, the homebrew catalog, and the session reports), report exactly what you found and where each one would move to, and confirm the source-to-destination mapping with the DM via AskUserQuestion before anything moves.
+This is the one confirmation the migration asks for. Enumerate the candidate locations of all three prongs (the setting knowledge base, the homebrew catalog, and the session reports), report exactly what you found and where each one would move to, and confirm the source-to-destination mapping with the DM via AskUserQuestion before anything moves, stating each prong's move in the question itself (Principle 15).
 
 It is the one input the plugin cannot derive reliably, and getting it wrong is the one error the after-action report cannot help with, because the DM would not know to look. Any move whose destination lies inside its own source is staged through a temporary sibling path.
 
