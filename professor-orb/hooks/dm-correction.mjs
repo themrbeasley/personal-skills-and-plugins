@@ -51,6 +51,11 @@ function looksLikeCorrection(text) {
 const MAX_FILES = Number(process.env.DM_CORRECTION_MAX_FILES) || 6000;
 const MAX_FILE_BYTES = 512 * 1024;
 const MAX_HITS = 20;
+// Collection ceiling per file. Beyond a few lines from one document the DM
+// learns nothing new, and without this one noisy file could supply every hit
+// the interleave below has to work with. Trimming here sets `truncated`, so
+// the DM is told the file had more.
+const MAX_HITS_PER_FILE = 5;
 // Wall-clock ceiling for the WHOLE search across all roots, independent of
 // MAX_FILES. Belt-and-suspenders: MAX_FILES bounds the common case, this
 // bounds the worst case.
@@ -121,6 +126,22 @@ function laneRoots(cwd) {
   return roots;
 }
 
+// Round-robin across a list of lists: the first item of each, then the second
+// of each, and so on, skipping lists that have run out. Used twice by
+// findHits, at the two levels where an early, noisy group would otherwise
+// consume a budget the later groups needed a share of.
+function interleave(groups) {
+  const out = [];
+  let deepest = 0;
+  for (const group of groups) deepest = Math.max(deepest, group.length);
+  for (let i = 0; i < deepest; i++) {
+    for (const group of groups) {
+      if (i < group.length) out.push(group[i]);
+    }
+  }
+  return out;
+}
+
 // Every markdown line under roots holding at least two search terms, or one
 // when the correction yielded only one term. Two is the floor because a single
 // common noun ("reporter") matches half a campaign, and the DM reads this list.
@@ -134,28 +155,54 @@ function laneRoots(cwd) {
 // second at all. Per-root division guarantees every configured root is
 // attempted with SOME budget, regardless of how large an earlier root is.
 //
-// Returns { hits, truncated }. `truncated` is true when any root's own share,
-// or the overall wall-clock ceiling, cut the walk short before it finished
-// naturally, so the caller can tell the DM the list may be incomplete rather
-// than implying it is exhaustive.
+// The hit budget is shared the same way, and for the same reason. Dividing
+// only MAX_FILES fixed the first half of the starvation and left the second:
+// every root was reached, but a single shared 20-hit budget still let an early
+// noisy root fill it before a later root's hits were recorded. On the real
+// consumer project 12 of 20 hits were coincidental matches in the first
+// setting, and the correct campaign's own report file still never appeared.
+//
+// Fairness is two levels deep because the starvation is. A per-root hit share
+// alone does not reach the file that matters: inside the winning root, that
+// root's own walk order starves file-to-file exactly as the settings array
+// starved root-to-root. In the measured case the target root's hits were one
+// index line, then seven from a prep file, then the report file, so two or
+// three root-level slots buy the index and the prep file and stop short. So
+// hits are interleaved twice: across the files within a root, then across the
+// roots themselves. Every matching file contributes a line before any file
+// contributes a second, and every root is represented before any root goes
+// deeper.
+//
+// Selection and presentation are separate: interleaving decides WHICH hits
+// survive the budget, and the survivors are then sorted by path so the list
+// still reads grouped by file rather than round-robin.
+//
+// Returns { hits, truncated }. `truncated` is true when a root's file share,
+// the wall-clock ceiling, a file's own hit ceiling, or the hit budget itself
+// cut the search short, so the caller can tell the DM the list may be
+// incomplete rather than implying it is exhaustive. The hit budget is included
+// deliberately: before this, a search that stopped purely because it ran out
+// of hit slots said nothing, which is the same false confidence the per-root
+// file share was added to remove.
 function findHits(roots, terms) {
   if (terms.length === 0) return { hits: [], truncated: false };
   const floor = terms.length === 1 ? 1 : 2;
-  const hits = [];
   const perRootCap = Math.max(50, Math.floor(MAX_FILES / Math.max(1, roots.length)));
   const walkStart = Date.now();
   let truncated = false;
+  const rootSequences = [];
 
   for (const root of roots) {
-    if (hits.length >= MAX_HITS) break;
     if (Date.now() - walkStart > MAX_WALK_MS) {
       truncated = true;
       break;
     }
     let filesSeenInRoot = 0;
+    // One array of hits per matching file, so the interleave below can give
+    // each file its turn instead of letting walk order decide.
+    const fileGroups = [];
 
     const walk = (dir) => {
-      if (hits.length >= MAX_HITS) return;
       if (Date.now() - walkStart > MAX_WALK_MS) {
         truncated = true;
         return;
@@ -171,7 +218,6 @@ function findHits(roots, terms) {
         return;
       }
       for (const entry of entries) {
-        if (hits.length >= MAX_HITS) return;
         if (Date.now() - walkStart > MAX_WALK_MS) {
           truncated = true;
           return;
@@ -196,21 +242,31 @@ function findHits(roots, terms) {
           continue;
         }
         const lines = content.split(/\r?\n/);
+        const fileHits = [];
         for (let i = 0; i < lines.length; i++) {
           const lower = lines[i].toLowerCase();
           let matched = 0;
           for (const term of terms) if (lower.includes(term)) matched++;
           if (matched >= floor) {
-            hits.push({ file: abs, line: i + 1, text: lines[i].trim() });
-            if (hits.length >= MAX_HITS) return;
+            if (fileHits.length >= MAX_HITS_PER_FILE) {
+              truncated = true;
+              break;
+            }
+            fileHits.push({ file: abs, line: i + 1, text: lines[i].trim() });
           }
         }
+        if (fileHits.length > 0) fileGroups.push(fileHits);
       }
     };
 
     walk(root);
+    if (fileGroups.length > 0) rootSequences.push(interleave(fileGroups));
   }
 
+  const ordered = interleave(rootSequences);
+  const hits = ordered.slice(0, MAX_HITS);
+  if (ordered.length > hits.length) truncated = true;
+  hits.sort((a, b) => (a.file === b.file ? a.line - b.line : a.file < b.file ? -1 : 1));
   return { hits, truncated };
 }
 

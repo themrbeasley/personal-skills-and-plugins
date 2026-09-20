@@ -244,5 +244,111 @@ console.log("a large first root must not starve a later root's budget:");
   rmSync(dir, { recursive: true, force: true });
 })();
 
+console.log("a noisy first root must not fill the whole hit budget:");
+(function () {
+  // The same starvation as the test above, one level down. That one proves a
+  // large early root cannot consume every root's FILE budget. This one proves
+  // it cannot consume every root's share of the 20 HITS the DM is shown:
+  // before the fix, both roots were walked, but the first root's matches
+  // filled the shared hit array before the second root's were recorded.
+  // Measured on the real consumer project: 12 of 20 hits were coincidental
+  // matches in the first setting, and the target file never appeared.
+  //
+  // The filler here MATCHES the search, unlike the file-count test's inert
+  // filler, because hit starvation needs hits. 30 files is well over the
+  // 20-hit budget and well under the 50-file per-root floor, so the file cap
+  // never fires and this test isolates the hit budget.
+  const dir = path.join(os.tmpdir(), `orb-corr-hitstarve-${process.pid}`);
+  rmSync(dir, { recursive: true, force: true });
+  mkdirSync(path.join(dir, ".professor-orb"), { recursive: true });
+  mkdirSync(path.join(dir, "settings", "noisy"), { recursive: true });
+  mkdirSync(path.join(dir, "session-reports", "quiet", "Adjustice"), { recursive: true });
+  writeFileSync(
+    path.join(dir, ".professor-orb", "conventions.json"),
+    JSON.stringify({
+      schemaVersion: 3,
+      settings: [
+        { name: "noisy", kbRoot: "settings/noisy" },
+        { name: "quiet", sessionReportsRoot: "session-reports/quiet" },
+      ],
+    })
+  );
+  for (let i = 0; i < 30; i++) {
+    writeFileSync(
+      path.join(dir, "settings", "noisy", `noisy-${i}.md`),
+      "---\ntype: Person\n---\n\nThe reporter asked what the team was called here too.\n"
+    );
+  }
+  writeFileSync(
+    path.join(dir, "session-reports", "quiet", "Adjustice", "2026-09-18-Clean-Hands-REPORT.md"),
+    "---\ntype: Session Report\n---\n\nThe reporter asked what the team was called, and they answered on camera.\n"
+  );
+  const out = runHook("that never happened, the reporter never asked what the team was called", dir);
+  const cases = [
+    ["finds the target in the quiet root despite 30 matching files in the noisy one", out.includes("2026-09-18-Clean-Hands-REPORT.md"), true],
+    ["says so when the hit budget itself cut the list short", out.includes("may be incomplete"), true],
+    ["still fills the budget rather than under-reporting", (out.match(/^ {2}\S+:\d+ {2}/gm) || []).length === 20, true],
+  ];
+  for (const [name, actual, expected] of cases) {
+    if (actual === expected) {
+      passed++;
+      console.log(`  [PASS] ${name}`);
+    } else {
+      failures.push(name);
+      console.log(`  [FAIL] ${name}: expected ${expected}, got ${actual}`);
+      console.log(`         output: ${JSON.stringify(out)}`);
+    }
+  }
+  rmSync(dir, { recursive: true, force: true });
+})();
+
+console.log("one noisy file does not crowd out its siblings:");
+(function () {
+  // The within-root half of the same property. A single file with many
+  // matching lines must not consume its root's whole share: on the real
+  // project the target root's own prep file held seven matches ahead of the
+  // report file in walk order, which is why a per-root hit share alone would
+  // still have missed the report.
+  const dir = path.join(os.tmpdir(), `orb-corr-filestarve-${process.pid}`);
+  rmSync(dir, { recursive: true, force: true });
+  mkdirSync(path.join(dir, ".professor-orb"), { recursive: true });
+  mkdirSync(path.join(dir, "session-reports", "one", "Adjustice", "prep"), { recursive: true });
+  mkdirSync(path.join(dir, "session-reports", "one", "Adjustice", "reports"), { recursive: true });
+  writeFileSync(
+    path.join(dir, ".professor-orb", "conventions.json"),
+    JSON.stringify({
+      schemaVersion: 3,
+      settings: [{ name: "one", sessionReportsRoot: "session-reports/one" }],
+    })
+  );
+  // "prep" sorts before "reports", and carries far more matching lines.
+  writeFileSync(
+    path.join(dir, "session-reports", "one", "Adjustice", "prep", "2026-09-18-PREP.md"),
+    ["---", "type: Session Prep", "---", ""]
+      .concat(Array.from({ length: 40 }, (_, i) => `Line ${i}: the reporter asked what the team was called.`))
+      .join("\n") + "\n"
+  );
+  writeFileSync(
+    path.join(dir, "session-reports", "one", "Adjustice", "reports", "2026-09-18-Clean-Hands-REPORT.md"),
+    "---\ntype: Session Report\n---\n\nThe reporter asked what the team was called, and they answered on camera.\n"
+  );
+  const out = runHook("that never happened, the reporter never asked what the team was called", dir);
+  const cases = [
+    ["the report file appears despite a 40-match prep file walked first", out.includes("Clean-Hands-REPORT.md"), true],
+    ["the prep file is capped rather than taking every slot", (out.match(/2026-09-18-PREP\.md:/g) || []).length <= 5, true],
+  ];
+  for (const [name, actual, expected] of cases) {
+    if (actual === expected) {
+      passed++;
+      console.log(`  [PASS] ${name}`);
+    } else {
+      failures.push(name);
+      console.log(`  [FAIL] ${name}: expected ${expected}, got ${actual}`);
+      console.log(`         output: ${JSON.stringify(out)}`);
+    }
+  }
+  rmSync(dir, { recursive: true, force: true });
+})();
+
 console.log(`\n${passed} passed, ${failures.length} failed`);
 if (failures.length > 0) process.exit(1);
