@@ -283,3 +283,69 @@ is the correct degradation.
 - `hooks/hooks.json` gains two entries: the `UserPromptSubmit` hook and a second
   `PostToolUse` matcher for `AskUserQuestion`. The existing `Write|Edit`
   `PostToolUse` entry is unchanged.
+
+## Amendments from implementation
+
+**`validate-write.mjs` requires frontmatter `type`.** The hook exits 0 at
+`hooks/validate-write.mjs:904` when the parsed frontmatter carries no `type`, so
+every check in `CHECKS` reaches only files that have one. Session reports
+(`Session Report`) and indexes (`Index`) qualify, which covers both sites the
+09-18 falsehood reached on disk, so Mechanism 2 has full reach. Content files
+qualify only in projects whose `conventions.json` defines a content type, and
+`skills/content/SKILL.md` states many projects never formalize content-file
+conventions. Mechanism 3 therefore does not reach recaps in every project. The
+pronoun failure in a recap draft is caught by `pronounDeclaration` making the
+source article unambiguous, not by checking the draft.
+
+**Jaccard content-word overlap replaces edit distance for `optionEcho`, at 0.40.**
+The spec named `levenshtein`, already present in the file, as the natural basis
+for the near-copy threshold. The 09-18 case disproves it: the option read
+"Reporter asked the name. The team answered on camera as the Neighborhood Watch
+Association" and the report read "The reporter asked what the team was called,
+and they answered on camera." That is a paraphrase merging the option's label
+into its description, so edit distance is large while the claim is identical.
+Overlap over the union scores it 0.50, against 0.27 for the worst innocent
+sentence tested. Overlap over the smaller of the two sets was tried first and
+rejected: it scores an innocent sentence at exactly 0.60 against the real
+sentence's 0.83, leaving no threshold that separates them.
+
+**`optionEcho` blocks only a sentence the DM never wrote in prose.** The spec
+described the rule as blocking a sentence that restates an option, which
+deadlocks. A good option paraphrases what it asks about, so a sentence the DM
+explicitly confirms still overlaps its option heavily ("yes the reporter asked
+what the team was called and they answered on camera" scores 0.60 against its
+own option). Under the spec's wording the true sentence could never be written
+at all. The implemented check reads the session transcript and passes any
+sentence the DM substantially wrote themselves, which is the discrimination the
+defect actually calls for: restates an option AND appears nowhere in the DM's
+own words. Containment is measured against the single best DM message rather
+than all of them pooled, because a realistic debrief transcript scores 1.00
+pooled against a sentence it never states, which would suppress every block.
+This adds `transcriptPath` to the validator's `ctx`.
+
+**`pronounConsistency` split into two checks.** The spec described one check
+plus a `kb-validator` update. The implementation ships `pronounDeclaration` (an
+article listing several sets names the one prose uses) and
+`pronounConsistency` (prose uses the named set), because the root fix is making
+the article unambiguous rather than policing every consumer of it.
+
+**Known follow-up: three new check kinds are not propagated to the other three
+places check semantics live.** `hooks/validate-write.mjs` carries a load-bearing
+comment (above its `CHECKS` map) stating check semantics are duplicated four
+ways: `skills/setup/references/conventions-schema.md`'s check catalog, the
+`CHECKS` table itself, the `checkerPrompt` in `workflows/validation-sweep.mjs`,
+and `agents/kb-validator.md` Step 4, with the base rule data single-sourced at
+`references/base-rules.json` but the semantics not. `optionEcho`,
+`pronounDeclaration`, and `pronounConsistency` update only the `CHECKS` table
+and `references/base-rules.json`; none of the other three locations mention any
+of the three. This means `/sweep`'s validation pass and a `kb-validator` run
+have no instruction to retroactively catch these three violation shapes in
+articles and reports that predate this plan, including the specific
+`party/Psyche.md` case that motivated the pronoun checks in the first place;
+only the write-time hooks catch them, and only on the next write to the
+affected file. This plan's task decomposition never scoped a task to touch the
+other three locations, which is the gap, not an error in what was built: the
+write-time mechanisms themselves are complete and independently verified. A
+follow-up task should update `conventions-schema.md`'s check catalog,
+`validation-sweep.mjs`'s `checkerPrompt`, and `kb-validator.md` Step 4's Content
+validation section for all three check kinds together, in one reviewed unit.
