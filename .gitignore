@@ -21,3 +21,6 @@ Thumbs.db
 # Packaged plugin artifacts
 *.plugin
 *.zip
+
+# professor-orb hook state: holds offered question text, read by hooks only
+.professor-orb/asked-options.json
