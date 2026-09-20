@@ -10,9 +10,12 @@
 // harness, before the model acts, and its output is a list of places rather
 // than an instruction to go looking.
 //
-// Fail-silent throughout, matching pipeline-next.mjs: a non-match, malformed
-// stdin, or a missing conventions file exits 0 with no output. A non-match is
-// indistinguishable from this hook not existing.
+// Fail-silent for a non-match or malformed stdin: exits 0 with no output, and
+// a non-match is indistinguishable from this hook not existing. A missing
+// conventions file is different: once a correction is detected, the hook
+// still speaks (see main()'s output block) even though laneRoots() finds
+// nothing to search. Silence there would read as "nothing to fix," which is
+// the failure this hook exists to prevent.
 
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
@@ -70,8 +73,11 @@ function searchTerms(text) {
 }
 
 // Every prong of every setting, plus the proposals folder. Returns absolute
-// paths that exist. An absent conventions file returns an empty array, which
-// main() treats as "say nothing".
+// paths that exist. An absent or unreadable conventions file returns an empty
+// array, and main() does NOT treat that as "say nothing": it still prints the
+// correction preamble plus an explicit "could not locate it" message. An empty
+// array here means the search found nothing to look in, not that the hook
+// failed to run.
 function laneRoots(cwd) {
   let conventions;
   try {
