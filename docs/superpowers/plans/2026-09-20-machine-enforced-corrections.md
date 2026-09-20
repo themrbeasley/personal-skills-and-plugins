@@ -1418,7 +1418,9 @@ No `autofix`. The remedy is the DM's own words, never a mechanical substitution.
 - [ ] **Step 6: Run test to verify it passes**
 
 Run: `node professor-orb/hooks/option-echo.test.mjs`
-Expected: PASS, 9 passed, 0 failed.
+Expected: PASS, 11 passed, 0 failed. (9 `check()` call sites; the "must not
+fire" block's loop runs 3 cases from one call site, so it contributes 3
+assertions rather than 1.)
 
 Diagnosing failures, because each one points at a specific measured decision:
 
@@ -1998,6 +2000,27 @@ plus a `kb-validator` update. The implementation ships `pronounDeclaration` (an
 article listing several sets names the one prose uses) and
 `pronounConsistency` (prose uses the named set), because the root fix is making
 the article unambiguous rather than policing every consumer of it.
+
+**Known follow-up: three new check kinds are not propagated to the other three
+places check semantics live.** `hooks/validate-write.mjs` carries a load-bearing
+comment (above its `CHECKS` map) stating check semantics are duplicated four
+ways: `skills/setup/references/conventions-schema.md`'s check catalog, the
+`CHECKS` table itself, the `checkerPrompt` in `workflows/validation-sweep.mjs`,
+and `agents/kb-validator.md` Step 4, with the base rule data single-sourced at
+`references/base-rules.json` but the semantics not. `optionEcho`,
+`pronounDeclaration`, and `pronounConsistency` update only the `CHECKS` table
+and `references/base-rules.json`; none of the other three locations mention any
+of the three. This means `/sweep`'s validation pass and a `kb-validator` run
+have no instruction to retroactively catch these three violation shapes in
+articles and reports that predate this plan, including the specific
+`party/Psyche.md` case that motivated the pronoun checks in the first place;
+only the write-time hooks catch them, and only on the next write to the
+affected file. This plan's task decomposition never scoped a task to touch the
+other three locations, which is the gap, not an error in what was built: the
+write-time mechanisms themselves are complete and independently verified. A
+follow-up task should update `conventions-schema.md`'s check catalog,
+`validation-sweep.mjs`'s `checkerPrompt`, and `kb-validator.md` Step 4's Content
+validation section for all three check kinds together, in one reviewed unit.
 ```
 
 - [ ] **Step 3: Bump both version files**
