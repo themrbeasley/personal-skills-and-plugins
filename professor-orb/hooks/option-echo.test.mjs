@@ -26,7 +26,8 @@ const OFFERED = [
 ];
 
 // dmSaid: the DM's own prose for the transcript. Pass "" for a session where
-// they never typed the claim, which is the 09-18 shape.
+// they never typed the claim, which is the 09-18 shape, or an array of raw
+// transcript events for a case the default three-event shape cannot express.
 function fixture(name, reportBody, offered, dmSaid) {
   const dir = path.join(os.tmpdir(), `orb-echo-${name}-${process.pid}`);
   rmSync(dir, { recursive: true, force: true });
@@ -34,14 +35,14 @@ function fixture(name, reportBody, offered, dmSaid) {
   mkdirSync(path.join(dir, "session-reports", "adjustice", "clean-hands"), { recursive: true });
 
   const transcript = path.join(dir, "transcript.jsonl");
-  writeFileSync(
-    transcript,
-    [
-      JSON.stringify({ type: "user", message: { role: "user", content: "let's debrief the clean hands session" } }),
-      JSON.stringify({ type: "user", message: { role: "user", content: typeof dmSaid === "string" ? dmSaid : "" } }),
-      JSON.stringify({ type: "assistant", message: { role: "assistant", content: "drafting the report" } }),
-    ].join("\n") + "\n"
-  );
+  const events = Array.isArray(dmSaid)
+    ? dmSaid
+    : [
+        { type: "user", message: { role: "user", content: "let's debrief the clean hands session" } },
+        { type: "user", message: { role: "user", content: typeof dmSaid === "string" ? dmSaid : "" } },
+        { type: "assistant", message: { role: "assistant", content: "drafting the report" } },
+      ];
+  writeFileSync(transcript, events.map((e) => JSON.stringify(e)).join("\n") + "\n");
 
   const base = JSON.parse(readFileSync(RULES, "utf8"));
   writeFileSync(
@@ -136,22 +137,10 @@ console.log("a long scattered transcript must not suppress the block:");
   // the claim, but between them they use every content word in it. Pooled, that
   // scores 1.00 and kills the rule while leaving it looking alive; per message
   // the best is 0.33. This case fails loudly if anyone reintroduces pooling.
-  const dir = path.join(os.tmpdir(), `orb-echo-scattered-${process.pid}`);
-  rmSync(dir, { recursive: true, force: true });
-  mkdirSync(path.join(dir, ".professor-orb"), { recursive: true });
-  mkdirSync(path.join(dir, "session-reports", "adjustice", "clean-hands"), { recursive: true });
-  const base = JSON.parse(readFileSync(RULES, "utf8"));
-  writeFileSync(
-    path.join(dir, ".professor-orb", "conventions.json"),
-    JSON.stringify({
-      schemaVersion: 3,
-      settings: [{ name: "adjustice", kbRoot: "kb/adjustice", sessionReportsRoot: "session-reports/adjustice", rules: base.rules }],
-    })
-  );
-  writeFileSync(path.join(dir, ".professor-orb", "asked-options.json"), JSON.stringify({ sessionId: "s1", options: OFFERED }));
-  const transcript = path.join(dir, "transcript.jsonl");
-  writeFileSync(
-    transcript,
+  const { dir, file, transcript } = fixture(
+    "scattered",
+    LAUNDERED,
+    OFFERED,
     [
       "the team regrouped at the warehouse after the crash",
       "a reporter survived and was hospitalized",
@@ -160,12 +149,8 @@ console.log("a long scattered transcript must not suppress the block:");
       "someone called Pemberton on the way out",
       "the whole team answered the door together",
       "done, write the report",
-    ]
-      .map((c) => JSON.stringify({ type: "user", message: { role: "user", content: c } }))
-      .join("\n") + "\n"
+    ].map((c) => ({ type: "user", message: { role: "user", content: c } }))
   );
-  const file = path.join(dir, "session-reports", "adjustice", "clean-hands", "2026-09-18-Clean-Hands-REPORT.md");
-  writeFileSync(file, ["---", "type: Session Report", "---", "", LAUNDERED, ""].join("\n"));
   check("scattered words across many messages still blocks", runValidator(dir, file, transcript).blocked, true);
   rmSync(dir, { recursive: true, force: true });
 })();
@@ -175,35 +160,16 @@ console.log("an AskUserQuestion selection is not the DM's prose:");
   // The selection comes back through the transcript as a user-role event
   // carrying a tool_result. Counting it as DM prose would feed the option's own
   // text back in and suppress exactly the block this rule exists for.
-  const dir = path.join(os.tmpdir(), `orb-echo-toolresult-${process.pid}`);
-  rmSync(dir, { recursive: true, force: true });
-  mkdirSync(path.join(dir, ".professor-orb"), { recursive: true });
-  mkdirSync(path.join(dir, "session-reports", "adjustice", "clean-hands"), { recursive: true });
-  const base = JSON.parse(readFileSync(RULES, "utf8"));
-  writeFileSync(
-    path.join(dir, ".professor-orb", "conventions.json"),
-    JSON.stringify({
-      schemaVersion: 3,
-      settings: [{ name: "adjustice", kbRoot: "kb/adjustice", sessionReportsRoot: "session-reports/adjustice", rules: base.rules }],
-    })
-  );
-  writeFileSync(path.join(dir, ".professor-orb", "asked-options.json"), JSON.stringify({ sessionId: "s1", options: OFFERED }));
-  const transcript = path.join(dir, "transcript.jsonl");
-  writeFileSync(
-    transcript,
-    [
-      JSON.stringify({ type: "user", message: { role: "user", content: "let's debrief" } }),
-      JSON.stringify({
-        type: "user",
-        message: {
-          role: "user",
-          content: [{ type: "tool_result", tool_use_id: "t1", content: OFFERED[0], text: OFFERED[0] }],
-        },
-      }),
-    ].join("\n") + "\n"
-  );
-  const file = path.join(dir, "session-reports", "adjustice", "clean-hands", "2026-09-18-Clean-Hands-REPORT.md");
-  writeFileSync(file, ["---", "type: Session Report", "---", "", LAUNDERED, ""].join("\n"));
+  const { dir, file, transcript } = fixture("toolresult", LAUNDERED, OFFERED, [
+    { type: "user", message: { role: "user", content: "let's debrief" } },
+    {
+      type: "user",
+      message: {
+        role: "user",
+        content: [{ type: "tool_result", tool_use_id: "t1", content: OFFERED[0], text: OFFERED[0] }],
+      },
+    },
+  ]);
   check("a tool_result carrying the option text still blocks", runValidator(dir, file, transcript).blocked, true);
   rmSync(dir, { recursive: true, force: true });
 })();
@@ -214,30 +180,11 @@ console.log("harness-injected content is not counted as the DM's prose:");
   // contain the laundered sentence verbatim, the way this correction hook's
   // own stdout or a system-reminder block might if it ever lands in a
   // transcript as user-role text. Must NOT suppress the block.
-  const dir = path.join(os.tmpdir(), `orb-echo-harness-noise-${process.pid}`);
-  rmSync(dir, { recursive: true, force: true });
-  mkdirSync(path.join(dir, ".professor-orb"), { recursive: true });
-  mkdirSync(path.join(dir, "session-reports", "adjustice", "clean-hands"), { recursive: true });
-  const base = JSON.parse(readFileSync(RULES, "utf8"));
-  writeFileSync(
-    path.join(dir, ".professor-orb", "conventions.json"),
-    JSON.stringify({
-      schemaVersion: 3,
-      settings: [{ name: "adjustice", kbRoot: "kb/adjustice", sessionReportsRoot: "session-reports/adjustice", rules: base.rules }],
-    })
-  );
-  writeFileSync(path.join(dir, ".professor-orb", "asked-options.json"), JSON.stringify({ sessionId: "s1", options: OFFERED }));
   const longInjectedBlock = "<system-reminder>\n" + "padding content ".repeat(400) + LAUNDERED + "\n</system-reminder>";
-  const transcript = path.join(dir, "transcript.jsonl");
-  writeFileSync(
-    transcript,
-    [
-      JSON.stringify({ type: "user", message: { role: "user", content: "let's debrief" } }),
-      JSON.stringify({ type: "user", isMeta: true, message: { role: "user", content: longInjectedBlock } }),
-    ].join("\n") + "\n"
-  );
-  const file = path.join(dir, "session-reports", "adjustice", "clean-hands", "2026-09-18-Clean-Hands-REPORT.md");
-  writeFileSync(file, ["---", "type: Session Report", "---", "", LAUNDERED, ""].join("\n"));
+  const { dir, file, transcript } = fixture("harness-noise", LAUNDERED, OFFERED, [
+    { type: "user", message: { role: "user", content: "let's debrief" } },
+    { type: "user", isMeta: true, message: { role: "user", content: longInjectedBlock } },
+  ]);
   check("a long isMeta block containing the sentence verbatim still blocks", runValidator(dir, file, transcript).blocked, true);
   rmSync(dir, { recursive: true, force: true });
 })();

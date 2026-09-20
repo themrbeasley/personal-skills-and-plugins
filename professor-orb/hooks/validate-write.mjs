@@ -777,23 +777,18 @@ const MAX_DM_MESSAGE_CHARS = 4000;
 // hatch is trying to verify came from the DM.
 const HARNESS_TAG_PATTERN = /^\s*<[a-zA-Z][\w-]*>/;
 
-// Returns ONE ENTRY PER DM MESSAGE, never a single joined blob. Both
-// properties below were measured against a realistic debrief transcript and
-// both are load-bearing.
+// Returns ONE ENTRY PER DM MESSAGE, never a single joined blob. Two rules
+// here are load-bearing, both measured against a real debrief transcript.
 //
-// Per message, not pooled. A real debrief transcript is a bulk-memory dump
-// plus dozens of short answers, and between them those messages use nearly
-// every word in the campaign. Pooling them and asking "did the DM use these
-// words" scores a laundered sentence at 1.00 against a transcript that never
-// states it, which would suppress every block while looking alive. The same
-// sentence scores far lower as a maximum over individual messages. The
-// question has to be "did the DM say this thing", not "did the DM ever use
-// these words".
+// Per message, not pooled. Those messages between them use nearly every word
+// in the campaign, so pooling scores a laundered sentence at 1.00 against a
+// transcript that never states it, suppressing every block while looking
+// alive. The question is "did the DM say this thing", not "did the DM ever
+// use these words".
 //
-// Text parts only. An AskUserQuestion selection comes back through the
-// transcript as a user-role event carrying a tool_result, so accepting every
-// part of every user event would feed the option's own text back in as the
-// DM's prose and suppress exactly the blocks this rule exists for.
+// Text parts only. An AskUserQuestion selection returns as a user-role event
+// carrying a tool_result, so accepting every part would feed the option's own
+// text back as the DM's prose and suppress the blocks this rule exists for.
 function dmMessages(transcriptPath) {
   if (typeof transcriptPath !== "string" || transcriptPath.length === 0) return null;
   let raw;

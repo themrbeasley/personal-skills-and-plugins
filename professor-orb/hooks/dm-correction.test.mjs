@@ -97,55 +97,30 @@ console.log("fail-silent contract:");
 import { mkdirSync, writeFileSync, rmSync } from "node:fs";
 import os from "node:os";
 
-// A fixture project with a conventions file and one report carrying the
-// 2026-09-18 sentence in two places, the way it actually spread.
-function makeFixture(name) {
+// A disposable fixture project: a conventions file carrying `settings`, plus
+// every entry of `files` written at its path relative to the project root.
+function project(name, settings, files) {
   const dir = path.join(os.tmpdir(), `orb-corr-${name}-${process.pid}`);
   rmSync(dir, { recursive: true, force: true });
   mkdirSync(path.join(dir, ".professor-orb"), { recursive: true });
-  mkdirSync(path.join(dir, "session-reports", "adjustice", "clean-hands"), { recursive: true });
   writeFileSync(
     path.join(dir, ".professor-orb", "conventions.json"),
-    JSON.stringify({
-      schemaVersion: 3,
-      settings: [{ name: "adjustice", kbRoot: "kb/adjustice", sessionReportsRoot: "session-reports/adjustice" }],
-    })
+    JSON.stringify({ schemaVersion: 3, settings })
   );
-  writeFileSync(
-    path.join(dir, "session-reports", "adjustice", "clean-hands", "2026-09-18-Clean-Hands-REPORT.md"),
-    [
-      "---",
-      "type: Session Report",
-      "---",
-      "",
-      "The reporter asked what the team was called, and they answered on camera.",
-      "",
-      "## NPCs",
-      "",
-      "- The reporter who survived the crash now knows the team's name.",
-      "",
-      "## Locations",
-      "",
-      "- The lab showed hints of research into superpowered plants.",
-      "",
-    ].join("\n")
-  );
+  for (const [rel, body] of Object.entries(files)) {
+    const abs = path.join(dir, rel);
+    mkdirSync(path.dirname(abs), { recursive: true });
+    writeFileSync(abs, body);
+  }
   return dir;
 }
 
-console.log("lane search:");
-(function () {
-  const dir = makeFixture("hits");
-  const out = runHook("That NEVER happened, the reporter never asked what the team was called", dir);
+// Every fixture file here is markdown with frontmatter.
+const md = (type, ...lines) => ["---", `type: ${type}`, "---", "", ...lines, ""].join("\n");
 
-  const cases = [
-    ["names the report file", out.includes("2026-09-18-Clean-Hands-REPORT.md"), true],
-    ["reports the body line", out.includes("The reporter asked what the team was called"), true],
-    ["reports the NPC line", out.includes("now knows the team's name"), true],
-    ["leaves an unrelated line out", out.includes("superpowered plants"), false],
-    ["states the search is scope, not truth", out.includes("scope, not truth"), true],
-    ["carries a file:line pointer", /2026-09-18-Clean-Hands-REPORT\.md:\d+/.test(out), true],
-  ];
+// Scores one block's [name, actual, expected] triples. `out` is echoed on a
+// failure so the diagnosis does not need a rerun.
+function report(cases, out) {
   for (const [name, actual, expected] of cases) {
     if (actual === expected) {
       passed++;
@@ -156,6 +131,39 @@ console.log("lane search:");
       console.log(`         output: ${JSON.stringify(out)}`);
     }
   }
+}
+
+console.log("lane search:");
+(function () {
+  const dir = project(
+    "hits",
+    [{ name: "adjustice", kbRoot: "kb/adjustice", sessionReportsRoot: "session-reports/adjustice" }],
+    {
+      "session-reports/adjustice/clean-hands/2026-09-18-Clean-Hands-REPORT.md": md(
+        "Session Report",
+        "The reporter asked what the team was called, and they answered on camera.",
+        "",
+        "## NPCs",
+        "",
+        "- The reporter who survived the crash now knows the team's name.",
+        "",
+        "## Locations",
+        "",
+        "- The lab showed hints of research into superpowered plants."
+      ),
+    }
+  );
+  const out = runHook("That NEVER happened, the reporter never asked what the team was called", dir);
+
+  const cases = [
+    ["names the report file", out.includes("2026-09-18-Clean-Hands-REPORT.md"), true],
+    ["reports the body line", out.includes("The reporter asked what the team was called"), true],
+    ["reports the NPC line", out.includes("now knows the team's name"), true],
+    ["leaves an unrelated line out", out.includes("superpowered plants"), false],
+    ["states the search is scope, not truth", out.includes("scope, not truth"), true],
+    ["carries a file:line pointer", /2026-09-18-Clean-Hands-REPORT\.md:\d+/.test(out), true],
+  ];
+  report(cases, out);
   rmSync(dir, { recursive: true, force: true });
 })();
 
@@ -170,16 +178,7 @@ console.log("a correction the hook cannot locate still speaks:");
     ["says nothing matched", out.includes("No line in the campaign lane matched"), true],
     ["does not claim a hit", /:\d+\s\s/.test(out), false],
   ];
-  for (const [name, actual, expected] of cases) {
-    if (actual === expected) {
-      passed++;
-      console.log(`  [PASS] ${name}`);
-    } else {
-      failures.push(name);
-      console.log(`  [FAIL] ${name}: expected ${expected}, got ${actual}`);
-      console.log(`         output: ${JSON.stringify(out)}`);
-    }
-  }
+  report(cases, out);
   rmSync(dir, { recursive: true, force: true });
 })();
 
@@ -192,30 +191,24 @@ console.log("a large first root must not starve a later root's budget:");
   // first root alone could (and on the real 1855-article consumer project,
   // did) exhaust it before the second root's own, much smaller content was
   // ever reached.
-  const dir = path.join(os.tmpdir(), `orb-corr-starve-${process.pid}`);
-  rmSync(dir, { recursive: true, force: true });
-  mkdirSync(path.join(dir, ".professor-orb"), { recursive: true });
-  mkdirSync(path.join(dir, "settings", "big"), { recursive: true });
-  mkdirSync(path.join(dir, "session-reports", "small", "Adjustice"), { recursive: true });
-  writeFileSync(
-    path.join(dir, ".professor-orb", "conventions.json"),
-    JSON.stringify({
-      schemaVersion: 3,
-      settings: [
-        { name: "big", kbRoot: "settings/big" },
-        { name: "small", sessionReportsRoot: "session-reports/small" },
-      ],
-    })
-  );
-  for (let i = 0; i < 60; i++) {
-    writeFileSync(
-      path.join(dir, "settings", "big", `filler-${i}.md`),
-      "---\ntype: Person\n---\n\nNothing relevant here, filler content only.\n"
-    );
-  }
-  writeFileSync(
-    path.join(dir, "session-reports", "small", "Adjustice", "2026-09-18-Clean-Hands-REPORT.md"),
-    "---\ntype: Session Report\n---\n\nThe reporter asked what the team was called, and they answered on camera.\n"
+  const dir = project(
+    "starve",
+    [
+      { name: "big", kbRoot: "settings/big" },
+      { name: "small", sessionReportsRoot: "session-reports/small" },
+    ],
+    {
+      ...Object.fromEntries(
+        Array.from({ length: 60 }, (_, i) => [
+          `settings/big/filler-${i}.md`,
+          md("Person", "Nothing relevant here, filler content only."),
+        ])
+      ),
+      "session-reports/small/Adjustice/2026-09-18-Clean-Hands-REPORT.md": md(
+        "Session Report",
+        "The reporter asked what the team was called, and they answered on camera."
+      ),
+    }
   );
   // findHits floors perRootCap at 50 (Math.max(50, ...)) regardless of how low
   // MAX_FILES goes, so a 2-root split cannot be driven below 50 by the env
@@ -231,16 +224,7 @@ console.log("a large first root must not starve a later root's budget:");
     ["finds the target in the second, small root despite a large first root", out.includes("2026-09-18-Clean-Hands-REPORT.md"), true],
     ["does not falsely claim completeness when a root was truncated", out.includes("may be incomplete"), true],
   ];
-  for (const [name, actual, expected] of cases) {
-    if (actual === expected) {
-      passed++;
-      console.log(`  [PASS] ${name}`);
-    } else {
-      failures.push(name);
-      console.log(`  [FAIL] ${name}: expected ${expected}, got ${actual}`);
-      console.log(`         output: ${JSON.stringify(out)}`);
-    }
-  }
+  report(cases, out);
   rmSync(dir, { recursive: true, force: true });
 })();
 
@@ -258,30 +242,24 @@ console.log("a noisy first root must not fill the whole hit budget:");
   // filler, because hit starvation needs hits. 30 files is well over the
   // 20-hit budget and well under the 50-file per-root floor, so the file cap
   // never fires and this test isolates the hit budget.
-  const dir = path.join(os.tmpdir(), `orb-corr-hitstarve-${process.pid}`);
-  rmSync(dir, { recursive: true, force: true });
-  mkdirSync(path.join(dir, ".professor-orb"), { recursive: true });
-  mkdirSync(path.join(dir, "settings", "noisy"), { recursive: true });
-  mkdirSync(path.join(dir, "session-reports", "quiet", "Adjustice"), { recursive: true });
-  writeFileSync(
-    path.join(dir, ".professor-orb", "conventions.json"),
-    JSON.stringify({
-      schemaVersion: 3,
-      settings: [
-        { name: "noisy", kbRoot: "settings/noisy" },
-        { name: "quiet", sessionReportsRoot: "session-reports/quiet" },
-      ],
-    })
-  );
-  for (let i = 0; i < 30; i++) {
-    writeFileSync(
-      path.join(dir, "settings", "noisy", `noisy-${i}.md`),
-      "---\ntype: Person\n---\n\nThe reporter asked what the team was called here too.\n"
-    );
-  }
-  writeFileSync(
-    path.join(dir, "session-reports", "quiet", "Adjustice", "2026-09-18-Clean-Hands-REPORT.md"),
-    "---\ntype: Session Report\n---\n\nThe reporter asked what the team was called, and they answered on camera.\n"
+  const dir = project(
+    "hitstarve",
+    [
+      { name: "noisy", kbRoot: "settings/noisy" },
+      { name: "quiet", sessionReportsRoot: "session-reports/quiet" },
+    ],
+    {
+      ...Object.fromEntries(
+        Array.from({ length: 30 }, (_, i) => [
+          `settings/noisy/noisy-${i}.md`,
+          md("Person", "The reporter asked what the team was called here too."),
+        ])
+      ),
+      "session-reports/quiet/Adjustice/2026-09-18-Clean-Hands-REPORT.md": md(
+        "Session Report",
+        "The reporter asked what the team was called, and they answered on camera."
+      ),
+    }
   );
   const out = runHook("that never happened, the reporter never asked what the team was called", dir);
   const cases = [
@@ -289,16 +267,7 @@ console.log("a noisy first root must not fill the whole hit budget:");
     ["says so when the hit budget itself cut the list short", out.includes("may be incomplete"), true],
     ["still fills the budget rather than under-reporting", (out.match(/^ {2}\S+:\d+ {2}/gm) || []).length === 20, true],
   ];
-  for (const [name, actual, expected] of cases) {
-    if (actual === expected) {
-      passed++;
-      console.log(`  [PASS] ${name}`);
-    } else {
-      failures.push(name);
-      console.log(`  [FAIL] ${name}: expected ${expected}, got ${actual}`);
-      console.log(`         output: ${JSON.stringify(out)}`);
-    }
-  }
+  report(cases, out);
   rmSync(dir, { recursive: true, force: true });
 })();
 
@@ -337,16 +306,7 @@ console.log("one noisy file does not crowd out its siblings:");
     ["the report file appears despite a 40-match prep file walked first", out.includes("Clean-Hands-REPORT.md"), true],
     ["the prep file is capped rather than taking every slot", (out.match(/2026-09-18-PREP\.md:/g) || []).length <= 5, true],
   ];
-  for (const [name, actual, expected] of cases) {
-    if (actual === expected) {
-      passed++;
-      console.log(`  [PASS] ${name}`);
-    } else {
-      failures.push(name);
-      console.log(`  [FAIL] ${name}: expected ${expected}, got ${actual}`);
-      console.log(`         output: ${JSON.stringify(out)}`);
-    }
-  }
+  report(cases, out);
   rmSync(dir, { recursive: true, force: true });
 })();
 
