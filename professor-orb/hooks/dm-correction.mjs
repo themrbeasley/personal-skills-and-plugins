@@ -14,7 +14,8 @@
 // stdin, or a missing conventions file exits 0 with no output. A non-match is
 // indistinguishable from this hook not existing.
 
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync, statSync } from "node:fs";
+import path from "node:path";
 
 // Correction-shaped language. Deliberately narrow: this hook runs on every DM
 // message, so each pattern added here is a lane grep added to some ordinary
@@ -37,6 +38,125 @@ function looksLikeCorrection(text) {
   return CORRECTION_PATTERNS.some((re) => re.test(text));
 }
 
+// Caps. A correction must not turn into an unbounded walk of the DM's whole
+// knowledge base on a 10 second hook timeout.
+const MAX_FILES = 2000;
+const MAX_FILE_BYTES = 512 * 1024;
+const MAX_HITS = 20;
+
+// Words that carry no search signal. Short list on purpose: the length filter
+// below removes most function words already, and an over-long stoplist starts
+// removing the nouns a correction turns on.
+const STOPWORDS = new Set([
+  "that", "this", "never", "happened", "happen", "wrong", "incorrect", "said",
+  "told", "about", "there", "their", "they", "them", "with", "from", "have",
+  "what", "when", "where", "which", "were", "was", "and", "the", "for", "not",
+  "didnt", "doesnt", "actually", "really", "just", "only", "also", "fucking",
+]);
+
+// The correction's content words, which are what the lane is searched for. A
+// term must be four characters or longer: shorter tokens match everywhere and
+// turn every report into a hit.
+function searchTerms(text) {
+  const seen = new Set();
+  for (const raw of text.toLowerCase().split(/[^a-z0-9']+/)) {
+    const word = raw.replace(/'/g, "");
+    if (word.length < 4) continue;
+    if (STOPWORDS.has(word)) continue;
+    seen.add(word);
+    if (seen.size >= 8) break;
+  }
+  return [...seen];
+}
+
+// Every prong of every setting, plus the proposals folder. Returns absolute
+// paths that exist. An absent conventions file returns an empty array, which
+// main() treats as "say nothing".
+function laneRoots(cwd) {
+  let conventions;
+  try {
+    conventions = JSON.parse(readFileSync(path.resolve(cwd, ".professor-orb", "conventions.json"), "utf8"));
+  } catch {
+    return [];
+  }
+  if (!conventions || typeof conventions !== "object") return [];
+
+  const settings = Array.isArray(conventions.settings) ? conventions.settings : [];
+  const candidates = [];
+  for (const setting of settings) {
+    if (!setting || typeof setting !== "object") continue;
+    for (const key of ["kbRoot", "homebrewRoot", "sessionReportsRoot"]) {
+      if (typeof setting[key] === "string" && setting[key].length > 0) candidates.push(setting[key]);
+    }
+  }
+  // A v1 or v2 conventions file has a bare top-level kbRoot and no settings
+  // array. Reading it is enough for a search, unlike lane resolution.
+  if (candidates.length === 0 && typeof conventions.kbRoot === "string") candidates.push(conventions.kbRoot);
+  candidates.push(path.join(".professor-orb", "proposals"));
+
+  const roots = [];
+  for (const rel of candidates) {
+    const abs = path.resolve(cwd, rel);
+    try {
+      if (statSync(abs).isDirectory()) roots.push(abs);
+    } catch {
+      // Not on disk. A configured prong the DM has not created yet is normal.
+    }
+  }
+  return roots;
+}
+
+// Every markdown line under roots holding at least two search terms, or one
+// when the correction yielded only one term. Two is the floor because a single
+// common noun ("reporter") matches half a campaign, and the DM reads this list.
+function findHits(roots, terms) {
+  if (terms.length === 0) return [];
+  const floor = terms.length === 1 ? 1 : 2;
+  const hits = [];
+  let filesSeen = 0;
+
+  const walk = (dir) => {
+    if (hits.length >= MAX_HITS || filesSeen >= MAX_FILES) return;
+    let entries;
+    try {
+      entries = readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      if (hits.length >= MAX_HITS || filesSeen >= MAX_FILES) return;
+      const abs = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        if (entry.name === "node_modules" || entry.name.startsWith(".")) continue;
+        walk(abs);
+        continue;
+      }
+      if (!entry.name.toLowerCase().endsWith(".md")) continue;
+      filesSeen++;
+      let content;
+      try {
+        if (statSync(abs).size > MAX_FILE_BYTES) continue;
+        content = readFileSync(abs, "utf8");
+      } catch {
+        continue;
+      }
+      const lines = content.split(/\r?\n/);
+      for (let i = 0; i < lines.length; i++) {
+        const lower = lines[i].toLowerCase();
+        let matched = 0;
+        for (const term of terms) if (lower.includes(term)) matched++;
+        if (matched >= floor) {
+          hits.push({ file: abs, line: i + 1, text: lines[i].trim() });
+          if (hits.length >= MAX_HITS) return;
+        }
+      }
+    }
+  };
+
+  for (const root of roots) walk(root);
+  return hits;
+}
+
 function main() {
   let raw;
   try {
@@ -57,7 +177,34 @@ function main() {
   const prompt = typeof input.prompt === "string" ? input.prompt : "";
   if (!looksLikeCorrection(prompt)) process.exit(0);
 
-  process.stdout.write("The DM's last message reads as a correction.\n");
+  const cwd = typeof input.cwd === "string" && input.cwd.length > 0 ? input.cwd : process.cwd();
+  const terms = searchTerms(prompt);
+  const hits = findHits(laneRoots(cwd), terms);
+
+  const out = [
+    "The DM's last message reads as a correction. Their statement stands on its own;",
+    "the search below establishes scope, not truth. Never re-litigate the correction.",
+    "",
+  ];
+
+  if (hits.length === 0) {
+    // A correction the hook cannot locate still gets said out loud. Silence here
+    // would read as "nothing to fix", which is the failure this hook exists for.
+    out.push("No line in the campaign lane matched it. Find what they corrected yourself,");
+    out.push("then fix every copy before anything else this turn.");
+  } else {
+    out.push(`${hits.length} line${hits.length === 1 ? "" : "s"} in the campaign lane mention it:`);
+    out.push("");
+    for (const hit of hits) {
+      const rel = path.relative(cwd, hit.file).split(path.sep).join("/");
+      out.push(`  ${rel}:${hit.line}  ${hit.text}`);
+    }
+    out.push("");
+    out.push("Report this list to the DM and ask once whether to fix them all.");
+    out.push("A correction is not closed while a copy survives.");
+  }
+
+  process.stdout.write(out.join("\n") + "\n");
   process.exit(0);
 }
 

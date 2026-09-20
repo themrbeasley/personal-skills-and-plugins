@@ -93,5 +93,94 @@ console.log("fail-silent contract:");
   }
 })();
 
+import { mkdirSync, writeFileSync, rmSync } from "node:fs";
+import os from "node:os";
+
+// A fixture project with a conventions file and one report carrying the
+// 2026-09-18 sentence in two places, the way it actually spread.
+function makeFixture(name) {
+  const dir = path.join(os.tmpdir(), `orb-corr-${name}-${process.pid}`);
+  rmSync(dir, { recursive: true, force: true });
+  mkdirSync(path.join(dir, ".professor-orb"), { recursive: true });
+  mkdirSync(path.join(dir, "session-reports", "adjustice", "clean-hands"), { recursive: true });
+  writeFileSync(
+    path.join(dir, ".professor-orb", "conventions.json"),
+    JSON.stringify({
+      schemaVersion: 3,
+      settings: [{ name: "adjustice", kbRoot: "kb/adjustice", sessionReportsRoot: "session-reports/adjustice" }],
+    })
+  );
+  writeFileSync(
+    path.join(dir, "session-reports", "adjustice", "clean-hands", "2026-09-18-Clean-Hands-REPORT.md"),
+    [
+      "---",
+      "type: Session Report",
+      "---",
+      "",
+      "The reporter asked what the team was called, and they answered on camera.",
+      "",
+      "## NPCs",
+      "",
+      "- The reporter who survived the crash now knows the team's name.",
+      "",
+      "## Locations",
+      "",
+      "- The lab showed hints of research into superpowered plants.",
+      "",
+    ].join("\n")
+  );
+  return dir;
+}
+
+console.log("lane search:");
+(function () {
+  const dir = makeFixture("hits");
+  const out = runHook("That NEVER happened, the reporter never asked what the team was called", dir);
+
+  const cases = [
+    ["names the report file", out.includes("2026-09-18-Clean-Hands-REPORT.md"), true],
+    ["reports the body line", out.includes("The reporter asked what the team was called"), true],
+    ["reports the NPC line", out.includes("now knows the team's name"), true],
+    ["leaves an unrelated line out", out.includes("superpowered plants"), false],
+    ["states the search is scope, not truth", out.includes("scope, not truth"), true],
+    ["carries a file:line pointer", /2026-09-18-Clean-Hands-REPORT\.md:\d+/.test(out), true],
+  ];
+  for (const [name, actual, expected] of cases) {
+    if (actual === expected) {
+      passed++;
+      console.log(`  [PASS] ${name}`);
+    } else {
+      failures.push(name);
+      console.log(`  [FAIL] ${name}: expected ${expected}, got ${actual}`);
+      console.log(`         output: ${JSON.stringify(out)}`);
+    }
+  }
+  rmSync(dir, { recursive: true, force: true });
+})();
+
+console.log("a correction the hook cannot locate still speaks:");
+(function () {
+  const dir = path.join(os.tmpdir(), `orb-corr-bare-${process.pid}`);
+  rmSync(dir, { recursive: true, force: true });
+  mkdirSync(dir, { recursive: true });
+  const out = runHook("That never happened", dir);
+  const cases = [
+    ["still says it read as a correction", out.includes(MARKER), true],
+    ["says nothing matched", out.includes("No line in the campaign lane matched"), true],
+    ["does not claim a hit", /:\d+\s\s/.test(out), false],
+  ];
+  for (const [name, actual, expected] of cases) {
+    if (actual === expected) {
+      passed++;
+      console.log(`  [PASS] ${name}`);
+    } else {
+      failures.push(name);
+      console.log(`  [FAIL] ${name}: expected ${expected}, got ${actual}`);
+      console.log(`         output: ${JSON.stringify(out)}`);
+    }
+  }
+  rmSync(dir, { recursive: true, force: true });
+})();
+
 console.log(`\n${passed} passed, ${failures.length} failed`);
 if (failures.length > 0) process.exit(1);
