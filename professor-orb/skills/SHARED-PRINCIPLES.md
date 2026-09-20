@@ -30,6 +30,19 @@ When you ask the DM a question and they answer, trust the answer. If the DM says
 
 Do not re-list completed work as open tasks. Do not second-guess direct answers. If something seems contradictory, surface it as a question, not an assumption.
 
+A correction travels. The same claim is usually in the report, its indexes, any
+brief that carried it forward, and any staged article drawn from it. On a
+correction, the turn's first tool call searches the campaign's lane for every
+copy, and the correction is not closed while one survives. The search
+establishes scope. It never re-litigates the correction.
+
+This paragraph is prose, and prose is the weakest thing in this plugin: six
+principles here already state that the DM's word is law, and on 2026-09-18 all
+six held while a false sentence spread through a report, two indexes, and three
+commits. The mechanism that catches a correction is the `dm-correction` hook,
+which searches the lane itself before this file is even read. What this
+paragraph covers is the case the hook's pattern list misses.
+
 ## 4. Distinguish DM prep from player objectives
 
 Things the DM needs to prepare before a session (scenes, handouts, NPC motivations, VTT setup) are DM prep. Things the party needs to figure out in-play ("how do we get underwater," "should we trust the NPC") are player objectives. Never list player objectives as DM tasks.
