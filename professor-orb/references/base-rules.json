@@ -148,6 +148,22 @@
       "enforcement": "block",
       "description": "A sentence restating a question option this session offered is confirmed in the DM's own words before it is written.",
       "params": { "overlapThreshold": 0.4, "minContentWords": 4, "proseThreshold": 0.5 }
+    },
+    "contentPronounDeclaration": {
+      "provenance": "professor-orb",
+      "category": "content",
+      "check": "pronounDeclaration",
+      "enforcement": "warn",
+      "description": "A character article listing more than one pronoun set names the one prose uses.",
+      "params": { "appliesToTypes": ["Person"] }
+    },
+    "contentPronounConsistency": {
+      "provenance": "professor-orb",
+      "category": "content",
+      "check": "pronounConsistency",
+      "enforcement": "warn",
+      "description": "Prose uses the pronoun a referenced character's article names for writing.",
+      "params": { "sourceTypes": ["Person"] }
     }
   }
 }

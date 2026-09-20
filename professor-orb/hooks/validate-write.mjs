@@ -883,6 +883,155 @@ function checkOptionEcho(params, ctx) {
   return true;
 }
 
+// ---------------------------------------------------------------------------
+// Pronouns
+// ---------------------------------------------------------------------------
+
+// The recognized sets, each as its subject form plus the object and possessive
+// forms that identify it in prose. A set is "used" when any of its forms
+// appears as a whole word.
+const PRONOUN_SETS = {
+  __proto__: null,
+  "they/them": ["they", "them", "their", "theirs", "themself", "themselves"],
+  "she/her": ["she", "her", "hers", "herself"],
+  "he/him": ["he", "him", "his", "himself"],
+  "it/its": ["it", "its", "itself"],
+  "xe/xem": ["xe", "xem", "xyr", "xyrs"],
+  "ze/hir": ["ze", "hir", "hirs", "zir", "zirs"],
+};
+
+// The article's pronoun line: the first line naming pronouns at all. Returns
+// { line, sets, writing } where writing is the set the line names for prose, or
+// null when it names none.
+function pronounLine(body) {
+  for (const raw of String(body).split(/\r?\n/)) {
+    if (!/pronouns?\s*[:\-]/i.test(raw)) continue;
+    const line = raw.trim();
+    const lower = line.toLowerCase();
+    const sets = [];
+    for (const name of Object.keys(PRONOUN_SETS)) {
+      const subject = name.split("/")[0];
+      if (new RegExp(`\\b${subject}\\b`, "i").test(lower)) sets.push(name);
+    }
+    if (sets.length === 0) continue;
+    // "in writing", "for prose", "in prose", "written as": the phrases that
+    // name one set as the one to use. The set named is the one nearest before
+    // the phrase, which is how the sentence reads in English.
+    let writing = null;
+    const marker = lower.search(/\b(?:in writing|for prose|in prose|written as|use)\b/);
+    if (marker !== -1) {
+      const before = lower.slice(0, marker);
+      for (const name of sets) {
+        const subject = name.split("/")[0];
+        if (new RegExp(`\\b${subject}\\b`, "i").test(before)) writing = name;
+      }
+    }
+    if (writing === null && sets.length === 1) writing = sets[0];
+    return { line, sets, writing };
+  }
+  return null;
+}
+
+// An article listing more than one set must name the one prose uses. A
+// declaration offering three reads as a choice, which is how party/Psyche.md
+// produced four drafts in the wrong pronoun while every other source used one.
+// Warn, not block: which set to write is the DM's call about their own
+// character, so there is no unambiguous mechanical fix.
+function checkPronounDeclaration(params, ctx) {
+  const types = Array.isArray(params.appliesToTypes) ? params.appliesToTypes : ["Person"];
+  if (!types.includes(ctx.frontmatter.type)) return true;
+
+  const found = pronounLine(ctx.body);
+  if (!found) return true;
+  if (found.sets.length <= 1) return true;
+  if (found.writing !== null) return true;
+
+  return [
+    `This article lists ${found.sets.length} pronoun sets (${found.sets.join(", ")}) without naming the one prose uses: "${found.line}"`,
+    '  Name it, for example "they/them in writing; she/her and he/him also accepted", so nothing downstream has to choose.',
+  ].join("\n");
+}
+
+// Flags a body using a pronoun set that a referenced character's article lists
+// as accepted but does not name for writing. Deliberately narrow: it fires only
+// when the article names one set AND lists others. With no other set listed
+// there is nothing to confuse, and a check that guessed would be noise on every
+// article with more than one character in it.
+function checkPronounConsistency(params, ctx) {
+  const types = Array.isArray(params.sourceTypes) ? params.sourceTypes : ["Person"];
+  const articles = [];
+  for (const root of ctx.searchRoots || []) {
+    collectArticles(root, articles, 0);
+  }
+
+  // Filter by FILENAME before reading anything. collectArticles walks
+  // directories, which costs one readdir per folder; reading and parsing every
+  // article it finds would cost up to 1500 readFileSync plus 1500 frontmatter
+  // parses on EVERY write, against this hook's timeout. A draft names a handful
+  // of characters, so the name test cuts the read set to those few. The test is
+  // the same one used below, hoisted, so it cannot drift from it.
+  const nameMatches = (abs) => {
+    const name = baseNameNoExt(path.basename(abs));
+    if (name.length < 3) return false;
+    return new RegExp(`\\b${name.replace(/[-_]/g, "[ -_]")}\\b`, "i").test(ctx.body);
+  };
+
+  for (const abs of articles) {
+    if (abs === ctx.absFilePath) continue;
+    if (!nameMatches(abs)) continue;
+
+    let parsed;
+    try {
+      parsed = parseFrontmatter(readFileSync(abs, "utf8"));
+    } catch {
+      continue;
+    }
+    if (!parsed || !types.includes(parsed.data.type)) continue;
+
+    const found = pronounLine(parsed.body);
+    if (!found || found.writing === null || found.sets.length <= 1) continue;
+
+    const name = baseNameNoExt(path.basename(abs));
+    for (const set of found.sets) {
+      if (set === found.writing) continue;
+      for (const form of PRONOUN_SETS[set]) {
+        if (new RegExp(`\\b${form}\\b`, "i").test(ctx.body)) {
+          return [
+            `This draft uses ${set} while ${name}'s article names ${found.writing} as the pronoun prose uses: "${found.line}"`,
+            `  Rewrite the draft in ${found.writing}, or change the article if the DM says the article is stale (Principle 1).`,
+          ].join("\n");
+        }
+      }
+    }
+  }
+  return true;
+}
+
+// Bounded recursive collection of markdown files, matching searchForFileStat's
+// depth discipline so a deep knowledge base cannot stall a write.
+//
+// Does NOT use this file's safeReaddir: that helper returns bare filename
+// strings and null on failure, so entry.isDirectory() would throw, the
+// check-crash guard at the rule loop would swallow it, and this check would
+// silently never fire. withFileTypes avoids a statSync per entry as well.
+function collectArticles(dir, out, depth) {
+  if (depth > 6 || out.length > 1500) return;
+  let entries;
+  try {
+    entries = readdirSync(dir, { withFileTypes: true });
+  } catch {
+    return;
+  }
+  for (const entry of entries) {
+    if (entry.isDirectory()) {
+      if (entry.name.startsWith(".") || entry.name === "node_modules") continue;
+      collectArticles(path.join(dir, entry.name), out, depth + 1);
+    } else if (entry.name.toLowerCase().endsWith(".md")) {
+      out.push(path.join(dir, entry.name));
+    }
+  }
+}
+
 // Check semantics are duplicated four ways: skills/setup/references/conventions-schema.md's
 // check catalog (normative), this CHECKS table, the checkerPrompt in
 // workflows/validation-sweep.mjs, and agents/kb-validator.md Step 4. The base rule data
@@ -906,6 +1055,8 @@ const CHECKS = {
   frontmatterImpliesFrontmatter: checkFrontmatterImpliesFrontmatter,
   tagImpliesPath: checkTagImpliesPath,
   optionEcho: checkOptionEcho,
+  pronounDeclaration: checkPronounDeclaration,
+  pronounConsistency: checkPronounConsistency,
 };
 
 // ---------------------------------------------------------------------------
