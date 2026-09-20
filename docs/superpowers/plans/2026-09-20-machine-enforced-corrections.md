@@ -955,11 +955,23 @@ const OFFERED = [
   "Reporter asked the name. The team answered on camera as the Neighborhood Watch Association",
 ];
 
-function fixture(name, reportBody, offered) {
+// dmSaid: the DM's own prose for the transcript. Pass "" for a session where
+// they never typed the claim, which is the 09-18 shape.
+function fixture(name, reportBody, offered, dmSaid) {
   const dir = path.join(os.tmpdir(), `orb-echo-${name}-${process.pid}`);
   rmSync(dir, { recursive: true, force: true });
   mkdirSync(path.join(dir, ".professor-orb"), { recursive: true });
   mkdirSync(path.join(dir, "session-reports", "adjustice", "clean-hands"), { recursive: true });
+
+  const transcript = path.join(dir, "transcript.jsonl");
+  writeFileSync(
+    transcript,
+    [
+      JSON.stringify({ type: "user", message: { role: "user", content: "let's debrief the clean hands session" } }),
+      JSON.stringify({ type: "user", message: { role: "user", content: typeof dmSaid === "string" ? dmSaid : "" } }),
+      JSON.stringify({ type: "assistant", message: { role: "assistant", content: "drafting the report" } }),
+    ].join("\n") + "\n"
+  );
 
   const base = JSON.parse(readFileSync(RULES, "utf8"));
   writeFileSync(
@@ -984,12 +996,12 @@ function fixture(name, reportBody, offered) {
   }
   const file = path.join(dir, "session-reports", "adjustice", "clean-hands", "2026-09-18-Clean-Hands-REPORT.md");
   writeFileSync(file, ["---", "type: Session Report", "---", "", reportBody, ""].join("\n"));
-  return { dir, file };
+  return { dir, file, transcript };
 }
 
 // Returns { blocked: boolean, output: string }. validate-write signals a block
 // with exit 2 and stderr; a pass or warn exits 0.
-function runValidator(dir, file) {
+function runValidator(dir, file, transcript) {
   try {
     execFileSync("node", [HOOK], {
       cwd: dir,
@@ -997,6 +1009,7 @@ function runValidator(dir, file) {
         hook_event_name: "PostToolUse",
         tool_name: "Write",
         cwd: dir,
+        transcript_path: transcript,
         tool_input: { file_path: file },
       }),
       encoding: "utf8",
@@ -1017,17 +1030,111 @@ function check(name, actual, expected) {
   }
 }
 
+const LAUNDERED = "The reporter asked what the team was called, and they answered on camera.";
+
 console.log("the 2026-09-18 case:");
 (function () {
-  const { dir, file } = fixture(
-    "known-positive",
-    "The reporter asked what the team was called, and they answered on camera.",
-    OFFERED
-  );
-  const r = runValidator(dir, file);
+  // The DM's transcript talks about the session but never states this claim,
+  // which is the whole shape of the bug: only the option ever said it.
+  const { dir, file, transcript } = fixture("known-positive", LAUNDERED, OFFERED, "we wrapped up at the warehouse, pretty short night");
+  const r = runValidator(dir, file, transcript);
   check("a paraphrase of an offered option blocks the write", r.blocked, true);
   check("the violation names the rule", r.output.includes("contentOptionEcho"), true);
   check("the violation quotes the sentence", r.output.includes("answered on camera"), true);
+  rmSync(dir, { recursive: true, force: true });
+})();
+
+console.log("no deadlock when the DM said it themselves:");
+(function () {
+  // The escape hatch, and the case that makes `block` safe. A sentence the DM
+  // confirmed in prose still overlaps the option heavily, because a good option
+  // paraphrases what it asks about. Without this branch the rule would refuse
+  // the TRUE sentence forever and the DM could never get it into the report.
+  const { dir, file, transcript } = fixture(
+    "dm-said-it",
+    LAUNDERED,
+    OFFERED,
+    "yes the reporter asked what the team was called and they answered on camera, that one happened"
+  );
+  check("the DM's own prose lets it through", runValidator(dir, file, transcript).blocked, false);
+  rmSync(dir, { recursive: true, force: true });
+})();
+
+console.log("a long scattered transcript must not suppress the block:");
+(function () {
+  // The case that forces per-message containment. None of these messages states
+  // the claim, but between them they use every content word in it. Pooled, that
+  // scores 1.00 and kills the rule while leaving it looking alive; per message
+  // the best is 0.33. This case fails loudly if anyone reintroduces pooling.
+  const dir = path.join(os.tmpdir(), `orb-echo-scattered-${process.pid}`);
+  rmSync(dir, { recursive: true, force: true });
+  mkdirSync(path.join(dir, ".professor-orb"), { recursive: true });
+  mkdirSync(path.join(dir, "session-reports", "adjustice", "clean-hands"), { recursive: true });
+  const base = JSON.parse(readFileSync(RULES, "utf8"));
+  writeFileSync(
+    path.join(dir, ".professor-orb", "conventions.json"),
+    JSON.stringify({
+      schemaVersion: 3,
+      settings: [{ name: "adjustice", kbRoot: "kb/adjustice", sessionReportsRoot: "session-reports/adjustice", rules: base.rules }],
+    })
+  );
+  writeFileSync(path.join(dir, ".professor-orb", "asked-options.json"), JSON.stringify({ sessionId: "s1", options: OFFERED }));
+  const transcript = path.join(dir, "transcript.jsonl");
+  writeFileSync(
+    transcript,
+    [
+      "the team regrouped at the warehouse after the crash",
+      "a reporter survived and was hospitalized",
+      "they asked me about insurance later",
+      "the camera crew packed up early",
+      "someone called Pemberton on the way out",
+      "the whole team answered the door together",
+      "done, write the report",
+    ]
+      .map((c) => JSON.stringify({ type: "user", message: { role: "user", content: c } }))
+      .join("\n") + "\n"
+  );
+  const file = path.join(dir, "session-reports", "adjustice", "clean-hands", "2026-09-18-Clean-Hands-REPORT.md");
+  writeFileSync(file, ["---", "type: Session Report", "---", "", LAUNDERED, ""].join("\n"));
+  check("scattered words across many messages still blocks", runValidator(dir, file, transcript).blocked, true);
+  rmSync(dir, { recursive: true, force: true });
+})();
+
+console.log("an AskUserQuestion selection is not the DM's prose:");
+(function () {
+  // The selection comes back through the transcript as a user-role event
+  // carrying a tool_result. Counting it as DM prose would feed the option's own
+  // text back in and suppress exactly the block this rule exists for.
+  const dir = path.join(os.tmpdir(), `orb-echo-toolresult-${process.pid}`);
+  rmSync(dir, { recursive: true, force: true });
+  mkdirSync(path.join(dir, ".professor-orb"), { recursive: true });
+  mkdirSync(path.join(dir, "session-reports", "adjustice", "clean-hands"), { recursive: true });
+  const base = JSON.parse(readFileSync(RULES, "utf8"));
+  writeFileSync(
+    path.join(dir, ".professor-orb", "conventions.json"),
+    JSON.stringify({
+      schemaVersion: 3,
+      settings: [{ name: "adjustice", kbRoot: "kb/adjustice", sessionReportsRoot: "session-reports/adjustice", rules: base.rules }],
+    })
+  );
+  writeFileSync(path.join(dir, ".professor-orb", "asked-options.json"), JSON.stringify({ sessionId: "s1", options: OFFERED }));
+  const transcript = path.join(dir, "transcript.jsonl");
+  writeFileSync(
+    transcript,
+    [
+      JSON.stringify({ type: "user", message: { role: "user", content: "let's debrief" } }),
+      JSON.stringify({
+        type: "user",
+        message: {
+          role: "user",
+          content: [{ type: "tool_result", tool_use_id: "t1", content: OFFERED[0], text: OFFERED[0] }],
+        },
+      }),
+    ].join("\n") + "\n"
+  );
+  const file = path.join(dir, "session-reports", "adjustice", "clean-hands", "2026-09-18-Clean-Hands-REPORT.md");
+  writeFileSync(file, ["---", "type: Session Report", "---", "", LAUNDERED, ""].join("\n"));
+  check("a tool_result carrying the option text still blocks", runValidator(dir, file, transcript).blocked, true);
   rmSync(dir, { recursive: true, force: true });
 })();
 
@@ -1036,24 +1143,29 @@ console.log("must not fire:");
   const cases = [
     ["an unrelated sentence sharing one word", "The reporter survived the crash and was hospitalized overnight."],
     ["a short sentence", "The reporter left."],
-    ["the corrected question form of the same option", "Did the reporter ask? What did the team say?"],
+    // The measured near-miss. Under a Math.min denominator this scores exactly
+    // 0.60 against the offered option and blocks at any threshold low enough to
+    // catch the real one; under Jaccard it scores 0.27 against the real 0.50.
+    ["an innocent sentence sharing three words", "The reporter and the team were on camera together at the scene."],
   ];
   for (const [name, body] of cases) {
-    const { dir, file } = fixture(name.replace(/\W+/g, "-"), body, OFFERED);
-    check(name, runValidator(dir, file).blocked, false);
+    const { dir, file, transcript } = fixture(name.replace(/\W+/g, "-"), body, OFFERED, "");
+    check(name, runValidator(dir, file, transcript).blocked, false);
     rmSync(dir, { recursive: true, force: true });
   }
 })();
 
 console.log("fail-silent contract:");
 (function () {
-  const { dir, file } = fixture(
-    "no-state",
-    "The reporter asked what the team was called, and they answered on camera.",
-    null
-  );
-  check("no recorded options means no violation", runValidator(dir, file).blocked, false);
-  rmSync(dir, { recursive: true, force: true });
+  let f = fixture("no-state", LAUNDERED, null, "");
+  check("no recorded options means no violation", runValidator(f.dir, f.file, f.transcript).blocked, false);
+  rmSync(f.dir, { recursive: true, force: true });
+
+  // No transcript means the check cannot tell a laundered sentence from a
+  // confirmed one, and a block on no evidence is worse than no block.
+  f = fixture("no-transcript", LAUNDERED, OFFERED, "");
+  check("an unreadable transcript passes rather than blocks", runValidator(f.dir, f.file, path.join(f.dir, "nope.jsonl")).blocked, false);
+  rmSync(f.dir, { recursive: true, force: true });
 })();
 
 console.log(`\n${passed} passed, ${failures.length} failed`);
@@ -1096,16 +1208,24 @@ function contentWords(text) {
   return out;
 }
 
-// Overlap as a fraction of the SMALLER set, so a short report sentence fully
-// contained in a long option still scores 1.0. Edit distance cannot do this
-// job: the 2026-09-18 report sentence paraphrases its option and merges the
+// Jaccard: shared words over the union. Edit distance cannot do this job at all,
+// because the 2026-09-18 report sentence paraphrases its option and merges the
 // option's label into its description, so the strings are far apart while the
 // claim is identical.
+//
+// The denominator is the union and NOT Math.min(a.size, b.size), which was
+// measured and rejected. Dividing by the smaller set scores any short sentence
+// whose few content words happen to sit inside a long option at up to 1.0: the
+// innocent sentence "The reporter and the team were on camera together at the
+// scene" scores exactly 0.60 against the 09-18 option and would block at any
+// threshold low enough to catch the real one (0.83). Under Jaccard the same
+// pair scores 0.27 against the real sentence's 0.50, which is a margin wide
+// enough to sit a threshold in.
 function overlapRatio(a, b) {
   if (a.size === 0 || b.size === 0) return 0;
   let shared = 0;
   for (const word of a) if (b.has(word)) shared++;
-  return shared / Math.min(a.size, b.size);
+  return shared / (a.size + b.size - shared);
 }
 
 // Sentences of the body, frontmatter already stripped by parseFrontmatter.
@@ -1118,13 +1238,81 @@ function bodySentences(body) {
     .filter((s) => s.length > 0);
 }
 
-// Refuses a body sentence that restates an option this session offered. The
-// signature of the 2026-09-18 bug: a sentence in the report that the pipeline
-// wrote rather than the DM. Fail-silent on an absent or unreadable state file,
-// because a session in which the recorder never ran must behave as before.
+// The DM's own words, from the session transcript. Each line of the JSONL
+// transcript is one event; a user event's text is what the DM actually typed.
+//
+// This function is what keeps the rule from deadlocking, and the rule is
+// useless without it. A sentence the DM confirmed in prose STILL overlaps the
+// option heavily, because a good option paraphrases what it asks about: "Yes,
+// the reporter did ask, and the team said Neighborhood Watch Association"
+// scores 0.60 against the 09-18 option. Blocking on option overlap alone would
+// therefore refuse the true sentence forever, with no way for the DM to get it
+// into the report. The discrimination the rule actually needs is not "does this
+// resemble an option" but "does this resemble an option AND nothing the DM
+// typed", which is exactly the 09-18 defect.
+// Returns ONE ENTRY PER DM MESSAGE, never a single joined blob. Both properties
+// below were measured against a realistic debrief transcript and both are
+// load-bearing.
+//
+// Per message, not pooled. A real debrief transcript is a bulk-memory dump plus
+// dozens of short answers, and between them those messages use nearly every word
+// in the campaign. Pooling them and asking "did the DM use these words" scores
+// the 09-18 sentence at 1.00 against a transcript that never states it, which
+// would suppress every block and leave the rule dead while looking alive. The
+// same sentence scores 0.33 as a maximum over individual messages, against 1.00
+// for a DM who actually confirmed it in one breath. The question has to be "did
+// the DM say this thing", not "did the DM ever use these words".
+//
+// Text parts only. An AskUserQuestion selection comes back through the
+// transcript as a user-role event carrying a tool_result, so accepting every
+// part of every user event would feed the option's own text back in as the DM's
+// prose and suppress exactly the blocks this rule exists for.
+function dmMessages(transcriptPath) {
+  if (typeof transcriptPath !== "string" || transcriptPath.length === 0) return null;
+  let raw;
+  try {
+    raw = readFileSync(transcriptPath, "utf8");
+  } catch {
+    return null;
+  }
+  const said = [];
+  for (const line of raw.split(/\r?\n/)) {
+    if (line.trim() === "") continue;
+    let event;
+    try {
+      event = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    // Shape varies by harness version, so read defensively.
+    const role = event && (event.role || (event.message && event.message.role) || event.type);
+    if (role !== "user") continue;
+    const content = event.content || (event.message && event.message.content);
+    if (typeof content === "string") {
+      said.push(content);
+    } else if (Array.isArray(content)) {
+      for (const part of content) {
+        if (!part || part.type !== "text") continue;
+        if (typeof part.text === "string") said.push(part.text);
+      }
+    }
+  }
+  return said.length > 0 ? said : null;
+}
+
+// Refuses a body sentence that restates an option this session offered AND that
+// the DM never put in prose themselves. The signature of the 2026-09-18 bug: a
+// sentence in the report that the pipeline wrote rather than the DM.
+//
+// Fail-silent on an absent or unreadable state file, and equally on an
+// unreadable transcript: with no record of what the DM typed, the check cannot
+// tell a laundered sentence from a confirmed one, and a block on no evidence is
+// worse than no block. A session in which the recorder never ran behaves
+// exactly as before.
 function checkOptionEcho(params, ctx) {
   const minWords = typeof params.minContentWords === "number" ? params.minContentWords : 4;
-  const threshold = typeof params.overlapThreshold === "number" ? params.overlapThreshold : 0.6;
+  const threshold = typeof params.overlapThreshold === "number" ? params.overlapThreshold : 0.4;
+  const proseThreshold = typeof params.proseThreshold === "number" ? params.proseThreshold : 0.5;
 
   let offered;
   try {
@@ -1136,6 +1324,10 @@ function checkOptionEcho(params, ctx) {
   }
   if (offered.length === 0) return true;
 
+  const messages = dmMessages(ctx.transcriptPath);
+  if (messages === null) return true;
+  const messageWords = messages.map((m) => contentWords(m));
+
   const offeredSets = offered.map((text) => ({ text, words: contentWords(text) }));
 
   for (const sentence of bodySentences(ctx.body)) {
@@ -1143,10 +1335,24 @@ function checkOptionEcho(params, ctx) {
     // A sentence with few content words cannot be distinguished from an option
     // by overlap alone, and flagging it would be noise on every index line.
     if (words.size < minWords) continue;
+
+    // Containment against the single best DM message: how much of THIS sentence
+    // appears in one thing the DM actually typed. Measured over pooled messages
+    // instead, this is 1.00 for a transcript that never states the claim, which
+    // is why dmMessages returns them separately.
+    let bestContainment = 0;
+    for (const msg of messageWords) {
+      let shared = 0;
+      for (const word of words) if (msg.has(word)) shared++;
+      const containment = shared / words.size;
+      if (containment > bestContainment) bestContainment = containment;
+    }
+    if (bestContainment >= proseThreshold) continue;
+
     for (const option of offeredSets) {
       if (overlapRatio(words, option.words) >= threshold) {
         return [
-          `This sentence restates a question option from this session rather than anything the DM said in prose: "${sentence}"`,
+          `This sentence restates a question option from this session, and the DM never wrote it in prose: "${sentence}"`,
           `  the option offered: "${option.text}"`,
           "  Confirm it with the DM in their own words, or cut it. An option points at a topic; what happened comes back in the DM's own words.",
         ].join("\n");
@@ -1163,7 +1369,32 @@ Add to the `CHECKS` map:
   optionEcho: checkOptionEcho,
 ```
 
-- [ ] **Step 4: Add the rule**
+- [ ] **Step 4: Carry the transcript path on `ctx`**
+
+`checkOptionEcho` needs the transcript, and `ctx` does not carry it. In `main()`, read it from the hook payload alongside `agentType` (near `hooks/validate-write.mjs:813`):
+
+```javascript
+  // Carried for optionEcho, which must distinguish a sentence the DM wrote from
+  // one only a question option ever said. Absent in older harness versions, and
+  // that absence is handled by the check rather than here.
+  const transcriptPath = typeof input.transcript_path === "string" ? input.transcript_path : "";
+```
+
+Then add one field to the `ctx` object literal (at `hooks/validate-write.mjs:909-925`):
+
+```javascript
+    transcriptPath,
+```
+
+**Verify the field exists before trusting it.** `input.transcript_path` is documented for hook payloads but this plan does not assume it on `PostToolUse`. Confirm with:
+
+```bash
+echo '{"hook_event_name":"PostToolUse","tool_name":"Write","cwd":".","tool_input":{"file_path":"x.md"}}' | node -e 'process.stdin.on("data",d=>console.log(Object.keys(JSON.parse(d))))'
+```
+
+That only proves the parse path. Step 1's test cases all supply `transcript_path` explicitly, so they pass whether or not the harness sends it, which means they cannot confirm this. If the field is absent in practice, `dmMessages` returns `null`, the check passes, and `contentOptionEcho` silently never fires: correct degradation, and indistinguishable from the rule working. See **The one thing to confirm live** near the end of this plan for the check that settles it.
+
+- [ ] **Step 5: Add the rule**
 
 In `professor-orb/references/base-rules.json`, add after `contentNoEmDashes`:
 
@@ -1174,27 +1405,34 @@ In `professor-orb/references/base-rules.json`, add after `contentNoEmDashes`:
       "check": "optionEcho",
       "enforcement": "block",
       "description": "A sentence restating a question option this session offered is confirmed in the DM's own words before it is written.",
-      "params": { "overlapThreshold": 0.6, "minContentWords": 4 }
+      "params": { "overlapThreshold": 0.4, "minContentWords": 4, "proseThreshold": 0.5 }
     }
 ```
+
+`overlapThreshold` is 0.4 against a Jaccard score, measured: the 09-18 sentence scores 0.50 and its verbatim option 0.67, while the worst innocent sentence tested scores 0.27.
 
 No `scope` field, deliberately. The only prong filter `validate-write.mjs` applies is `rule.scope === "kb"` at `:960`, so an absent `scope` lets the rule fire on every write it reaches. That is wanted: the laundered sentence reached the Reports-INDEX summary as well as the report body, and a KB article echoing an option is the same bug with a different filename.
 
 No `autofix`. The remedy is the DM's own words, never a mechanical substitution.
 
-- [ ] **Step 5: Run test to verify it passes**
+- [ ] **Step 6: Run test to verify it passes**
 
 Run: `node professor-orb/hooks/option-echo.test.mjs`
-Expected: PASS, 7 passed, 0 failed.
+Expected: PASS, 9 passed, 0 failed.
 
-If `the corrected question form of the same option` blocks, the threshold is too low: that case exists to prove the fix in Task 6 and this check reinforce rather than fight each other. Raise `overlapThreshold` until it passes while the known-positive still blocks.
+Diagnosing failures, because each one points at a specific measured decision:
 
-- [ ] **Step 6: Run the existing validator suite for regressions**
+- `scattered words across many messages still blocks` failing means containment is being measured over pooled messages. That scores 1.00 against a transcript that never states the claim, so the rule would be dead while appearing alive. Measure per message and take the maximum.
+- `a tool_result carrying the option text still blocks` failing means `dmMessages` is accepting parts other than `type: "text"`, so an `AskUserQuestion` selection is being read as the DM's prose.
+- `an innocent sentence sharing three words` blocking means `overlapRatio` is dividing by `Math.min` rather than the union. That sentence scores 0.60 under `min` and 0.27 under Jaccard.
+- `the DM's own prose lets it through` failing means `proseThreshold` is too high, or `ctx.transcriptPath` is not reaching the check from Step 4.
+
+- [ ] **Step 7: Run the existing validator suite for regressions**
 
 Run: `node professor-orb/hooks/validate-write.test.mjs`
-Expected: PASS, unchanged from before this task. A new `CHECKS` entry must not disturb any existing rule.
+Expected: PASS, unchanged from before this task. A new `CHECKS` entry and one new `ctx` field must not disturb any existing rule.
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 8: Commit**
 
 ```bash
 git add professor-orb/hooks/validate-write.mjs professor-orb/hooks/option-echo.test.mjs professor-orb/references/base-rules.json
@@ -1205,10 +1443,17 @@ became a report sentence, then a source for the index, chronicler, a recap, and
 three commits. The write-time block is the last gate before the claim becomes
 durable, which is what propagates.
 
-Scores content-word overlap, not edit distance. The report sentence paraphrases
-its option and merges the label into the description, so the strings are far
-apart while the claim is identical; a levenshtein threshold tuned to pass the
-must-not-fire cases can never catch it.
+Blocks only a sentence that restates an option AND that the DM never wrote in
+prose. Option overlap alone would deadlock: a good option paraphrases what it
+asks about, so a sentence the DM confirmed still overlaps it heavily and the
+true sentence could never be written. Containment is measured against the single
+best DM message, never pooled messages, which score 1.00 against a transcript
+that never states the claim.
+
+Scores Jaccard overlap, not edit distance and not overlap over the smaller set.
+The report sentence paraphrases its option and merges the label into the
+description, so edit distance is large while the claim is identical; dividing by
+the smaller set scores an innocent sentence at 0.60 against the real one's 0.83.
 
 No scope field, so the rule also reaches the index summary, which was one of the
 sites the 09-18 sentence spread to.
@@ -1454,8 +1699,22 @@ function checkPronounConsistency(params, ctx) {
     collectArticles(root, articles, 0);
   }
 
+  // Filter by FILENAME before reading anything. collectArticles walks
+  // directories, which costs one readdir per folder; reading and parsing every
+  // article it finds would cost up to 1500 readFileSync plus 1500 frontmatter
+  // parses on EVERY write, against this hook's timeout. A draft names a handful
+  // of characters, so the name test cuts the read set to those few. The test is
+  // the same one used below, hoisted, so it cannot drift from it.
+  const nameMatches = (abs) => {
+    const name = baseNameNoExt(path.basename(abs));
+    if (name.length < 3) return false;
+    return new RegExp(`\\b${name.replace(/[-_]/g, "[ -_]")}\\b`, "i").test(ctx.body);
+  };
+
   for (const abs of articles) {
     if (abs === ctx.absFilePath) continue;
+    if (!nameMatches(abs)) continue;
+
     let parsed;
     try {
       parsed = parseFrontmatter(readFileSync(abs, "utf8"));
@@ -1467,10 +1726,7 @@ function checkPronounConsistency(params, ctx) {
     const found = pronounLine(parsed.body);
     if (!found || found.writing === null || found.sets.length <= 1) continue;
 
-    // The article is only relevant when the body actually names the character.
     const name = baseNameNoExt(path.basename(abs));
-    if (!new RegExp(`\\b${name.replace(/[-_]/g, "[ -_]")}\\b`, "i").test(ctx.body)) continue;
-
     for (const set of found.sets) {
       if (set === found.writing) continue;
       for (const form of PRONOUN_SETS[set]) {
@@ -1649,7 +1905,7 @@ In the same file's **Things to never do** list, add:
 Run:
 
 ```bash
-grep -rlc "SHARED-PRINCIPLES.md" professor-orb/skills professor-orb/agents professor-orb/commands --include="*.md" | wc -l
+grep -rl "SHARED-PRINCIPLES.md" professor-orb/skills professor-orb/agents professor-orb/commands --include="*.md" | wc -l
 ```
 
 Expected: 19. CLAUDE.md records that all 19 commands, agents, and skills open by reading that file.
@@ -1693,7 +1949,7 @@ for f in $(find professor-orb -name "*.test.mjs" | sort); do node "$f" || break;
 
 Expected: all twelve suites pass (the eight that existed plus the four added here). Each exits non-zero on failure, so `break` stops at the first one. Takes roughly a minute.
 
-- [ ] **Step 2: Amend the spec with the two findings**
+- [ ] **Step 2: Amend the spec with the implementation findings**
 
 Append a section to `docs/superpowers/specs/2026-09-20-professor-orb-machine-enforced-corrections-design.md`:
 
@@ -1711,14 +1967,31 @@ conventions. Mechanism 3 therefore does not reach recaps in every project. The
 pronoun failure in a recap draft is caught by `pronounDeclaration` making the
 source article unambiguous, not by checking the draft.
 
-**Content-word overlap replaces edit distance for `optionEcho`.** The spec named
-`levenshtein`, already present in the file, as the natural basis for the
-near-copy threshold. The 09-18 case disproves it: the option read "Reporter
-asked the name. The team answered on camera as the Neighborhood Watch
+**Jaccard content-word overlap replaces edit distance for `optionEcho`, at 0.40.**
+The spec named `levenshtein`, already present in the file, as the natural basis
+for the near-copy threshold. The 09-18 case disproves it: the option read
+"Reporter asked the name. The team answered on camera as the Neighborhood Watch
 Association" and the report read "The reporter asked what the team was called,
 and they answered on camera." That is a paraphrase merging the option's label
 into its description, so edit distance is large while the claim is identical.
-Overlap of content words scores it 0.83, and the implemented threshold is 0.6.
+Overlap over the union scores it 0.50, against 0.27 for the worst innocent
+sentence tested. Overlap over the smaller of the two sets was tried first and
+rejected: it scores an innocent sentence at exactly 0.60 against the real
+sentence's 0.83, leaving no threshold that separates them.
+
+**`optionEcho` blocks only a sentence the DM never wrote in prose.** The spec
+described the rule as blocking a sentence that restates an option, which
+deadlocks. A good option paraphrases what it asks about, so a sentence the DM
+explicitly confirms still overlaps its option heavily ("yes the reporter asked
+what the team was called and they answered on camera" scores 0.60 against its
+own option). Under the spec's wording the true sentence could never be written
+at all. The implemented check reads the session transcript and passes any
+sentence the DM substantially wrote themselves, which is the discrimination the
+defect actually calls for: restates an option AND appears nowhere in the DM's
+own words. Containment is measured against the single best DM message rather
+than all of them pooled, because a realistic debrief transcript scores 1.00
+pooled against a sentence it never states, which would suppress every block.
+This adds `transcriptPath` to the validator's `ctx`.
 
 **`pronounConsistency` split into two checks.** The spec described one check
 plus a `kb-validator` update. The implementation ships `pronounDeclaration` (an
@@ -1756,6 +2029,27 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 ```
 
 ---
+
+## Measured decisions, do not re-litigate by taste
+
+An adversarial pass ran the plan's own code against the 2026-09-18 material before implementation began. Four decisions below came out of that and each has a test case pinning it. A reviewer who finds one of them odd should read its test before changing it, because each replaced something that looked more natural and was wrong.
+
+| Decision | What it replaced, and why |
+| --- | --- |
+| Jaccard, threshold 0.40 | Overlap over `Math.min(a,b)` at 0.60. "The reporter and the team were on camera together at the scene" scores exactly 0.60 that way and blocks; the real 09-18 sentence scores 0.83. No threshold separates them. Under Jaccard: 0.27 against 0.50. |
+| Block only when the DM never wrote it | Blocking on option overlap alone. A good option paraphrases what it asks about, so "yes the reporter asked what the team was called and they answered on camera" scores 0.60 against its own option. The rule would refuse the true sentence forever with no escape. |
+| Containment per message, maximum | Containment against pooled DM messages. On a realistic debrief transcript (bulk memory plus short answers) the 09-18 sentence scores **1.00** pooled, suppressing every block and leaving the rule dead while it still looks alive. Per message the same transcript scores 0.33, against 1.00 for a real confirmation. |
+| `type: "text"` parts only | Accepting every part of a user-role event. An `AskUserQuestion` selection returns through the transcript as a user event carrying a `tool_result`, so the option's own text would come back as the DM's prose and suppress exactly the blocks this rule exists for. |
+
+Two further findings are already folded into the tasks: `collectArticles` cannot use this file's `safeReaddir` (it returns bare strings and `null`, so `entry.isDirectory()` throws into the rule loop's crash guard and the check silently never fires), and `checkPronounConsistency` filters candidate articles by filename before reading any of them (otherwise up to 1500 `readFileSync` plus 1500 frontmatter parses run on every write).
+
+The pattern list in Task 1 was also run against its full corpus: 9 must-fire and 8 must-stay-silent all classify correctly as written, including the near-miss "the party never found the ledger, so they moved on".
+
+## The one thing to confirm live
+
+`ctx.transcriptPath` comes from `input.transcript_path` on the `PostToolUse` payload. Task 4's tests supply that field explicitly, so they pass whether or not the harness sends it. If the harness does not, `dmMessages` returns `null`, `checkOptionEcho` passes, and `contentOptionEcho` silently never fires, which is the correct degradation and is indistinguishable from the rule working.
+
+So after Task 7, run one real `debrief` through Phase 3 and confirm the rule either blocks or visibly passes on a report you know contains an option restatement. This is the only claim in the plan that its own tests cannot verify.
 
 ## Notes for the implementer
 
