@@ -118,5 +118,26 @@ console.log("pronounConsistency:");
   rmSync(f.dir, { recursive: true, force: true });
 })();
 
+console.log("pronounConsistency does not fire on a stray pronoun for a different character:");
+(function () {
+  // The exact shape the final review reproduced: Psyche is used CORRECTLY
+  // ("they"), and a second, unrelated character is described with "she".
+  // Before the fix this warned anyway, because the check tested "she" against
+  // the whole document rather than against Psyche specifically.
+  const recapMixed = [
+    "---", "type: Session Report", "---", "",
+    "Psyche opened the warehouse door and they went in first.",
+    "Detective Ramos met the party at the gate. She had been waiting an hour.",
+    "",
+  ].join("\n");
+  const f = fixture("mixed-characters", { "kb/party/Psyche.md": PSYCHE_NAMED, "session-reports/r.md": recapMixed }, "session-reports/r.md");
+  check(
+    "a stray pronoun for someone else does not warn when the writing pronoun also appears",
+    runValidator(f.dir, f.file).includes("contentPronounConsistency"),
+    false
+  );
+  rmSync(f.dir, { recursive: true, force: true });
+})();
+
 console.log(`\n${passed} passed, ${failures.length} failed`);
 if (failures.length > 0) process.exit(1);

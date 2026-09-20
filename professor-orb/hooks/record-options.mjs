@@ -14,9 +14,12 @@
 // shape of tool_response.
 //
 // The state file is hook-owned: read by hooks, never by the model, and
-// git-ignored. Principle 8's scope discipline binds skills, not hooks, and
-// pipeline-state.json is the precedent. Keeping it out of the model's context
-// is part of its contract, not incidental, because it holds proposed-scene text.
+// intended to be git-ignored: setup adds the entry to a consumer project's
+// .gitignore (skills/setup/SKILL.md), which is not yet true for every
+// project until that setup or resync has run. Principle 8's scope discipline
+// binds skills, not hooks, and pipeline-state.json is the precedent. Keeping
+// it out of the model's context is part of its contract, not incidental,
+// because it holds proposed-scene text.
 
 import { readFileSync, writeFileSync, existsSync } from "node:fs";
 import path from "node:path";

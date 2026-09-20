@@ -21,11 +21,12 @@ const MARKER = "reads as a correction";
 let passed = 0;
 const failures = [];
 
-function runHook(prompt, cwd) {
+function runHook(prompt, cwd, envOverrides) {
   try {
     return execFileSync("node", [HOOK], {
       input: JSON.stringify({ hook_event_name: "UserPromptSubmit", prompt, cwd: cwd || process.cwd(), session_id: "s1" }),
       encoding: "utf8",
+      env: envOverrides ? { ...process.env, ...envOverrides } : process.env,
     });
   } catch (err) {
     // A non-zero exit is itself a failure of the fail-silent contract; surface
@@ -168,6 +169,67 @@ console.log("a correction the hook cannot locate still speaks:");
     ["still says it read as a correction", out.includes(MARKER), true],
     ["says nothing matched", out.includes("No line in the campaign lane matched"), true],
     ["does not claim a hit", /:\d+\s\s/.test(out), false],
+  ];
+  for (const [name, actual, expected] of cases) {
+    if (actual === expected) {
+      passed++;
+      console.log(`  [PASS] ${name}`);
+    } else {
+      failures.push(name);
+      console.log(`  [FAIL] ${name}: expected ${expected}, got ${actual}`);
+      console.log(`         output: ${JSON.stringify(out)}`);
+    }
+  }
+  rmSync(dir, { recursive: true, force: true });
+})();
+
+console.log("a large first root must not starve a later root's budget:");
+(function () {
+  // Reproduces the real defect at a small, fast scale via the env override:
+  // two settings, the first with enough filler files to exhaust a small
+  // per-root share on its own, the second holding the real target in a
+  // single file. Before the fix, MAX_FILES was a shared global pool, so the
+  // first root alone could (and on the real 1855-article consumer project,
+  // did) exhaust it before the second root's own, much smaller content was
+  // ever reached.
+  const dir = path.join(os.tmpdir(), `orb-corr-starve-${process.pid}`);
+  rmSync(dir, { recursive: true, force: true });
+  mkdirSync(path.join(dir, ".professor-orb"), { recursive: true });
+  mkdirSync(path.join(dir, "settings", "big"), { recursive: true });
+  mkdirSync(path.join(dir, "session-reports", "small", "Adjustice"), { recursive: true });
+  writeFileSync(
+    path.join(dir, ".professor-orb", "conventions.json"),
+    JSON.stringify({
+      schemaVersion: 3,
+      settings: [
+        { name: "big", kbRoot: "settings/big" },
+        { name: "small", sessionReportsRoot: "session-reports/small" },
+      ],
+    })
+  );
+  for (let i = 0; i < 60; i++) {
+    writeFileSync(
+      path.join(dir, "settings", "big", `filler-${i}.md`),
+      "---\ntype: Person\n---\n\nNothing relevant here, filler content only.\n"
+    );
+  }
+  writeFileSync(
+    path.join(dir, "session-reports", "small", "Adjustice", "2026-09-18-Clean-Hands-REPORT.md"),
+    "---\ntype: Session Report\n---\n\nThe reporter asked what the team was called, and they answered on camera.\n"
+  );
+  // findHits floors perRootCap at 50 (Math.max(50, ...)) regardless of how low
+  // MAX_FILES goes, so a 2-root split cannot be driven below 50 by the env
+  // override alone; "big" ships 60 filler files, comfortably over that floor,
+  // so walking it alone truncates and sets `truncated`, while the outer loop
+  // still moves on to walk "small" in full and finds the real target.
+  const out = runHook(
+    "that never happened, the reporter never asked what the team was called",
+    dir,
+    { DM_CORRECTION_MAX_FILES: "10" }
+  );
+  const cases = [
+    ["finds the target in the second, small root despite a large first root", out.includes("2026-09-18-Clean-Hands-REPORT.md"), true],
+    ["does not falsely claim completeness when a root was truncated", out.includes("may be incomplete"), true],
   ];
   for (const [name, actual, expected] of cases) {
     if (actual === expected) {

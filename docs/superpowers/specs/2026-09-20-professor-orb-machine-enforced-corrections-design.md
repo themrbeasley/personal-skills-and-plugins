@@ -159,7 +159,10 @@ body on 09-18, and a KB article that echoes an option is the same bug with a
 different filename.
 
 **State file.** Hook-owned, under `.professor-orb/`, session-scoped, read only
-by hooks and never by the model, added to `.gitignore`. Principle 8's scope
+by hooks and never by the model. Added to this development repo's own
+`.gitignore` here; a consumer project's own `.gitignore` gets the matching
+entry from `setup`, which this branch's amendments record as a gap closed by
+this fix wave rather than by the original implementation. Principle 8's scope
 discipline binds skills, not hooks; `pipeline-state.json` is the precedent. The
 file holds proposed-scene text, so keeping it out of the model's context is part
 of its contract, not incidental.

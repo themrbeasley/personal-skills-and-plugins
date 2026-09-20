@@ -41,11 +41,20 @@ function looksLikeCorrection(text) {
   return CORRECTION_PATTERNS.some((re) => re.test(text));
 }
 
-// Caps. A correction must not turn into an unbounded walk of the DM's whole
-// knowledge base on a 10 second hook timeout.
-const MAX_FILES = 2000;
+// Overridable via env var for testing only (see dm-correction.test.mjs); a
+// real invocation never sets this. Raised from an earlier 2000: measured
+// against a real ~2200-file consumer project, an uncapped walk took 938ms,
+// so 6000 leaves ample headroom under this hook's 10-second timeout even on a
+// slower disk, while MAX_WALK_MS below is the actual safety net against a
+// pathological case (very large files, a slow filesystem) that a file count
+// alone would not catch.
+const MAX_FILES = Number(process.env.DM_CORRECTION_MAX_FILES) || 6000;
 const MAX_FILE_BYTES = 512 * 1024;
 const MAX_HITS = 20;
+// Wall-clock ceiling for the WHOLE search across all roots, independent of
+// MAX_FILES. Belt-and-suspenders: MAX_FILES bounds the common case, this
+// bounds the worst case.
+const MAX_WALK_MS = 7000;
 
 // Words that carry no search signal. Short list on purpose: the length filter
 // below removes most function words already, and an over-long stoplist starts
@@ -115,52 +124,94 @@ function laneRoots(cwd) {
 // Every markdown line under roots holding at least two search terms, or one
 // when the correction yielded only one term. Two is the floor because a single
 // common noun ("reporter") matches half a campaign, and the DM reads this list.
+//
+// Each root gets its OWN share of MAX_FILES, never a shared global pool. This
+// is the fix for the defect that made this hook miss the exact file the
+// 2026-09-18 incident lived in: that file sat in the second of two settings in
+// the real consumer project, behind a first setting large enough (1855
+// articles) to exhaust a GLOBAL 2000-file cap on its own, so the hook reported
+// six confidently-wrong hits from the first setting and never reached the
+// second at all. Per-root division guarantees every configured root is
+// attempted with SOME budget, regardless of how large an earlier root is.
+//
+// Returns { hits, truncated }. `truncated` is true when any root's own share,
+// or the overall wall-clock ceiling, cut the walk short before it finished
+// naturally, so the caller can tell the DM the list may be incomplete rather
+// than implying it is exhaustive.
 function findHits(roots, terms) {
-  if (terms.length === 0) return [];
+  if (terms.length === 0) return { hits: [], truncated: false };
   const floor = terms.length === 1 ? 1 : 2;
   const hits = [];
-  let filesSeen = 0;
+  const perRootCap = Math.max(50, Math.floor(MAX_FILES / Math.max(1, roots.length)));
+  const walkStart = Date.now();
+  let truncated = false;
 
-  const walk = (dir) => {
-    if (hits.length >= MAX_HITS || filesSeen >= MAX_FILES) return;
-    let entries;
-    try {
-      entries = readdirSync(dir, { withFileTypes: true });
-    } catch {
-      return;
+  for (const root of roots) {
+    if (hits.length >= MAX_HITS) break;
+    if (Date.now() - walkStart > MAX_WALK_MS) {
+      truncated = true;
+      break;
     }
-    for (const entry of entries) {
-      if (hits.length >= MAX_HITS || filesSeen >= MAX_FILES) return;
-      const abs = path.join(dir, entry.name);
-      if (entry.isDirectory()) {
-        if (entry.name === "node_modules" || entry.name.startsWith(".")) continue;
-        walk(abs);
-        continue;
+    let filesSeenInRoot = 0;
+
+    const walk = (dir) => {
+      if (hits.length >= MAX_HITS) return;
+      if (Date.now() - walkStart > MAX_WALK_MS) {
+        truncated = true;
+        return;
       }
-      if (!entry.name.toLowerCase().endsWith(".md")) continue;
-      filesSeen++;
-      let content;
+      if (filesSeenInRoot >= perRootCap) {
+        truncated = true;
+        return;
+      }
+      let entries;
       try {
-        if (statSync(abs).size > MAX_FILE_BYTES) continue;
-        content = readFileSync(abs, "utf8");
+        entries = readdirSync(dir, { withFileTypes: true });
       } catch {
-        continue;
+        return;
       }
-      const lines = content.split(/\r?\n/);
-      for (let i = 0; i < lines.length; i++) {
-        const lower = lines[i].toLowerCase();
-        let matched = 0;
-        for (const term of terms) if (lower.includes(term)) matched++;
-        if (matched >= floor) {
-          hits.push({ file: abs, line: i + 1, text: lines[i].trim() });
-          if (hits.length >= MAX_HITS) return;
+      for (const entry of entries) {
+        if (hits.length >= MAX_HITS) return;
+        if (Date.now() - walkStart > MAX_WALK_MS) {
+          truncated = true;
+          return;
+        }
+        if (filesSeenInRoot >= perRootCap) {
+          truncated = true;
+          return;
+        }
+        const abs = path.join(dir, entry.name);
+        if (entry.isDirectory()) {
+          if (entry.name === "node_modules" || entry.name.startsWith(".")) continue;
+          walk(abs);
+          continue;
+        }
+        if (!entry.name.toLowerCase().endsWith(".md")) continue;
+        filesSeenInRoot++;
+        let content;
+        try {
+          if (statSync(abs).size > MAX_FILE_BYTES) continue;
+          content = readFileSync(abs, "utf8");
+        } catch {
+          continue;
+        }
+        const lines = content.split(/\r?\n/);
+        for (let i = 0; i < lines.length; i++) {
+          const lower = lines[i].toLowerCase();
+          let matched = 0;
+          for (const term of terms) if (lower.includes(term)) matched++;
+          if (matched >= floor) {
+            hits.push({ file: abs, line: i + 1, text: lines[i].trim() });
+            if (hits.length >= MAX_HITS) return;
+          }
         }
       }
-    }
-  };
+    };
 
-  for (const root of roots) walk(root);
-  return hits;
+    walk(root);
+  }
+
+  return { hits, truncated };
 }
 
 function main() {
@@ -185,7 +236,7 @@ function main() {
 
   const cwd = typeof input.cwd === "string" && input.cwd.length > 0 ? input.cwd : process.cwd();
   const terms = searchTerms(prompt);
-  const hits = findHits(laneRoots(cwd), terms);
+  const { hits, truncated } = findHits(laneRoots(cwd), terms);
 
   const out = [
     "The DM's last message reads as a correction. Their statement stands on its own;",
@@ -208,6 +259,12 @@ function main() {
     out.push("");
     out.push("Report this list to the DM and ask once whether to fix them all.");
     out.push("A correction is not closed while a copy survives.");
+  }
+
+  if (truncated) {
+    out.push("");
+    out.push("This search hit its own size or time limit before finishing. The list above");
+    out.push("may be incomplete; a broader manual check may be warranted for a large project.");
   }
 
   process.stdout.write(out.join("\n") + "\n");

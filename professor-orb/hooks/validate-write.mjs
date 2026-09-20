@@ -759,35 +759,41 @@ function bodySentences(body) {
     .filter((s) => s.length > 0);
 }
 
-// The DM's own words, from the session transcript. Each line of the JSONL
-// transcript is one event; a user event's text is what the DM actually typed.
+// Length ceiling for a single "DM message". The DM types sentences and
+// paragraphs; a harness-injected system-reminder, skill body, or subagent
+// dispatch brief runs from several KB to tens of KB. 4000 characters admits a
+// long bulk-memory narration from debrief Phase 1 while excluding the kind of
+// injected block that supplies unrelated content words wholesale.
+// ponytail: a fixed character ceiling, not a real message-boundary detector;
+// replace with a harness-version-aware parser if a genuine DM narration this
+// long is ever seen truncated by it.
+const MAX_DM_MESSAGE_CHARS = 4000;
+
+// Harness-injected content opens with a tag like <system-reminder>,
+// <user-prompt-submit-hook>, or <local-command-caveat>. The DM never types
+// these; accepting them as "the DM's prose" would let an unrelated injected
+// block, or this very correction hook's own stdout if it ever lands in the
+// transcript, silently supply the content words checkOptionEcho's escape
+// hatch is trying to verify came from the DM.
+const HARNESS_TAG_PATTERN = /^\s*<[a-zA-Z][\w-]*>/;
+
+// Returns ONE ENTRY PER DM MESSAGE, never a single joined blob. Both
+// properties below were measured against a realistic debrief transcript and
+// both are load-bearing.
 //
-// This function is what keeps the rule from deadlocking, and the rule is
-// useless without it. A sentence the DM confirmed in prose STILL overlaps the
-// option heavily, because a good option paraphrases what it asks about: "Yes,
-// the reporter did ask, and the team said Neighborhood Watch Association"
-// scores 0.60 against the 09-18 option. Blocking on option overlap alone would
-// therefore refuse the true sentence forever, with no way for the DM to get it
-// into the report. The discrimination the rule actually needs is not "does this
-// resemble an option" but "does this resemble an option AND nothing the DM
-// typed", which is exactly the 09-18 defect.
-// Returns ONE ENTRY PER DM MESSAGE, never a single joined blob. Both properties
-// below were measured against a realistic debrief transcript and both are
-// load-bearing.
-//
-// Per message, not pooled. A real debrief transcript is a bulk-memory dump plus
-// dozens of short answers, and between them those messages use nearly every word
-// in the campaign. Pooling them and asking "did the DM use these words" scores
-// the 09-18 sentence at 1.00 against a transcript that never states it, which
-// would suppress every block and leave the rule dead while looking alive. The
-// same sentence scores 0.33 as a maximum over individual messages, against 1.00
-// for a DM who actually confirmed it in one breath. The question has to be "did
-// the DM say this thing", not "did the DM ever use these words".
+// Per message, not pooled. A real debrief transcript is a bulk-memory dump
+// plus dozens of short answers, and between them those messages use nearly
+// every word in the campaign. Pooling them and asking "did the DM use these
+// words" scores a laundered sentence at 1.00 against a transcript that never
+// states it, which would suppress every block while looking alive. The same
+// sentence scores far lower as a maximum over individual messages. The
+// question has to be "did the DM say this thing", not "did the DM ever use
+// these words".
 //
 // Text parts only. An AskUserQuestion selection comes back through the
 // transcript as a user-role event carrying a tool_result, so accepting every
-// part of every user event would feed the option's own text back in as the DM's
-// prose and suppress exactly the blocks this rule exists for.
+// part of every user event would feed the option's own text back in as the
+// DM's prose and suppress exactly the blocks this rule exists for.
 function dmMessages(transcriptPath) {
   if (typeof transcriptPath !== "string" || transcriptPath.length === 0) return null;
   let raw;
@@ -808,13 +814,25 @@ function dmMessages(transcriptPath) {
     // Shape varies by harness version, so read defensively.
     const role = event && (event.role || (event.message && event.message.role) || event.type);
     if (role !== "user") continue;
+    // isMeta / isSidechain mark a transcript entry the harness generated
+    // around the DM's turn (caveats, subagent dispatch briefs) rather than
+    // something the DM typed. Checked on both the bare event and the nested
+    // message object, matching the role lookup's own defensive shape above.
+    if (event.isMeta === true || (event.message && event.message.isMeta === true)) continue;
+    if (event.isSidechain === true || (event.message && event.message.isSidechain === true)) continue;
     const content = event.content || (event.message && event.message.content);
+    const collect = (text) => {
+      if (typeof text !== "string") return;
+      if (text.length === 0 || text.length > MAX_DM_MESSAGE_CHARS) return;
+      if (HARNESS_TAG_PATTERN.test(text)) return;
+      said.push(text);
+    };
     if (typeof content === "string") {
-      said.push(content);
+      collect(content);
     } else if (Array.isArray(content)) {
       for (const part of content) {
         if (!part || part.type !== "text") continue;
-        if (typeof part.text === "string") said.push(part.text);
+        collect(part.text);
       }
     }
   }
@@ -830,6 +848,16 @@ function dmMessages(transcriptPath) {
 // tell a laundered sentence from a confirmed one, and a block on no evidence is
 // worse than no block. A session in which the recorder never ran behaves
 // exactly as before.
+//
+// Known limitation: containment has no concept of negation. A DM correcting
+// the exact laundered claim in their own words ("that never happened, the
+// reporter never asked...") shares nearly all of its content words with the
+// sentence it denies, so it clears proseThreshold and this check goes quiet
+// for that sentence at the exact moment the DM is correcting it. This is not
+// a gap this check can close on its own: the dm-correction hook is what
+// catches a correction, and SHARED-PRINCIPLES' propagation paragraph is what
+// covers the DM's own prose case. This check's job stops at "the DM
+// substantially wrote this", not "the DM endorsed this".
 function checkOptionEcho(params, ctx) {
   const minWords = typeof params.minContentWords === "number" ? params.minContentWords : 4;
   const threshold = typeof params.overlapThreshold === "number" ? params.overlapThreshold : 0.4;
@@ -990,6 +1018,21 @@ function checkPronounConsistency(params, ctx) {
 
     const found = pronounLine(parsed.body);
     if (!found || found.writing === null || found.sets.length <= 1) continue;
+
+    // If the draft already uses the writing set's own forms anywhere, it is
+    // demonstrably capable of using the right pronoun, and a stray
+    // non-writing-set pronoun elsewhere in a multi-character report is far
+    // more likely to be about a different character than a slip on this one.
+    // This is a coarse guard, not name-proximity scoping: it silences the
+    // check on any draft that ALSO uses the writing set correctly at least
+    // once, rather than checking each pronoun's nearest antecedent.
+    // ponytail: whole-document heuristic; a windowed check scoping each
+    // pronoun to its nearest preceding name is the real fix if a false
+    // negative from this trade-off turns out to matter in practice.
+    const writingFormsPresent = PRONOUN_SETS[found.writing].some((form) =>
+      new RegExp(`\\b${form}\\b`, "i").test(ctx.body)
+    );
+    if (writingFormsPresent) continue;
 
     const name = baseNameNoExt(path.basename(abs));
     for (const set of found.sets) {

@@ -208,6 +208,40 @@ console.log("an AskUserQuestion selection is not the DM's prose:");
   rmSync(dir, { recursive: true, force: true });
 })();
 
+console.log("harness-injected content is not counted as the DM's prose:");
+(function () {
+  // A long injected block (well over MAX_DM_MESSAGE_CHARS) that happens to
+  // contain the laundered sentence verbatim, the way this correction hook's
+  // own stdout or a system-reminder block might if it ever lands in a
+  // transcript as user-role text. Must NOT suppress the block.
+  const dir = path.join(os.tmpdir(), `orb-echo-harness-noise-${process.pid}`);
+  rmSync(dir, { recursive: true, force: true });
+  mkdirSync(path.join(dir, ".professor-orb"), { recursive: true });
+  mkdirSync(path.join(dir, "session-reports", "adjustice", "clean-hands"), { recursive: true });
+  const base = JSON.parse(readFileSync(RULES, "utf8"));
+  writeFileSync(
+    path.join(dir, ".professor-orb", "conventions.json"),
+    JSON.stringify({
+      schemaVersion: 3,
+      settings: [{ name: "adjustice", kbRoot: "kb/adjustice", sessionReportsRoot: "session-reports/adjustice", rules: base.rules }],
+    })
+  );
+  writeFileSync(path.join(dir, ".professor-orb", "asked-options.json"), JSON.stringify({ sessionId: "s1", options: OFFERED }));
+  const longInjectedBlock = "<system-reminder>\n" + "padding content ".repeat(400) + LAUNDERED + "\n</system-reminder>";
+  const transcript = path.join(dir, "transcript.jsonl");
+  writeFileSync(
+    transcript,
+    [
+      JSON.stringify({ type: "user", message: { role: "user", content: "let's debrief" } }),
+      JSON.stringify({ type: "user", isMeta: true, message: { role: "user", content: longInjectedBlock } }),
+    ].join("\n") + "\n"
+  );
+  const file = path.join(dir, "session-reports", "adjustice", "clean-hands", "2026-09-18-Clean-Hands-REPORT.md");
+  writeFileSync(file, ["---", "type: Session Report", "---", "", LAUNDERED, ""].join("\n"));
+  check("a long isMeta block containing the sentence verbatim still blocks", runValidator(dir, file, transcript).blocked, true);
+  rmSync(dir, { recursive: true, force: true });
+})();
+
 console.log("must not fire:");
 (function () {
   const cases = [

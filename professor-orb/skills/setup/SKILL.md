@@ -60,7 +60,7 @@ The gate exists because a migration that begins on a dirty tree cannot be cleanl
 
 **The `.gitignore` policy, additions only.** Never rewrite or reorder an existing `.gitignore`; append what is missing.
 
-Ignored, as derived or transient: `.professor-orb/pipeline-state.json`, `.professor-orb/proposals/`, `.professor-orb/tag-registry*.json`, `**/.obsidian/workspace*.json`, `**/.obsidian/plugins/`.
+Ignored, as derived or transient: `.professor-orb/pipeline-state.json`, `.professor-orb/proposals/`, `.professor-orb/tag-registry*.json`, `.professor-orb/asked-options.json`, `**/.obsidian/workspace*.json`, `**/.obsidian/plugins/`.
 
 The `**/` prefix is required, not decorative. A gitignore pattern with a slash anywhere but at its end is anchored to the directory holding the `.gitignore`, so `.obsidian/workspace*.json` matches a vault at the project root and nothing under `settings/<setting>/`. Measured against real git: without the prefix, vault state and plugin bundles get staged and pushed, and `workspace.json` is rewritten every time Obsidian opens or closes, so `git status --porcelain` is never clean again and Step 2's gate fails on every later resync.
 
