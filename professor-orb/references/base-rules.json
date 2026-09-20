@@ -140,6 +140,14 @@
       "enforcement": "warn",
       "description": "Body prose does not use em dashes.",
       "params": { "pattern": "\u2014", "appliesTo": "body" }
+    },
+    "contentOptionEcho": {
+      "provenance": "professor-orb",
+      "category": "content",
+      "check": "optionEcho",
+      "enforcement": "block",
+      "description": "A sentence restating a question option this session offered is confirmed in the DM's own words before it is written.",
+      "params": { "overlapThreshold": 0.4, "minContentWords": 4, "proseThreshold": 0.5 }
     }
   }
 }

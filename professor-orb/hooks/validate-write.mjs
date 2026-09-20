@@ -703,6 +703,186 @@ function checkTagImpliesPath(params, ctx) {
   return `Article carries the excluded tag "${matched}" but does not sit under a "${segment}" folder. Excluded content has to live inside one for the path-scoped permission deny rule to cover it; a tag alone cannot be denied. Move this file into the nearest "${segment}" folder.`;
 }
 
+// ---------------------------------------------------------------------------
+// Option echo
+// ---------------------------------------------------------------------------
+
+// Words carrying no distinguishing signal when comparing a report sentence
+// against a question's option text. Kept short: the four-character floor below
+// already removes most function words, and a long list starts removing the
+// nouns that make two sentences the same claim.
+const ECHO_STOPWORDS = new Set([
+  "the", "and", "that", "this", "with", "from", "have", "they", "them", "their",
+  "what", "when", "where", "which", "were", "was", "for", "not", "then", "than",
+  "also", "into", "onto", "about", "after", "before", "would", "could", "should",
+  "did", "does", "done", "been", "being", "there", "here", "your", "yours",
+]);
+
+function contentWords(text) {
+  const out = new Set();
+  for (const raw of String(text).toLowerCase().split(/[^a-z0-9']+/)) {
+    const word = raw.replace(/'/g, "");
+    if (word.length < 4) continue;
+    if (ECHO_STOPWORDS.has(word)) continue;
+    out.add(word);
+  }
+  return out;
+}
+
+// Jaccard: shared words over the union. Edit distance cannot do this job at all,
+// because the 2026-09-18 report sentence paraphrases its option and merges the
+// option's label into its description, so the strings are far apart while the
+// claim is identical.
+//
+// The denominator is the union and NOT Math.min(a.size, b.size), which was
+// measured and rejected. Dividing by the smaller set scores any short sentence
+// whose few content words happen to sit inside a long option at up to 1.0: the
+// innocent sentence "The reporter and the team were on camera together at the
+// scene" scores exactly 0.60 against the 09-18 option and would block at any
+// threshold low enough to catch the real one (0.83). Under Jaccard the same
+// pair scores 0.27 against the real sentence's 0.50, which is a margin wide
+// enough to sit a threshold in.
+function overlapRatio(a, b) {
+  if (a.size === 0 || b.size === 0) return 0;
+  let shared = 0;
+  for (const word of a) if (b.has(word)) shared++;
+  return shared / (a.size + b.size - shared);
+}
+
+// Sentences of the body, frontmatter already stripped by parseFrontmatter.
+function bodySentences(body) {
+  return String(body)
+    .replace(/^#+.*$/gm, " ")       // headings assert nothing
+    .replace(/^\s*[-*]\s*\[[ x]\]/gm, " ") // checkbox markers, not prose
+    .split(/(?<=[.!?])\s+|\r?\n/)
+    .map((s) => s.replace(/^\s*[-*]\s*/, "").trim())
+    .filter((s) => s.length > 0);
+}
+
+// The DM's own words, from the session transcript. Each line of the JSONL
+// transcript is one event; a user event's text is what the DM actually typed.
+//
+// This function is what keeps the rule from deadlocking, and the rule is
+// useless without it. A sentence the DM confirmed in prose STILL overlaps the
+// option heavily, because a good option paraphrases what it asks about: "Yes,
+// the reporter did ask, and the team said Neighborhood Watch Association"
+// scores 0.60 against the 09-18 option. Blocking on option overlap alone would
+// therefore refuse the true sentence forever, with no way for the DM to get it
+// into the report. The discrimination the rule actually needs is not "does this
+// resemble an option" but "does this resemble an option AND nothing the DM
+// typed", which is exactly the 09-18 defect.
+// Returns ONE ENTRY PER DM MESSAGE, never a single joined blob. Both properties
+// below were measured against a realistic debrief transcript and both are
+// load-bearing.
+//
+// Per message, not pooled. A real debrief transcript is a bulk-memory dump plus
+// dozens of short answers, and between them those messages use nearly every word
+// in the campaign. Pooling them and asking "did the DM use these words" scores
+// the 09-18 sentence at 1.00 against a transcript that never states it, which
+// would suppress every block and leave the rule dead while looking alive. The
+// same sentence scores 0.33 as a maximum over individual messages, against 1.00
+// for a DM who actually confirmed it in one breath. The question has to be "did
+// the DM say this thing", not "did the DM ever use these words".
+//
+// Text parts only. An AskUserQuestion selection comes back through the
+// transcript as a user-role event carrying a tool_result, so accepting every
+// part of every user event would feed the option's own text back in as the DM's
+// prose and suppress exactly the blocks this rule exists for.
+function dmMessages(transcriptPath) {
+  if (typeof transcriptPath !== "string" || transcriptPath.length === 0) return null;
+  let raw;
+  try {
+    raw = readFileSync(transcriptPath, "utf8");
+  } catch {
+    return null;
+  }
+  const said = [];
+  for (const line of raw.split(/\r?\n/)) {
+    if (line.trim() === "") continue;
+    let event;
+    try {
+      event = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    // Shape varies by harness version, so read defensively.
+    const role = event && (event.role || (event.message && event.message.role) || event.type);
+    if (role !== "user") continue;
+    const content = event.content || (event.message && event.message.content);
+    if (typeof content === "string") {
+      said.push(content);
+    } else if (Array.isArray(content)) {
+      for (const part of content) {
+        if (!part || part.type !== "text") continue;
+        if (typeof part.text === "string") said.push(part.text);
+      }
+    }
+  }
+  return said.length > 0 ? said : null;
+}
+
+// Refuses a body sentence that restates an option this session offered AND that
+// the DM never put in prose themselves. The signature of the 2026-09-18 bug: a
+// sentence in the report that the pipeline wrote rather than the DM.
+//
+// Fail-silent on an absent or unreadable state file, and equally on an
+// unreadable transcript: with no record of what the DM typed, the check cannot
+// tell a laundered sentence from a confirmed one, and a block on no evidence is
+// worse than no block. A session in which the recorder never ran behaves
+// exactly as before.
+function checkOptionEcho(params, ctx) {
+  const minWords = typeof params.minContentWords === "number" ? params.minContentWords : 4;
+  const threshold = typeof params.overlapThreshold === "number" ? params.overlapThreshold : 0.4;
+  const proseThreshold = typeof params.proseThreshold === "number" ? params.proseThreshold : 0.5;
+
+  let offered;
+  try {
+    const statePath = path.resolve(ctx.projectRoot, ".professor-orb", "asked-options.json");
+    const state = JSON.parse(readFileSync(statePath, "utf8"));
+    offered = Array.isArray(state.options) ? state.options : [];
+  } catch {
+    return true;
+  }
+  if (offered.length === 0) return true;
+
+  const messages = dmMessages(ctx.transcriptPath);
+  if (messages === null) return true;
+  const messageWords = messages.map((m) => contentWords(m));
+
+  const offeredSets = offered.map((text) => ({ text, words: contentWords(text) }));
+
+  for (const sentence of bodySentences(ctx.body)) {
+    const words = contentWords(sentence);
+    // A sentence with few content words cannot be distinguished from an option
+    // by overlap alone, and flagging it would be noise on every index line.
+    if (words.size < minWords) continue;
+
+    // Containment against the single best DM message: how much of THIS sentence
+    // appears in one thing the DM actually typed. Measured over pooled messages
+    // instead, this is 1.00 for a transcript that never states the claim, which
+    // is why dmMessages returns them separately.
+    let bestContainment = 0;
+    for (const msg of messageWords) {
+      let shared = 0;
+      for (const word of words) if (msg.has(word)) shared++;
+      const containment = shared / words.size;
+      if (containment > bestContainment) bestContainment = containment;
+    }
+    if (bestContainment >= proseThreshold) continue;
+
+    for (const option of offeredSets) {
+      if (overlapRatio(words, option.words) >= threshold) {
+        return [
+          `This sentence restates a question option from this session, and the DM never wrote it in prose: "${sentence}"`,
+          `  the option offered: "${option.text}"`,
+          "  Confirm it with the DM in their own words, or cut it. An option points at a topic; what happened comes back in the DM's own words.",
+        ].join("\n");
+      }
+    }
+  }
+  return true;
+}
+
 // Check semantics are duplicated four ways: skills/setup/references/conventions-schema.md's
 // check catalog (normative), this CHECKS table, the checkerPrompt in
 // workflows/validation-sweep.mjs, and agents/kb-validator.md Step 4. The base rule data
@@ -725,6 +905,7 @@ const CHECKS = {
   bodyImpliesFrontmatter: checkBodyImpliesFrontmatter,
   frontmatterImpliesFrontmatter: checkFrontmatterImpliesFrontmatter,
   tagImpliesPath: checkTagImpliesPath,
+  optionEcho: checkOptionEcho,
 };
 
 // ---------------------------------------------------------------------------
@@ -812,6 +993,11 @@ function main() {
   // Present only when the hook fires inside a subagent. Used to stop the fixer
   // being asked to dispatch itself.
   const agentType = input.agent_type;
+
+  // Carried for optionEcho, which must distinguish a sentence the DM wrote from
+  // one only a question option ever said. Absent in older harness versions, and
+  // that absence is handled by the check rather than here.
+  const transcriptPath = typeof input.transcript_path === "string" ? input.transcript_path : "";
   if (toolName && toolName !== "Write" && toolName !== "Edit") {
     process.exit(0);
   }
@@ -922,6 +1108,7 @@ function main() {
     // registry wins over any top-level one a v1 or v2 file supplied.
     tagRegistryPath: owner.tagRegistryPath || conventions.tagRegistryPath,
     conventions,
+    transcriptPath,
   };
 
   const blockViolations = [];
