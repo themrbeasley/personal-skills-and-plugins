@@ -28,7 +28,7 @@ const CORRECTION_PATTERNS = [
   /\b(?:that'?s|that\s+is|this\s+is|it'?s|you'?re|thats)\s+(?:just\s+)?(?:wrong|incorrect|false|backwards)\b/i,
   /\bnot\s+what\s+i\s+(?:said|told|asked|meant)\b/i,
   /\bi\s+(?:already\s+)?told\s+you\b/i,
-  /\bno,?\s+it\s+(?:was|wasn'?t|is|isn'?t)\b/i,
+  /\bno,?\s+it\s+(?:was|wasn'?t|is|isn'?t)\b(?!\s+(?:worth|nothing|fine|okay|ok|just|what|a\s+big\s+deal))/i, // ponytail: idiom blocklist covers cases seen in review; extend if new false positives surface
   /\bwrong\s+(?:pronouns?|name|date|order|person|place)\b/i,
 ];
 

@@ -69,6 +69,9 @@ console.log("must stay silent:");
   "write the recap",
   "the party never found the ledger, so they moved on",
   "was that wrong of them in character?",
+  "No, it isn't a big deal, don't worry about it",
+  "no, it was worth it in the end",
+  "no, it is what it is",
   "",
 ].forEach((p) => checkFires(p, false));
 
