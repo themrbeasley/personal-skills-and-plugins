@@ -119,6 +119,7 @@ This is the load-bearing step. Every violation you found goes into exactly one o
 - Content that may be deliberately unconventional (an article that breaks a style rule but might be an intentional exception).
 - Conflicting cross-references (two articles link to each other in a way that suggests a naming or merge decision, not a typo).
 - A broken wikilink with no close match: ask what the DM intended rather than guessing a target.
+- A character article whose pronoun line lists more than one set without naming the one prose uses: state the sets found and quote the line. Which set to write is the DM's call about their own character, so this is never a mechanical fix, no matter how consistently the rest of the article reads.
 
 If you are not certain which bucket a violation belongs in, put it in needs judgment. A DM asked an unnecessary question loses less than a DM whose article gets a wrong guessed fix.
 

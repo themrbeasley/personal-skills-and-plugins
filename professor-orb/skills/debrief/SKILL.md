@@ -62,6 +62,18 @@ This phase is mandatory and every question in it goes through the AskUserQuestio
 
 **The DM ends interrogation, not you.** Every round's batch must include an explicit option letting the DM stop: something like "Done, write the report" alongside "Keep going." Do not decide on your own that you have enough and move to Phase 3; keep running rounds until the DM picks the option to stop. If you genuinely have no more gaps to probe, say so and offer the same explicit choice rather than silently ending the phase.
 
+**No option states an outcome.** The test is mechanical: if an option's text
+could be lifted into the report as a sentence about the session, it is not an
+option, it is a draft sentence, and it goes back as the question it should have
+asked. A selection points at a topic. What happened comes back in the DM's own
+words.
+
+This rule is prose with a machine behind it, which is why it reads as a test
+rather than a warning. The `contentOptionEcho` rule refuses to write a report
+sentence that restates an option this session offered, so breaking this rule
+costs a blocked write rather than a false report. Write the option as a question
+and neither fires.
+
 **Track entities as you go.** Throughout intake and interrogation, keep a running list of every named NPC, faction, location, item, species, and cosmological concept touched in the session. You will pass this list to the `lore` agent in Phase 4.
 
 ### Phase 3: Report writing
@@ -141,6 +153,7 @@ Apply any additional writing style rules from `conventions.json` or the project'
 - **Never invent content.** If you do not know something and could not extract it from the DM, either ask or leave a placeholder. Fabricating session events into canon is the worst possible failure mode.
 - **Never update lore articles yourself.** That is the `chronicler` skill's job, working from the `lore` agent's proposal. You write the report and hand off, you do not edit character, location, or faction articles.
 - **Never ask the user more than about four questions per AskUserQuestion call.** Batch tight.
+- **Never write an option whose text could be a sentence in the report.** An option asks. The answer comes back in the DM's prose, and `contentOptionEcho` blocks the write if it does not.
 - **Never create unnecessary auxiliary files.** This skill produces: the session report, the campaign index (if new or updated), and the master index (if applicable). No scratch files, execution logs, or manifests.
 
 ## How this skill connects to the others

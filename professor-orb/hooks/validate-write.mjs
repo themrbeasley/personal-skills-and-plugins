@@ -703,6 +703,378 @@ function checkTagImpliesPath(params, ctx) {
   return `Article carries the excluded tag "${matched}" but does not sit under a "${segment}" folder. Excluded content has to live inside one for the path-scoped permission deny rule to cover it; a tag alone cannot be denied. Move this file into the nearest "${segment}" folder.`;
 }
 
+// ---------------------------------------------------------------------------
+// Option echo
+// ---------------------------------------------------------------------------
+
+// Words carrying no distinguishing signal when comparing a report sentence
+// against a question's option text. Kept short: the four-character floor below
+// already removes most function words, and a long list starts removing the
+// nouns that make two sentences the same claim.
+const ECHO_STOPWORDS = new Set([
+  "the", "and", "that", "this", "with", "from", "have", "they", "them", "their",
+  "what", "when", "where", "which", "were", "was", "for", "not", "then", "than",
+  "also", "into", "onto", "about", "after", "before", "would", "could", "should",
+  "did", "does", "done", "been", "being", "there", "here", "your", "yours",
+]);
+
+function contentWords(text) {
+  const out = new Set();
+  for (const raw of String(text).toLowerCase().split(/[^a-z0-9']+/)) {
+    const word = raw.replace(/'/g, "");
+    if (word.length < 4) continue;
+    if (ECHO_STOPWORDS.has(word)) continue;
+    out.add(word);
+  }
+  return out;
+}
+
+// Jaccard: shared words over the union. Edit distance cannot do this job at all,
+// because the 2026-09-18 report sentence paraphrases its option and merges the
+// option's label into its description, so the strings are far apart while the
+// claim is identical.
+//
+// The denominator is the union and NOT Math.min(a.size, b.size), which was
+// measured and rejected. Dividing by the smaller set scores any short sentence
+// whose few content words happen to sit inside a long option at up to 1.0: the
+// innocent sentence "The reporter and the team were on camera together at the
+// scene" scores exactly 0.60 against the 09-18 option and would block at any
+// threshold low enough to catch the real one (0.83). Under Jaccard the same
+// pair scores 0.27 against the real sentence's 0.50, which is a margin wide
+// enough to sit a threshold in.
+function overlapRatio(a, b) {
+  if (a.size === 0 || b.size === 0) return 0;
+  let shared = 0;
+  for (const word of a) if (b.has(word)) shared++;
+  return shared / (a.size + b.size - shared);
+}
+
+// Sentences of the body, frontmatter already stripped by parseFrontmatter.
+function bodySentences(body) {
+  return String(body)
+    .replace(/^#+.*$/gm, " ")       // headings assert nothing
+    .replace(/^\s*[-*]\s*\[[ x]\]/gm, " ") // checkbox markers, not prose
+    .split(/(?<=[.!?])\s+|\r?\n/)
+    .map((s) => s.replace(/^\s*[-*]\s*/, "").trim())
+    .filter((s) => s.length > 0);
+}
+
+// Length ceiling for a single "DM message". The DM types sentences and
+// paragraphs; a harness-injected system-reminder, skill body, or subagent
+// dispatch brief runs from several KB to tens of KB. 4000 characters admits a
+// long bulk-memory narration from debrief Phase 1 while excluding the kind of
+// injected block that supplies unrelated content words wholesale.
+// ponytail: a fixed character ceiling, not a real message-boundary detector;
+// replace with a harness-version-aware parser if a genuine DM narration this
+// long is ever seen truncated by it.
+const MAX_DM_MESSAGE_CHARS = 4000;
+
+// Harness-injected content opens with a tag like <system-reminder>,
+// <user-prompt-submit-hook>, or <local-command-caveat>. The DM never types
+// these; accepting them as "the DM's prose" would let an unrelated injected
+// block, or this very correction hook's own stdout if it ever lands in the
+// transcript, silently supply the content words checkOptionEcho's escape
+// hatch is trying to verify came from the DM.
+const HARNESS_TAG_PATTERN = /^\s*<[a-zA-Z][\w-]*>/;
+
+// Returns ONE ENTRY PER DM MESSAGE, never a single joined blob. Both
+// properties below were measured against a realistic debrief transcript and
+// both are load-bearing.
+//
+// Per message, not pooled. A real debrief transcript is a bulk-memory dump
+// plus dozens of short answers, and between them those messages use nearly
+// every word in the campaign. Pooling them and asking "did the DM use these
+// words" scores a laundered sentence at 1.00 against a transcript that never
+// states it, which would suppress every block while looking alive. The same
+// sentence scores far lower as a maximum over individual messages. The
+// question has to be "did the DM say this thing", not "did the DM ever use
+// these words".
+//
+// Text parts only. An AskUserQuestion selection comes back through the
+// transcript as a user-role event carrying a tool_result, so accepting every
+// part of every user event would feed the option's own text back in as the
+// DM's prose and suppress exactly the blocks this rule exists for.
+function dmMessages(transcriptPath) {
+  if (typeof transcriptPath !== "string" || transcriptPath.length === 0) return null;
+  let raw;
+  try {
+    raw = readFileSync(transcriptPath, "utf8");
+  } catch {
+    return null;
+  }
+  const said = [];
+  for (const line of raw.split(/\r?\n/)) {
+    if (line.trim() === "") continue;
+    let event;
+    try {
+      event = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    // Shape varies by harness version, so read defensively.
+    const role = event && (event.role || (event.message && event.message.role) || event.type);
+    if (role !== "user") continue;
+    // isMeta / isSidechain mark a transcript entry the harness generated
+    // around the DM's turn (caveats, subagent dispatch briefs) rather than
+    // something the DM typed. Checked on both the bare event and the nested
+    // message object, matching the role lookup's own defensive shape above.
+    if (event.isMeta === true || (event.message && event.message.isMeta === true)) continue;
+    if (event.isSidechain === true || (event.message && event.message.isSidechain === true)) continue;
+    const content = event.content || (event.message && event.message.content);
+    const collect = (text) => {
+      if (typeof text !== "string") return;
+      if (text.length === 0 || text.length > MAX_DM_MESSAGE_CHARS) return;
+      if (HARNESS_TAG_PATTERN.test(text)) return;
+      said.push(text);
+    };
+    if (typeof content === "string") {
+      collect(content);
+    } else if (Array.isArray(content)) {
+      for (const part of content) {
+        if (!part || part.type !== "text") continue;
+        collect(part.text);
+      }
+    }
+  }
+  return said.length > 0 ? said : null;
+}
+
+// Refuses a body sentence that restates an option this session offered AND that
+// the DM never put in prose themselves. The signature of the 2026-09-18 bug: a
+// sentence in the report that the pipeline wrote rather than the DM.
+//
+// Fail-silent on an absent or unreadable state file, and equally on an
+// unreadable transcript: with no record of what the DM typed, the check cannot
+// tell a laundered sentence from a confirmed one, and a block on no evidence is
+// worse than no block. A session in which the recorder never ran behaves
+// exactly as before.
+//
+// Known limitation: containment has no concept of negation. A DM correcting
+// the exact laundered claim in their own words ("that never happened, the
+// reporter never asked...") shares nearly all of its content words with the
+// sentence it denies, so it clears proseThreshold and this check goes quiet
+// for that sentence at the exact moment the DM is correcting it. This is not
+// a gap this check can close on its own: the dm-correction hook is what
+// catches a correction, and SHARED-PRINCIPLES' propagation paragraph is what
+// covers the DM's own prose case. This check's job stops at "the DM
+// substantially wrote this", not "the DM endorsed this".
+function checkOptionEcho(params, ctx) {
+  const minWords = typeof params.minContentWords === "number" ? params.minContentWords : 4;
+  const threshold = typeof params.overlapThreshold === "number" ? params.overlapThreshold : 0.4;
+  const proseThreshold = typeof params.proseThreshold === "number" ? params.proseThreshold : 0.5;
+
+  let offered;
+  try {
+    const statePath = path.resolve(ctx.projectRoot, ".professor-orb", "asked-options.json");
+    const state = JSON.parse(readFileSync(statePath, "utf8"));
+    offered = Array.isArray(state.options) ? state.options : [];
+  } catch {
+    return true;
+  }
+  if (offered.length === 0) return true;
+
+  const messages = dmMessages(ctx.transcriptPath);
+  if (messages === null) return true;
+  const messageWords = messages.map((m) => contentWords(m));
+
+  const offeredSets = offered.map((text) => ({ text, words: contentWords(text) }));
+
+  for (const sentence of bodySentences(ctx.body)) {
+    const words = contentWords(sentence);
+    // A sentence with few content words cannot be distinguished from an option
+    // by overlap alone, and flagging it would be noise on every index line.
+    if (words.size < minWords) continue;
+
+    // Containment against the single best DM message: how much of THIS sentence
+    // appears in one thing the DM actually typed. Measured over pooled messages
+    // instead, this is 1.00 for a transcript that never states the claim, which
+    // is why dmMessages returns them separately.
+    let bestContainment = 0;
+    for (const msg of messageWords) {
+      let shared = 0;
+      for (const word of words) if (msg.has(word)) shared++;
+      const containment = shared / words.size;
+      if (containment > bestContainment) bestContainment = containment;
+    }
+    if (bestContainment >= proseThreshold) continue;
+
+    for (const option of offeredSets) {
+      if (overlapRatio(words, option.words) >= threshold) {
+        return [
+          `This sentence restates a question option from this session, and the DM never wrote it in prose: "${sentence}"`,
+          `  the option offered: "${option.text}"`,
+          "  Confirm it with the DM in their own words, or cut it. An option points at a topic; what happened comes back in the DM's own words.",
+        ].join("\n");
+      }
+    }
+  }
+  return true;
+}
+
+// ---------------------------------------------------------------------------
+// Pronouns
+// ---------------------------------------------------------------------------
+
+// The recognized sets, each as its subject form plus the object and possessive
+// forms that identify it in prose. A set is "used" when any of its forms
+// appears as a whole word.
+const PRONOUN_SETS = {
+  __proto__: null,
+  "they/them": ["they", "them", "their", "theirs", "themself", "themselves"],
+  "she/her": ["she", "her", "hers", "herself"],
+  "he/him": ["he", "him", "his", "himself"],
+  "it/its": ["it", "its", "itself"],
+  "xe/xem": ["xe", "xem", "xyr", "xyrs"],
+  "ze/hir": ["ze", "hir", "hirs", "zir", "zirs"],
+};
+
+// The article's pronoun line: the first line naming pronouns at all. Returns
+// { line, sets, writing } where writing is the set the line names for prose, or
+// null when it names none.
+function pronounLine(body) {
+  for (const raw of String(body).split(/\r?\n/)) {
+    if (!/pronouns?\s*[:\-]/i.test(raw)) continue;
+    const line = raw.trim();
+    const lower = line.toLowerCase();
+    const sets = [];
+    for (const name of Object.keys(PRONOUN_SETS)) {
+      const subject = name.split("/")[0];
+      if (new RegExp(`\\b${subject}\\b`, "i").test(lower)) sets.push(name);
+    }
+    if (sets.length === 0) continue;
+    // "in writing", "for prose", "in prose", "written as": the phrases that
+    // name one set as the one to use. The set named is the one nearest before
+    // the phrase, which is how the sentence reads in English.
+    let writing = null;
+    const marker = lower.search(/\b(?:in writing|for prose|in prose|written as|use)\b/);
+    if (marker !== -1) {
+      const before = lower.slice(0, marker);
+      for (const name of sets) {
+        const subject = name.split("/")[0];
+        if (new RegExp(`\\b${subject}\\b`, "i").test(before)) writing = name;
+      }
+    }
+    if (writing === null && sets.length === 1) writing = sets[0];
+    return { line, sets, writing };
+  }
+  return null;
+}
+
+// An article listing more than one set must name the one prose uses. A
+// declaration offering three reads as a choice, which is how party/Psyche.md
+// produced four drafts in the wrong pronoun while every other source used one.
+// Warn, not block: which set to write is the DM's call about their own
+// character, so there is no unambiguous mechanical fix.
+function checkPronounDeclaration(params, ctx) {
+  const types = Array.isArray(params.appliesToTypes) ? params.appliesToTypes : ["Person"];
+  if (!types.includes(ctx.frontmatter.type)) return true;
+
+  const found = pronounLine(ctx.body);
+  if (!found) return true;
+  if (found.sets.length <= 1) return true;
+  if (found.writing !== null) return true;
+
+  return [
+    `This article lists ${found.sets.length} pronoun sets (${found.sets.join(", ")}) without naming the one prose uses: "${found.line}"`,
+    '  Name it, for example "they/them in writing; she/her and he/him also accepted", so nothing downstream has to choose.',
+  ].join("\n");
+}
+
+// Flags a body using a pronoun set that a referenced character's article lists
+// as accepted but does not name for writing. Deliberately narrow: it fires only
+// when the article names one set AND lists others. With no other set listed
+// there is nothing to confuse, and a check that guessed would be noise on every
+// article with more than one character in it.
+function checkPronounConsistency(params, ctx) {
+  const types = Array.isArray(params.sourceTypes) ? params.sourceTypes : ["Person"];
+  const articles = [];
+  for (const root of ctx.searchRoots || []) {
+    collectArticles(root, articles, 0);
+  }
+
+  // Filter by FILENAME before reading anything. collectArticles walks
+  // directories, which costs one readdir per folder; reading and parsing every
+  // article it finds would cost up to 1500 readFileSync plus 1500 frontmatter
+  // parses on EVERY write, against this hook's timeout. A draft names a handful
+  // of characters, so the name test cuts the read set to those few. The test is
+  // the same one used below, hoisted, so it cannot drift from it.
+  const nameMatches = (abs) => {
+    const name = baseNameNoExt(path.basename(abs));
+    if (name.length < 3) return false;
+    return new RegExp(`\\b${name.replace(/[-_]/g, "[ -_]")}\\b`, "i").test(ctx.body);
+  };
+
+  for (const abs of articles) {
+    if (abs === ctx.absFilePath) continue;
+    if (!nameMatches(abs)) continue;
+
+    let parsed;
+    try {
+      parsed = parseFrontmatter(readFileSync(abs, "utf8"));
+    } catch {
+      continue;
+    }
+    if (!parsed || !types.includes(parsed.data.type)) continue;
+
+    const found = pronounLine(parsed.body);
+    if (!found || found.writing === null || found.sets.length <= 1) continue;
+
+    // If the draft already uses the writing set's own forms anywhere, it is
+    // demonstrably capable of using the right pronoun, and a stray
+    // non-writing-set pronoun elsewhere in a multi-character report is far
+    // more likely to be about a different character than a slip on this one.
+    // This is a coarse guard, not name-proximity scoping: it silences the
+    // check on any draft that ALSO uses the writing set correctly at least
+    // once, rather than checking each pronoun's nearest antecedent.
+    // ponytail: whole-document heuristic; a windowed check scoping each
+    // pronoun to its nearest preceding name is the real fix if a false
+    // negative from this trade-off turns out to matter in practice.
+    const writingFormsPresent = PRONOUN_SETS[found.writing].some((form) =>
+      new RegExp(`\\b${form}\\b`, "i").test(ctx.body)
+    );
+    if (writingFormsPresent) continue;
+
+    const name = baseNameNoExt(path.basename(abs));
+    for (const set of found.sets) {
+      if (set === found.writing) continue;
+      for (const form of PRONOUN_SETS[set]) {
+        if (new RegExp(`\\b${form}\\b`, "i").test(ctx.body)) {
+          return [
+            `This draft uses ${set} while ${name}'s article names ${found.writing} as the pronoun prose uses: "${found.line}"`,
+            `  Rewrite the draft in ${found.writing}, or change the article if the DM says the article is stale (Principle 1).`,
+          ].join("\n");
+        }
+      }
+    }
+  }
+  return true;
+}
+
+// Bounded recursive collection of markdown files, matching searchForFileStat's
+// depth discipline so a deep knowledge base cannot stall a write.
+//
+// Does NOT use this file's safeReaddir: that helper returns bare filename
+// strings and null on failure, so entry.isDirectory() would throw, the
+// check-crash guard at the rule loop would swallow it, and this check would
+// silently never fire. withFileTypes avoids a statSync per entry as well.
+function collectArticles(dir, out, depth) {
+  if (depth > 6 || out.length > 1500) return;
+  let entries;
+  try {
+    entries = readdirSync(dir, { withFileTypes: true });
+  } catch {
+    return;
+  }
+  for (const entry of entries) {
+    if (entry.isDirectory()) {
+      if (entry.name.startsWith(".") || entry.name === "node_modules") continue;
+      collectArticles(path.join(dir, entry.name), out, depth + 1);
+    } else if (entry.name.toLowerCase().endsWith(".md")) {
+      out.push(path.join(dir, entry.name));
+    }
+  }
+}
+
 // Check semantics are duplicated four ways: skills/setup/references/conventions-schema.md's
 // check catalog (normative), this CHECKS table, the checkerPrompt in
 // workflows/validation-sweep.mjs, and agents/kb-validator.md Step 4. The base rule data
@@ -725,6 +1097,9 @@ const CHECKS = {
   bodyImpliesFrontmatter: checkBodyImpliesFrontmatter,
   frontmatterImpliesFrontmatter: checkFrontmatterImpliesFrontmatter,
   tagImpliesPath: checkTagImpliesPath,
+  optionEcho: checkOptionEcho,
+  pronounDeclaration: checkPronounDeclaration,
+  pronounConsistency: checkPronounConsistency,
 };
 
 // ---------------------------------------------------------------------------
@@ -812,6 +1187,11 @@ function main() {
   // Present only when the hook fires inside a subagent. Used to stop the fixer
   // being asked to dispatch itself.
   const agentType = input.agent_type;
+
+  // Carried for optionEcho, which must distinguish a sentence the DM wrote from
+  // one only a question option ever said. Absent in older harness versions, and
+  // that absence is handled by the check rather than here.
+  const transcriptPath = typeof input.transcript_path === "string" ? input.transcript_path : "";
   if (toolName && toolName !== "Write" && toolName !== "Edit") {
     process.exit(0);
   }
@@ -922,6 +1302,7 @@ function main() {
     // registry wins over any top-level one a v1 or v2 file supplied.
     tagRegistryPath: owner.tagRegistryPath || conventions.tagRegistryPath,
     conventions,
+    transcriptPath,
   };
 
   const blockViolations = [];
