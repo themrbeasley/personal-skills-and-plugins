@@ -239,17 +239,19 @@ For all other issues, make the call, log it clearly, and keep moving.
 
 ## Final act: update pipeline state
 
-After everything else in this workflow has succeeded, the very last thing you do is write `.professor-orb/pipeline-state.json`:
+After everything else in a **session-driven run** has succeeded, the very last thing you do is write the campaign's pipeline state to `<sessionReportsRoot>/<campaign>/pipeline-state.json`: the campaign's own folder directly under `sessionReportsRoot`, never a subfolder inside it. Each campaign has its own file, and `/log` commits it with the campaign's staged articles and write-backs.
 
 ```json
 {
   "lastStep": "chronicler",
-  "sessionDate": "<the session date the executed proposal covered, YYYY-MM-DD>",
+  "sessionDate": "<the session date of the proposal you executed, YYYY-MM-DD>",
   "updatedAt": "<current UTC time, ISO 8601>"
 }
 ```
 
-For `sessionDate`: if `.professor-orb/pipeline-state.json` already exists (typically because `debrief`, `prep`, or `content` just ran), read its `sessionDate` field and carry it forward unchanged. If no `pipeline-state.json` exists yet, use the session date of the proposal you just executed (the date embedded in the proposal's filename). `updatedAt` must be the current time at the moment you write this file; the Stop hook ignores state older than two hours.
+`sessionDate` is the session date of the proposal you just executed, the date embedded in the proposal's filename. `updatedAt` must be the current time at the moment you write this file; the Stop hook ignores state older than two hours.
+
+**A standalone run writes no pipeline state.** It has no report and so no campaign, and it is not a step in any campaign's session pipeline.
 
 **If `.professor-orb/` does not exist** (setup never ran for this project), skip this step silently, as noted at the start of this workflow. Do not create the directory yourself: that is the setup skill's job.
 

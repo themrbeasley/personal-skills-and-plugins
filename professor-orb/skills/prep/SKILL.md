@@ -145,17 +145,17 @@ Do not resolve any of these yourself. Naming them is the whole job (see "Never w
 
 ## Final act: update pipeline state
 
-After everything else in this workflow has succeeded, the very last thing you do is write `.professor-orb/pipeline-state.json`:
+After everything else in this workflow has succeeded, the very last thing you do is write this campaign's pipeline state to `<sessionReportsRoot>/<campaign>/pipeline-state.json`: the campaign's own folder directly under `sessionReportsRoot`, never a subfolder inside it. Each campaign has its own file, and `/log` commits it with the brief.
 
 ```json
 {
   "lastStep": "prep",
-  "sessionDate": "<carried forward or the date of the session being prepped, YYYY-MM-DD>",
+  "sessionDate": "<the date of the session report you read in Inputs, YYYY-MM-DD>",
   "updatedAt": "<current UTC time, ISO 8601>"
 }
 ```
 
-For `sessionDate`: if `.professor-orb/pipeline-state.json` already exists (typically because `debrief` just ran), read its `sessionDate` field and carry it forward unchanged. If no `pipeline-state.json` exists yet, use the date of the session report you read in Inputs, the session being prepped for. `updatedAt` must be the current time at the moment you write this file; the Stop hook ignores state older than two hours.
+`sessionDate` is the date of the session report you read in Inputs, the report this brief was built from. `updatedAt` must be the current time at the moment you write this file; the Stop hook ignores state older than two hours.
 
 **If `.professor-orb/` does not exist** (setup never ran for this project), skip this step silently. Do not create the directory yourself, that is the setup skill's job.
 

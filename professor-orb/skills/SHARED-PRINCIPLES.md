@@ -71,7 +71,7 @@ For structural checks, skills read `.professor-orb/conventions.json` rather than
 
 ## 10. Pipeline state updates
 
-Every pipeline skill's final act is updating `.professor-orb/pipeline-state.json` with what completed and what comes next. This breadcrumb drives the Stop hook's next-step suggestion and answers "where were we?" in fresh sessions. A skill that finishes without updating this file has left the pipeline in an unknown state.
+Every pipeline skill's final act is updating its campaign's pipeline state, `<sessionReportsRoot>/<campaign>/pipeline-state.json`, with the step that completed and the date of the session report it worked from. Each campaign has its own file, inside the campaign's lane, so `/log` commits it with the work it describes. This breadcrumb drives the Stop hook's next-step suggestion and answers "where were we?" in fresh sessions, per campaign. A skill that finishes without updating this file has left its campaign's pipeline in an unknown state.
 
 ## 11. Missing conventions file means apply the base schema
 

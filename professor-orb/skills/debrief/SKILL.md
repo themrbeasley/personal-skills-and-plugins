@@ -125,7 +125,7 @@ If the `lore` agent is unavailable or the DM declines the handoff, the Lore Cand
 
 ## Final act: update pipeline state
 
-After everything else in this workflow has succeeded, the very last thing you do is write `.professor-orb/pipeline-state.json`:
+After everything else in this workflow has succeeded, the very last thing you do is write this campaign's pipeline state to `<sessionReportsRoot>/<campaign>/pipeline-state.json`: the campaign's own folder directly under `sessionReportsRoot`, never a subfolder inside it. Each campaign has its own file, and `/log` commits it with the report.
 
 ```json
 {
