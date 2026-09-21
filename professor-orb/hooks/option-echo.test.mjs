@@ -18,6 +18,15 @@ import { fileURLToPath } from "node:url";
 
 const HOOK = path.join(path.dirname(fileURLToPath(import.meta.url)), "validate-write.mjs");
 const RULES = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "references", "base-rules.json");
+const RECORDER = path.join(path.dirname(fileURLToPath(import.meta.url)), "record-options.mjs");
+
+// The hooks resolve os.tmpdir() from these variables (TEMP and TMP on
+// Windows, TMPDIR elsewhere), so pointing all three at the fixture keeps each
+// case's options record inside its own folder.
+function tempEnv(dir) {
+  const tmp = path.join(dir, "tmp");
+  return { ...process.env, TEMP: tmp, TMP: tmp, TMPDIR: tmp };
+}
 
 let passed = 0;
 const failures = [];
@@ -28,7 +37,7 @@ const OFFERED = [
 // dmSaid: the DM's own prose for the transcript. Pass "" for a session where
 // they never typed the claim, which is the 09-18 shape, or an array of raw
 // transcript events for a case the default three-event shape cannot express.
-function fixture(name, reportBody, offered, dmSaid) {
+function fixture(name, reportBody, offered, dmSaid, offeredSession = "s1") {
   const dir = path.join(os.tmpdir(), `orb-echo-${name}-${process.pid}`);
   rmSync(dir, { recursive: true, force: true });
   mkdirSync(path.join(dir, ".professor-orb"), { recursive: true });
@@ -60,10 +69,9 @@ function fixture(name, reportBody, offered, dmSaid) {
     })
   );
   if (offered) {
-    writeFileSync(
-      path.join(dir, ".professor-orb", "asked-options.json"),
-      JSON.stringify({ sessionId: "s1", options: offered })
-    );
+    const record = path.join(dir, "tmp", "professor-orb", `asked-options-${offeredSession}.json`);
+    mkdirSync(path.dirname(record), { recursive: true });
+    writeFileSync(record, JSON.stringify({ options: offered }));
   }
   const file = path.join(dir, "session-reports", "adjustice", "clean-hands", "2026-09-18-Clean-Hands-REPORT.md");
   writeFileSync(file, ["---", "type: Session Report", "---", "", reportBody, ""].join("\n"));
@@ -71,19 +79,26 @@ function fixture(name, reportBody, offered, dmSaid) {
 }
 
 // Returns { blocked: boolean, output: string }. validate-write signals a block
-// with exit 2 and stderr; a pass or warn exits 0.
-function runValidator(dir, file, transcript) {
+// with exit 2 and stderr; a pass or warn exits 0. A default parameter fires on
+// an explicitly passed undefined as much as on an omitted argument, so
+// "session_id absent, the shape of an older harness" needs its own sentinel:
+// pass sessionId: null to omit the field from the payload entirely. Every
+// other call site either omits the argument (gets "s1") or passes a real id.
+function runValidator(dir, file, transcript, sessionId = "s1") {
+  const payload = {
+    hook_event_name: "PostToolUse",
+    tool_name: "Write",
+    cwd: dir,
+    transcript_path: transcript,
+    tool_input: { file_path: file },
+  };
+  if (sessionId !== null) payload.session_id = sessionId;
   try {
     execFileSync("node", [HOOK], {
       cwd: dir,
-      input: JSON.stringify({
-        hook_event_name: "PostToolUse",
-        tool_name: "Write",
-        cwd: dir,
-        transcript_path: transcript,
-        tool_input: { file_path: file },
-      }),
+      input: JSON.stringify(payload),
       encoding: "utf8",
+      env: tempEnv(dir),
     });
     return { blocked: false, output: "" };
   } catch (err) {
@@ -204,6 +219,66 @@ console.log("must not fire:");
     check(name, runValidator(dir, file, transcript).blocked, false);
     rmSync(dir, { recursive: true, force: true });
   }
+})();
+
+console.log("one session cannot read another's options:");
+(function () {
+  // Before 1.20.0 the record was one file in .professor-orb/, read without
+  // comparing sessions, so a new session inherited the last one's options
+  // until it asked its own first question. The legacy file below is exactly
+  // what a 1.19.0 project still has on disk.
+  const { dir, file, transcript } = fixture(
+    "other-session",
+    LAUNDERED,
+    OFFERED,
+    "we wrapped up at the warehouse, pretty short night",
+    "s-old"
+  );
+  writeFileSync(
+    path.join(dir, ".professor-orb", "asked-options.json"),
+    JSON.stringify({ sessionId: "s-old", options: OFFERED })
+  );
+  check("an option offered in another session does not block", runValidator(dir, file, transcript, "s1").blocked, false);
+  check("no session id passes rather than blocks", runValidator(dir, file, transcript, null).blocked, false);
+  rmSync(dir, { recursive: true, force: true });
+})();
+
+console.log("recorder and validator agree on the path:");
+(function () {
+  // The two hooks each compute the record's path. This case runs the real
+  // recorder, then the real validator, so a drift between the two fails here
+  // instead of leaving optionEcho quietly inert.
+  const { dir, file, transcript } = fixture(
+    "end-to-end",
+    LAUNDERED,
+    null,
+    "we wrapped up at the warehouse, pretty short night"
+  );
+  execFileSync("node", [RECORDER], {
+    input: JSON.stringify({
+      hook_event_name: "PostToolUse",
+      tool_name: "AskUserQuestion",
+      session_id: "s-e2e",
+      cwd: dir,
+      tool_input: {
+        questions: [
+          {
+            question: "What happened in the aftermath?",
+            header: "Aftermath",
+            multiSelect: true,
+            options: [
+              { label: "Reporter asked the name", description: "The team answered on camera as the Neighborhood Watch Association" },
+              { label: "Nothing on camera", description: "The crash site cleared without press" },
+            ],
+          },
+        ],
+      },
+    }),
+    encoding: "utf8",
+    env: tempEnv(dir),
+  });
+  check("an option the recorder saw blocks the validator's write", runValidator(dir, file, transcript, "s-e2e").blocked, true);
+  rmSync(dir, { recursive: true, force: true });
 })();
 
 console.log("fail-silent contract:");

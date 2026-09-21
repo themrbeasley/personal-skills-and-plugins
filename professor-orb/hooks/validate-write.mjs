@@ -8,6 +8,7 @@
 
 import { readFileSync, existsSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
+import os from "node:os";
 
 function readStdin() {
   try {
@@ -838,11 +839,13 @@ function dmMessages(transcriptPath) {
 // the DM never put in prose themselves. The signature of the 2026-09-18 bug: a
 // sentence in the report that the pipeline wrote rather than the DM.
 //
-// Fail-silent on an absent or unreadable state file, and equally on an
-// unreadable transcript: with no record of what the DM typed, the check cannot
-// tell a laundered sentence from a confirmed one, and a block on no evidence is
-// worse than no block. A session in which the recorder never ran behaves
-// exactly as before.
+// The record is record-options.mjs's, one file per session in the OS temp
+// directory; that hook's header states why. Fail-silent on a missing or unsafe
+// session id, an absent or unreadable record, and equally on an unreadable
+// transcript: with no record of what the DM typed, the check cannot tell a
+// laundered sentence from a confirmed one, and a block on no evidence is worse
+// than no block. A session in which the recorder never ran behaves exactly as
+// before.
 //
 // Known limitation: containment has no concept of negation. A DM correcting
 // the exact laundered claim in their own words ("that never happened, the
@@ -858,9 +861,12 @@ function checkOptionEcho(params, ctx) {
   const threshold = typeof params.overlapThreshold === "number" ? params.overlapThreshold : 0.4;
   const proseThreshold = typeof params.proseThreshold === "number" ? params.proseThreshold : 0.5;
 
+  // Same path and same token rule as record-options.mjs; the end-to-end case
+  // in option-echo.test.mjs pins the two together.
+  if (!/^[A-Za-z0-9_-]+$/.test(ctx.sessionId)) return true;
   let offered;
   try {
-    const statePath = path.resolve(ctx.projectRoot, ".professor-orb", "asked-options.json");
+    const statePath = path.join(os.tmpdir(), "professor-orb", `asked-options-${ctx.sessionId}.json`);
     const state = JSON.parse(readFileSync(statePath, "utf8"));
     offered = Array.isArray(state.options) ? state.options : [];
   } catch {
@@ -1187,6 +1193,10 @@ function main() {
   // one only a question option ever said. Absent in older harness versions, and
   // that absence is handled by the check rather than here.
   const transcriptPath = typeof input.transcript_path === "string" ? input.transcript_path : "";
+
+  // Names the per-session options record optionEcho reads. Absent in older
+  // harness versions, and that absence is handled by the check.
+  const sessionId = typeof input.session_id === "string" ? input.session_id : "";
   if (toolName && toolName !== "Write" && toolName !== "Edit") {
     process.exit(0);
   }
@@ -1298,6 +1308,7 @@ function main() {
     tagRegistryPath: owner.tagRegistryPath || conventions.tagRegistryPath,
     conventions,
     transcriptPath,
+    sessionId,
   };
 
   const blockViolations = [];

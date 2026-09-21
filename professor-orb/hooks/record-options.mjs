@@ -13,16 +13,26 @@
 // is what covers the case as reported, and it removes any dependence on the
 // shape of tool_response.
 //
-// The state file is hook-owned: read by hooks, never by the model, and
-// intended to be git-ignored: setup adds the entry to a consumer project's
-// .gitignore (skills/setup/SKILL.md), which is not yet true for every
-// project until that setup or resync has run. Principle 8's scope discipline
-// binds skills, not hooks, and pipeline-state.json is the precedent. Keeping
-// it out of the model's context is part of its contract, not incidental,
-// because it holds proposed-scene text.
+// The record is hook-owned: read by hooks, never by the model. Keeping it out
+// of the model's context is part of its contract, not incidental, because it
+// holds proposed-scene text. It lives in the OS temp directory, one file per
+// session, at <os.tmpdir()>/professor-orb/asked-options-<session_id>.json.
+// Outside the project, git can never pick it up; named by session, one session
+// can never read another's options. validate-write's checkOptionEcho computes
+// the same path, and the end-to-end case in option-echo.test.mjs fails if the
+// two drift apart.
+//
+// ponytail: one small file per questioning session is left for the OS's temp
+// cleanup. Delete it from a SessionEnd hook if that ever matters.
 
-import { readFileSync, writeFileSync, existsSync } from "node:fs";
+import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
+import os from "node:os";
 import path from "node:path";
+
+// The session id becomes part of a file name. Anything but a plain token (a
+// path separator, "..", a dot, an empty string) writes nothing rather than a
+// file somewhere the reader will not look.
+const SESSION_ID = /^[A-Za-z0-9_-]+$/;
 
 function main() {
   let input;
@@ -35,9 +45,12 @@ function main() {
   if (input.tool_name !== "AskUserQuestion") process.exit(0);
 
   const cwd = typeof input.cwd === "string" && input.cwd.length > 0 ? input.cwd : process.cwd();
-  const orbDir = path.resolve(cwd, ".professor-orb");
-  // Setup never ran. Creating the directory is setup's job, not a hook's.
-  if (!existsSync(orbDir)) process.exit(0);
+  // Setup never ran, so professor-orb is not in use here and there is no
+  // report for the record to protect.
+  if (!existsSync(path.resolve(cwd, ".professor-orb"))) process.exit(0);
+
+  const sessionId = typeof input.session_id === "string" ? input.session_id : "";
+  if (!SESSION_ID.test(sessionId)) process.exit(0);
 
   const questions = input.tool_input && Array.isArray(input.tool_input.questions)
     ? input.tool_input.questions
@@ -57,26 +70,22 @@ function main() {
   // Nothing usable. Writing an empty record would only churn the file.
   if (offered.length === 0) process.exit(0);
 
-  const statePath = path.join(orbDir, "asked-options.json");
-  const sessionId = typeof input.session_id === "string" ? input.session_id : "";
+  const stateDir = path.join(os.tmpdir(), "professor-orb");
+  const statePath = path.join(stateDir, `asked-options-${sessionId}.json`);
 
-  let state = { sessionId, options: [] };
+  let options = [];
   try {
     const prior = JSON.parse(readFileSync(statePath, "utf8"));
-    // A record from another session is stale: option text from a different
-    // debrief must never block this session's report.
-    if (prior && prior.sessionId === sessionId && Array.isArray(prior.options)) {
-      state.options = prior.options;
-    }
+    if (prior && Array.isArray(prior.options)) options = prior.options;
   } catch {
     // No prior file, or an unreadable one. Start fresh rather than fail.
   }
 
-  state.options = [...state.options, ...offered];
   try {
-    writeFileSync(statePath, JSON.stringify(state, null, 2) + "\n", "utf8");
+    mkdirSync(stateDir, { recursive: true });
+    writeFileSync(statePath, JSON.stringify({ options: [...options, ...offered] }, null, 2) + "\n", "utf8");
   } catch {
-    // A read-only checkout must not break the DM's question.
+    // An unwritable temp directory must not break the DM's question.
   }
   process.exit(0);
 }
