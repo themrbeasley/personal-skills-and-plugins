@@ -1,5 +1,5 @@
 ---
-description: "Commits the setting KB lane (settings/<setting>/, or a v1/v2 project's kbRoot once setup has recorded it) for a git- or github-versioned project. Fed by the chronicler skill's lore updates and the timeline skill's chronology documents, and also captures the DM's own direct Obsidian edits to the KB. Resolves the versioning mode from .professor-orb/versioning.json (performing the one-time conversion from catalog-versioning.json if needed), refuses if no settings array has been recorded, checks the git index for anything staged outside the lane and stops rather than working around it, runs a narrow per-item surprise guard, then stages exactly the lane's changed paths and commits with the identical pathspec: git add -- <lane> followed by git commit --only -m \"<message>\" -- <lane>, never a bare git commit, never commit --only without the prior add, and never -m after the -- separator. Authors no KB content itself, though it does perform the versioning.json conversion when one is pending. Use whenever the DM wants to commit KB changes chronicler or timeline just wrote, or their own manual KB edits. Standalone, like homebrew, timeline, and catalog: not part of the debrief, prep, content, chronicler, kb-validator pipeline, and never writes pipeline-state.json."
+description: "Commits the setting KB lane (settings/<setting>/, or a v1/v2 project's kbRoot once setup has recorded it) for a git- or github-versioned project. Fed by the chronicler skill's lore updates and the timeline skill's chronology documents, and also captures the DM's own direct Obsidian edits to the KB. Resolves the versioning mode from .professor-orb/versioning.json (performing the one-time conversion from catalog-versioning.json if needed), refuses if no settings array has been recorded, checks the git index for anything staged outside the lane and stops rather than working around it, runs a narrow per-item surprise guard, then stages exactly the lane's changed paths and commits with the identical pathspec: git add -- <lane> followed by git commit --only -m \"<message>\" -- <lane>, never a bare git commit, never commit --only without the prior add, and never -m after the -- separator. Authors no KB content itself, though it does perform the versioning.json conversion when one is pending. Use whenever the DM wants to commit KB changes chronicler or timeline just wrote, or their own manual KB edits. Standalone, like homebrew, timeline, and catalog: not part of the debrief, prep, content, chronicler, kb-validator pipeline, and never writes pipeline state."
 argument-hint: "[optional: setting name if the project has more than one, or \"push\" to push after committing]"
 ---
 
@@ -9,7 +9,7 @@ argument-hint: "[optional: setting name if the project has more than one, or \"p
 
 You are committing the setting knowledge base: the lore and setting articles `chronicler` writes, the chronology documents `timeline` writes, and any edits the DM has made directly in Obsidian. This command commits exactly that lane, one setting at a time, and nothing else. It is precise and repeatable by design: capture is a command, not a reminder.
 
-This command is **standalone**, like `homebrew`, `timeline`, and `catalog`. It is not part of the debrief, prep, content, chronicler, kb-validator session pipeline and never writes `.professor-orb/pipeline-state.json`.
+This command is **standalone**, like `homebrew`, `timeline`, and `catalog`. It is not part of the debrief, prep, content, chronicler, kb-validator session pipeline and never writes pipeline state.
 
 ## What this command is not
 
@@ -112,7 +112,7 @@ If more than one setting was committed, name each one and its commit hash; do no
 - **Never invent a changelog entry for the KB.** In `changelog` mode there is nothing for this command to do; say so.
 - **Never create an empty commit.** If nothing is outstanding in the lane, say so and stop.
 - **Never unstage the DM's own staged work**, even a foreign path found at Step 4. Report it and stop; do not touch it.
-- **Never write `.professor-orb/pipeline-state.json`.** This command is outside the session pipeline.
+- **Never write pipeline state.** This command is outside the session pipeline.
 - **Never push without being asked, or to an unconfirmed remote.**
 - **Never force, reset, or resolve a repository-state problem (a merge in progress, a detached HEAD) on the DM's behalf.** Report it and stop.
 
@@ -128,7 +128,7 @@ If more than one setting was committed, name each one and its commit hash; do no
 
 ## How this command connects to the others
 
-- **Standalone**, like `homebrew`, `timeline`, and `catalog`: runs on demand, independent of the session pipeline's state, and never writes `.professor-orb/pipeline-state.json`.
+- **Standalone**, like `homebrew`, `timeline`, and `catalog`: runs on demand, independent of the session pipeline's state, and never writes pipeline state.
 - **Fed by:** the `chronicler` skill, which writes lore and setting articles after DM approval, and the `timeline` skill, which writes chronology documents in the same KB after its own approval step. Also captures the DM's own direct Obsidian edits.
 - **Reads:** `.professor-orb/versioning.json` (performing the one-time conversion from `.professor-orb/catalog-versioning.json` if needed) and `.professor-orb/conventions.json`'s `settings` array for each setting's `kbRoot`.
 - **Writes:** one commit per setting with outstanding KB changes. Writes `.professor-orb/versioning.json` only when Step 1's conversion is pending. Never writes KB content itself.

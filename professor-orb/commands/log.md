@@ -1,5 +1,5 @@
 ---
-description: "Commits the session-reports lane (session-reports/<setting>/<campaign>/, or a v1/v2 project's session-reports location once setup has recorded it) for a git- or github-versioned project. Fed by the debrief skill's session reports and Session Prep briefs, the content skill's recaps and handouts, the forge-prompt skill's saved prompts, and the new KB articles the chronicler skill stages in the campaign's articles subdirectory, all of which live inside the same campaign folder. Resolves the versioning mode from .professor-orb/versioning.json (performing the one-time conversion from catalog-versioning.json if needed), refuses if no settings array has been recorded, checks the git index for anything staged outside the lane and stops rather than working around it, sets aside any session report that looks unfinished (missing required frontmatter or an empty section) by name while committing the rest, then stages exactly the lane's changed paths and commits with the identical pathspec: git add -- <lane> followed by git commit --only -m \"<message>\" -- <lane>, never a bare git commit, never commit --only without the prior add, and never -m after the -- separator. Authors no KB content itself. Use whenever the DM wants to commit a session report, prep brief, recap, handout, prompt, or staged article that debrief, content, forge-prompt, or chronicler just wrote. Standalone: not part of the debrief, prep, content, chronicler, kb-validator pipeline, and never writes pipeline-state.json."
+description: "Commits the session-reports lane (session-reports/<setting>/<campaign>/, or a v1/v2 project's session-reports location once setup has recorded it) for a git- or github-versioned project. Fed by the debrief skill's session reports and Session Prep briefs, the content skill's recaps and handouts, the forge-prompt skill's saved prompts, and the new KB articles the chronicler skill stages in the campaign's articles subdirectory, all of which live inside the same campaign folder. Resolves the versioning mode from .professor-orb/versioning.json (performing the one-time conversion from catalog-versioning.json if needed), refuses if no settings array has been recorded, checks the git index for anything staged outside the lane and stops rather than working around it, sets aside any session report that looks unfinished (missing required frontmatter or an empty section) by name while committing the rest, then stages exactly the lane's changed paths and commits with the identical pathspec: git add -- <lane> followed by git commit --only -m \"<message>\" -- <lane>, never a bare git commit, never commit --only without the prior add, and never -m after the -- separator. Authors no KB content itself. Use whenever the DM wants to commit a session report, prep brief, recap, handout, prompt, or staged article that debrief, content, forge-prompt, or chronicler just wrote. Standalone: not part of the debrief, prep, content, chronicler, kb-validator pipeline, and never writes pipeline state."
 argument-hint: "[optional: campaign name if the setting has more than one, or \"push\" to push after committing]"
 ---
 
@@ -9,7 +9,7 @@ argument-hint: "[optional: campaign name if the setting has more than one, or \"
 
 You are committing the session-reports lane: the session reports `debrief` writes, the Session Prep briefs `prep` saves alongside them, the recaps and handouts `content` writes into the campaign's content subdirectory, the prompts `forge-prompt` saves, and the KB articles `chronicler` stages during a session-driven run. This command commits exactly that lane, one campaign at a time, and nothing else. It is precise and repeatable by design: capture is a command, not a reminder.
 
-This command is **standalone**. It is not part of the debrief, prep, content, chronicler, kb-validator session pipeline and never writes `.professor-orb/pipeline-state.json`, even though its own inputs come from that pipeline.
+This command is **standalone**. It is not part of the debrief, prep, content, chronicler, kb-validator session pipeline and never writes pipeline state, even though its own inputs come from that pipeline.
 
 ## What this command is not
 
@@ -40,7 +40,7 @@ With the `settings` array in hand:
 
 ## Step 3: Resolve the lane path
 
-The lane is `<sessionReportsRoot>/<campaign>/`, recursively: the session reports themselves, the Session Prep briefs `prep` saves alongside them in the same folder, the campaign's own index, the `content/` subdirectory holding recaps, handouts, and setpieces, the `prompts/` subdirectory holding what `forge-prompt` saved, and the `articles/` subdirectory holding new KB articles `chronicler` staged during a session-driven run, all as a single path for staging and committing (Step 7).
+The lane is `<sessionReportsRoot>/<campaign>/`, recursively: the session reports themselves, the Session Prep briefs `prep` saves alongside them in the same folder, the campaign's own index, the `content/` subdirectory holding recaps, handouts, and setpieces, the `prompts/` subdirectory holding what `forge-prompt` saved, the `articles/` subdirectory holding new KB articles `chronicler` staged during a session-driven run, and the campaign's `pipeline-state.json`, which `debrief`, `prep`, `content`, and `chronicler` rewrite as their last act, all as a single path for staging and committing (Step 7).
 
 **A lane path that does not exist yet on disk is not an error.** It means nothing has been written there yet; report "nothing outstanding" (Step 5) and stop.
 
@@ -56,7 +56,7 @@ Run `git status -- ":(literal)<sessionReportsRoot>/<campaign>"` scoped to the ca
 
 ## Step 6: Run the surprise guard, including the unfinished-report guard
 
-Before staging, look over what Step 5 found inside the lane for anything that looks like it does not belong in version control: a large binary, a Foundry export, a file that looks credential-shaped, or a file inside the lane that does not match the schema. `.obsidian/` is exempt: it is expected inside the project and never trips the guard. So is the campaign's `articles/` subdirectory: the KB-typed articles `chronicler` stages there (`type: Person`, `Location`, `Organization` and the rest) look like a schema mismatch for this lane and are not one. They are expected there until the DM promotes them.
+Before staging, look over what Step 5 found inside the lane for anything that looks like it does not belong in version control: a large binary, a Foundry export, a file that looks credential-shaped, or a file inside the lane that does not match the schema. `.obsidian/` is exempt: it is expected inside the project and never trips the guard. So is the campaign's `articles/` subdirectory: the KB-typed articles `chronicler` stages there (`type: Person`, `Location`, `Organization` and the rest) look like a schema mismatch for this lane and are not one. They are expected there until the DM promotes them. So is the campaign's `pipeline-state.json`: a JSON file in a lane of Markdown looks like a schema mismatch and is not one. It is the campaign's pipeline state, in the lane on purpose so it reaches main with the work it describes.
 
 **The unfinished-report guard matters most in this lane.** A session report is often written across more than one sitting, so "outstanding" and "ready" genuinely diverge here in a way the other two lanes rarely see. Check every session report file inside the lane that Step 5 found outstanding: if it is missing required frontmatter fields, or carries an empty section where the project's report structure expects content, treat it as unfinished. Set it aside by name rather than folding it into the general guard's stop-and-ask: an unfinished report is expected, ordinary, and not an error to interrupt over. Commit the rest of the lane normally (Step 7) and name the set-aside report in the final report (Step 8) so the DM knows it is still pending.
 
@@ -110,7 +110,7 @@ Tell the DM in one short block:
 - **Never invent a changelog entry.** In `changelog` mode there is nothing for this command to do; say so.
 - **Never create an empty commit.** If nothing is outstanding in the lane, say so and stop.
 - **Never unstage the DM's own staged work**, even a foreign path found at Step 4. Report it and stop; do not touch it.
-- **Never write `.professor-orb/pipeline-state.json`.** This command is outside the session pipeline.
+- **Never write pipeline state.** This command is outside the session pipeline.
 - **Never push without being asked, or to an unconfirmed remote.**
 - **Never force, reset, or resolve a repository-state problem (a merge in progress, a detached HEAD) on the DM's behalf.** Report it and stop.
 
@@ -129,7 +129,7 @@ Tell the DM in one short block:
 
 ## How this command connects to the others
 
-- **Standalone**: runs on demand, independent of the session pipeline's state, and never writes `.professor-orb/pipeline-state.json`, even though its own content comes from pipeline skills.
+- **Standalone**: runs on demand, independent of the session pipeline's state, and never writes pipeline state, even though its own content comes from pipeline skills.
 - **Fed by:** the `debrief` skill, which writes the session report and campaign index, the `prep` skill, which saves its Session Prep brief alongside the report in the same campaign folder, the `content` skill, which writes recaps, handouts, and setpieces into the campaign's `content/` subdirectory, the `forge-prompt` skill, which writes into the campaign's `prompts/` subdirectory, and the `chronicler` skill, which stages new KB articles into the campaign's `articles/` subdirectory on a session-driven run and marks resolved lore items in the report and brief.
 - **Reads:** `.professor-orb/versioning.json` (performing the one-time conversion from `.professor-orb/catalog-versioning.json` if needed) and `.professor-orb/conventions.json`'s `settings` array for the resolved setting's `sessionReportsRoot`.
 - **Writes:** one commit per resolved campaign with outstanding session-reports-lane changes. Writes `.professor-orb/versioning.json` only when Step 1's conversion is pending. Never writes session-reports content itself.

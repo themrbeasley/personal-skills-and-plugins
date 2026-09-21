@@ -9,7 +9,7 @@ argument-hint: "[optionally paste finalized homebrew, or name what to catalog]"
 
 You are capturing one piece of homebrew the DM has already finished designing and confirmed, usually the homebrew skill's iterated output. This command turns that finalized design into a per-type catalog entry: it stamps the entry's lifecycle status, records a version, writes one markdown catalog entry, and updates the owning Homebrew index, then stops. It is precise and repeatable by design, capture is a command, not a reminder.
 
-This command is **standalone**, like `homebrew` and `timeline`. It is not part of the debrief, prep, content, chronicler, kb-validator session pipeline and never writes `.professor-orb/pipeline-state.json`.
+This command is **standalone**, like `homebrew` and `timeline`. It is not part of the debrief, prep, content, chronicler, kb-validator session pipeline and never writes pipeline state.
 
 ## What this command is not
 
@@ -150,13 +150,13 @@ Keep it short: a handful of facts, not a restatement of the entry's contents.
 - Never write a raw `.html` file. Content only ever lives inside the assembled markdown entry.
 - Never add a wikilink inside the entry, or edit another article to add a wikilink to it. Catalog entries sit outside the wikilink graph.
 - Never invent a new sub-index split without proposing it to the DM first via AskUserQuestion.
-- Never write `.professor-orb/pipeline-state.json`. This command is outside the session pipeline.
+- Never write pipeline state. This command is outside the session pipeline.
 - Never force git, or attempt remote creation, authentication, or pushing. The git and GitHub offer itself lives in `setup`, run once at the project root; `/catalog`'s Step 3 inline fallback is the one exception, reached only when neither `versioning.json` nor the legacy marker exists, and it offers only the no-git changelog baseline, never git or GitHub, and never initializes a repository of its own. Like setup's own offer, it is DM-approval-gated, made once when the catalog's versioning is first established, and never repeated once a choice is on record.
 - Never present a homebrew-only (**[H]**) field as SRD canon. **[H]** fields have no SRD basis and should read as house rules, not published rules.
 
 ## How this command connects to the others
 
-- **Standalone**, like `homebrew` and `timeline`: runs on demand, independent of the session pipeline's state, and never writes `.professor-orb/pipeline-state.json`.
+- **Standalone**, like `homebrew` and `timeline`: runs on demand, independent of the session pipeline's state, and never writes pipeline state.
 - **Fed by:** the `homebrew` skill (`professor-orb/skills/homebrew/SKILL.md`), which points the DM here once a design is finalized, and again later once that design is implemented in Foundry, but never runs this capture itself.
 - **Reads:** `.professor-orb/conventions.json` (CLAUDE.md fallback) for KB structure and frontmatter rules, and `references/catalog-type-templates.md` (relative to this command) for the type-specific field and body-block schema.
 - **Writes:** one markdown entry in the homebrew catalog folder (new, or updated in place on a revision), the owning Homebrew index, an attached Foundry export copied unchanged into its `foundryvtt/<bucket>/`, and, on the first capture that establishes versioning, the `.professor-orb/versioning.json` marker. Nothing else.

@@ -9,7 +9,7 @@ argument-hint: "[optional: what to migrate, in your own words]"
 
 You are restructuring the DM's knowledge base to a scope they state. Setup's initial migration applies professor-orb's own schema, which is known and derivable, so its plan is not news to anyone. This command's target is DM intent, which is not derivable, so the resolved plan is the only place a misreading becomes visible before it costs anything. That is why this one proposes and setup does not.
 
-This command is **standalone**. It is not part of the debrief, prep, content, chronicler, kb-validator session pipeline and never writes `.professor-orb/pipeline-state.json`.
+This command is **standalone**. It is not part of the debrief, prep, content, chronicler, kb-validator session pipeline and never writes pipeline state.
 
 ## What this command is not
 
@@ -207,7 +207,7 @@ structural change.
 - **Never delete a setting's entry from `conventions.json`.** Retiring marks it; deleting destroys the record of a world that existed.
 - **Never create a setting.** Lifecycle operations act on worlds that exist. `/genesis` creates them.
 - **Never auto-resume an interrupted run.** The per-item accounting makes a partial application diagnosable, and Step 5's snapshot hash together with Step 6's preparation-commit hash are the undo; resuming would apply operations against a tree that no longer matches the plan.
-- **Never write `.professor-orb/pipeline-state.json`.** This command is outside the session pipeline.
+- **Never write pipeline state.** This command is outside the session pipeline.
 - **Never push.** `/migrate` commits; pushing is the DM's call.
 
 ## Edge cases

@@ -1,6 +1,6 @@
 ---
 name: orb
-description: "Menu and orientation skill for professor-orb: shows every skill, agent, command, workflow, and hook the plugin ships, and helps the DM pick what to run next. Use when the user runs /orb, asks what tools are available, what this plugin can do, or what should I run next. Reads .professor-orb/pipeline-state.json (if present) to recommend the next session-pipeline step (debrief, then prep, then content and/or chronicler, then the kb-validator agent) and suggests running setup first when no professor-orb install is found yet. Standalone components (setup after first install, homebrew, timeline, forge-prompt, /catalog, /scribe, /log, /genesis, /migrate, /sweep) are always available on demand and never presented as a required next step. This skill only reads pipeline state; it never writes pipeline-state.json, conventions.json, or any KB file. It is the on-demand counterpart to the Stop hook's automatic next-step suggestion, not a replacement for it."
+description: "Menu and orientation skill for professor-orb: shows every skill, agent, command, workflow, and hook the plugin ships, and helps the DM pick what to run next. Use when the user runs /orb, asks what tools are available, what this plugin can do, or what should I run next. Reads each campaign's pipeline state (<sessionReportsRoot>/<campaign>/pipeline-state.json) to recommend the next session-pipeline step (debrief, then prep, then content and/or chronicler, then the kb-validator agent) and suggests running setup first when no professor-orb install is found yet. Standalone components (setup after first install, homebrew, timeline, forge-prompt, /catalog, /scribe, /log, /genesis, /migrate, /sweep) are always available on demand and never presented as a required next step. This skill only reads pipeline state; it never writes pipeline state, conventions.json, or any KB file. It is the on-demand counterpart to the Stop hook's automatic next-step suggestion, not a replacement for it."
 ---
 
 > **Before you begin:** read `../SHARED-PRINCIPLES.md` and apply its rules throughout this workflow.
@@ -11,7 +11,7 @@ You are showing a D&D DM what professor-orb can do and helping them decide what 
 
 ## First: what professor-orb needs from the project
 
-This skill does not need `.professor-orb/conventions.json`. Conventions govern KB frontmatter, folder structure, and writing style, none of which the menu itself touches. The one file this skill reads is `.professor-orb/pipeline-state.json`, for the "what to run next" section below. If that file or the whole `.professor-orb/` directory is missing, that is itself useful information (it means `setup` has not run yet), not an error to recover from.
+This skill does not need the rules in `.professor-orb/conventions.json`. Conventions govern KB frontmatter, folder structure, and writing style, none of which the menu itself touches. It reads two things, both for the "what to run next" section below: the `settings` array in `.professor-orb/conventions.json`, for each setting's `sessionReportsRoot`, and the `pipeline-state.json` in each campaign's folder under those roots. If the whole `.professor-orb/` directory is missing, that is itself useful information (it means `setup` has not run yet), not an error to recover from.
 
 ## What professor-orb is
 
@@ -25,7 +25,7 @@ Professor Orb is a post-session workflow plugin for D&D DMs. Every skill drafts 
 
 | Component | Type | Purpose | Invoke |
 |---|---|---|---|
-| setup | Skill | One-time onboarding (plus on-demand resync) that produces `.professor-orb/` (conventions, pipeline state, tag registry, proposals) and copies `migrate.mjs` and the validation-sweep workflow into the project | Installing professor-orb into a project, or when `.professor-orb/` is missing or looks stale |
+| setup | Skill | One-time onboarding (plus on-demand resync) that produces `.professor-orb/` (conventions, tag registry, proposals) and copies `migrate.mjs` and the validation-sweep workflow into the project | Installing professor-orb into a project, or when `.professor-orb/` is missing or looks stale |
 | debrief | Skill | Turn a just-played session into a structured session report, then hand off to the `lore` agent for KB cross-referencing | "debrief me," "write up last night's session," "session report" |
 | prep | Skill | Build a session brief with the DM: work review, recap, north stars, handout list, outstanding lore items | "plan next session," "session prep," "what do I need to prep" |
 | content | Skill | Generate player-facing recaps, handouts, setpieces, and timeline visualizations from a session report | "write the recap," "draft the letter from X," "boxed text," "player-facing timeline" |
@@ -50,17 +50,17 @@ Professor Orb is a post-session workflow plugin for D&D DMs. Every skill drafts 
 
 ## What to run next
 
-Read `.professor-orb/pipeline-state.json` if it exists, and check its `lastStep`, `sessionDate`, and `updatedAt` fields.
+Pipeline state is kept per campaign, at `<sessionReportsRoot>/<campaign>/pipeline-state.json`. Read the `settings` array in `.professor-orb/conventions.json`; for each setting, list the folders directly under its `sessionReportsRoot` and read the `pipeline-state.json` in each one that has it. If the DM named a campaign, read only that campaign's. Each file carries `lastStep`, `sessionDate`, and `updatedAt`, and the bullets below apply to each campaign on its own.
 
-- **`.professor-orb/` missing, or `pipeline-state.json` missing.** Nothing has been set up yet. Suggest running `setup` first; little else works reliably without it.
-- **`pipeline-state.json` exists but has no `lastStep`** (the empty `{}` that `setup` writes on first install). Setup has run but the pipeline has not started. Suggest `debrief` as the first step.
+- **`.professor-orb/` missing.** Nothing has been set up yet. Suggest running `setup` first; little else works reliably without it.
+- **`.professor-orb/` exists but no campaign has a `pipeline-state.json`.** Setup has run but the pipeline has not started. Suggest `debrief` as the first step.
 - **`lastStep` is `"debrief"`.** Suggest `prep` next, or `chronicler` if the DM wants the KB updated before planning the next session.
 - **`lastStep` is `"prep"`.** Suggest `content` (recaps and handouts) and/or `chronicler` (KB updates); either or both can run from here.
 - **`lastStep` is `"content"`.** Suggest `chronicler` if the KB has not been updated for this session yet, or `timeline` if the DM wants chronology work.
 - **`lastStep` is `"chronicler"`.** Suggest running the `kb-validator` agent to audit what changed, and `timeline` if chronology needs updating. Mention that `/scribe` can commit the KB changes, and `/log` can commit the campaign's staged articles.
 - **Any other or unrecognized `lastStep`.** Say what state you found and ask the DM directly rather than guessing.
 
-Mention `sessionDate` when you report the suggestion, so the DM knows which session's progress this reflects. Standalone components (`homebrew`, `timeline`, `forge-prompt`, `/catalog`, `/scribe`, `/log`, `/migrate`, `/sweep`) never count as a required next step; note that they remain available at any time regardless of pipeline state.
+Report each campaign's suggestion under the campaign's name, with its `sessionDate`, so the DM knows which campaign and which session each one reflects. When more than one campaign has state, lead with the most recently updated. Standalone components (`homebrew`, `timeline`, `forge-prompt`, `/catalog`, `/scribe`, `/log`, `/migrate`, `/sweep`) never count as a required next step; note that they remain available at any time regardless of pipeline state.
 
 This is the on-demand version of the Stop hook's automatic suggestion. The Stop hook already prints a next-step line after a pipeline skill finishes; orb exists for when the DM asks directly, mid-conversation, or wants the fuller menu alongside the same answer. Neither replaces the other.
 
@@ -70,7 +70,7 @@ When more than one next action is genuinely viable (for example, both `content` 
 
 ## Things to never do
 
-- **Never write `.professor-orb/pipeline-state.json`.** Orb reads it; only `debrief`, `prep`, `content`, and `chronicler` write it.
+- **Never write pipeline state.** Orb reads it; only `debrief`, `prep`, `content`, and `chronicler` write it.
 - **Never write `conventions.json`, KB articles, or any other file.** This skill is display-only.
 - **Never claim to be the only source of next-step guidance.** The Stop hook already does this automatically; orb is the on-demand complement.
 - **Never guess at `lastStep` values not covered above.** If the state file looks unfamiliar or malformed, say so and ask.

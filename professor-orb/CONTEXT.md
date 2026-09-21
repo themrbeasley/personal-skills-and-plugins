@@ -246,7 +246,8 @@ The `/log` capture step for the session-reports lane: the reports `debrief` writ
 the Session Prep briefs `prep` saves beside them, the recaps and handouts `content`
 writes into the campaign's `content/` subdirectory, the prompts `forge-prompt`
 saves into the campaign's `prompts/` subdirectory, and the articles `chronicler`
-stages into the campaign's `articles/` staging area on a session-driven run.
+stages into the campaign's `articles/` staging area on a session-driven run, plus
+the campaign's pipeline state, which the pipeline skills rewrite as their last act.
 Authors none of it.
 One resolved campaign per invocation, asking rather than guessing when more than one
 has outstanding work. A report missing required frontmatter or carrying an empty
@@ -322,14 +323,18 @@ generalizes cleanly.
 _Avoid_: hardcoding Rolara's index rules, silent index rewrites
 
 **pipeline state**:
-A small breadcrumb file in `.professor-orb/` recording where the session pipeline
-stands (e.g., "debrief done for 2026-07-08, chronicler pending"). Each pipeline
-skill's final act is updating it. Read by two consumers: the Stop hook (a
-deterministic `command` script that prints the next-step suggestion after a
-pipeline skill finishes and stays silent otherwise) and any fresh session
-answering "where were we?". No model judgment anywhere in the path: the hook
-either fires correctly or says nothing.
-_Avoid_: "the nag", prompt-type Stop hooks in any form
+A small breadcrumb file per campaign, `<sessionReportsRoot>/<campaign>/pipeline-state.json`,
+recording the last pipeline step that completed for that campaign, the date of the
+session report it worked from, and when. Each pipeline skill's final act is
+rewriting its own campaign's file, and no skill reads another run's state. The file
+sits in the campaign's lane, so `/log` carries it to main with the work it describes,
+and two campaigns never write the same file. Read by two consumers: the Stop hook (a
+deterministic `command` script that prints one next-step line per campaign updated in
+the last two hours and stays silent otherwise) and any fresh session answering "where
+were we?". No model judgment anywhere in the path: the hook either fires correctly or
+says nothing. Before 1.20.0 it was one shared file in `.professor-orb/`, which setup's
+resync deletes.
+_Avoid_: "the nag", prompt-type Stop hooks in any form, one state file for every campaign
 
 **validation sweep**:
 The KB-wide audit workflow: shards the KB across parallel haiku subagents, each

@@ -9,7 +9,7 @@ description: "Interactive workflow for building and maintaining campaign chronol
 
 You are the DM's chronology editor. Your job is to take campaign source material (session reports, KB articles, calendar definitions) and produce or maintain chronology documents in the knowledge base, and to walk the DM through resolving any temporal inconsistencies that surface along the way. The `historian` agent does the temporal analysis; this skill runs the propose-then-execute workflow around it, the same relationship `chronicler` has with `lore`.
 
-This skill is **standalone**, like `homebrew`. It is not part of the debrief, prep, content, chronicler, kb-validator session pipeline and does not write `.professor-orb/pipeline-state.json`. Invoke it whenever a temporal question arises or a chronology document needs updating.
+This skill is **standalone**, like `homebrew`. It is not part of the debrief, prep, content, chronicler, kb-validator session pipeline and does not write pipeline state. Invoke it whenever a temporal question arises or a chronology document needs updating.
 
 ## First: learn the user's system
 
@@ -176,7 +176,7 @@ Once approved:
 
 Report back with a link to the document and a one-sentence summary. If any Phase 3 items are still pending (a chronicler pass not yet run, a "deeper research" thread left open), mention them again here so nothing falls through.
 
-Because this skill sits outside the session pipeline, it does not write `.professor-orb/pipeline-state.json`. That file belongs to `debrief`, `prep`, `content`, and `chronicler`.
+Because this skill sits outside the session pipeline, it does not write pipeline state. That belongs to `debrief`, `prep`, `content`, and `chronicler`.
 
 ## Things to never do
 
@@ -187,7 +187,7 @@ Because this skill sits outside the session pipeline, it does not write `.profes
 - **Never write a KB article other than the chronology document itself.** Declarations and corrections to other articles are drafted here and handed to `chronicler`, which writes them.
 - **Never assume a calendar system.** Discover from KB articles.
 - **Never write files without approval.** Propose-then-execute. (SHARED-PRINCIPLES.md Principle 2.)
-- **Never write `.professor-orb/pipeline-state.json`.** This skill is outside the session pipeline.
+- **Never write pipeline state.** This skill is outside the session pipeline.
 - **Never produce player-facing content.** This skill produces DM reference documents. If the DM wants a player-facing timeline visualization, point them to the `content` skill.
 - **Never duplicate KB articles' purpose.** A chronology is a temporal index, not a replacement for entity articles. Cross-reference; do not restate.
 
@@ -197,7 +197,7 @@ Because this skill sits outside the session pipeline, it does not write `.profes
 - **Hands off to `chronicler`:** Corrections confirmed as genuine errors and declarations from time-travel triage are drafted here and written by `chronicler`. Timeline writes only the chronology document and its indexes itself.
 - **Handoff to `/scribe`:** `/scribe` can commit the chronology document.
 - **Inputs:** Session reports (event sources), KB articles (entity histories, established dates, existing declarations), calendar articles (date systems).
-- **Outputs:** Chronology documents in the KB, plus index updates per project conventions. No `pipeline-state.json` writes.
+- **Outputs:** Chronology documents in the KB, plus index updates per project conventions. No pipeline state writes.
 - **Orthogonal to `chronicler`:** Chronicler updates entity, location, and faction articles (and, via this skill's hand-offs, phenomenon declarations). Timeline builds chronological reference documents and runs the triage conversation. They can run in sequence: chronicler canonizes events, timeline records their temporal position, and either can trigger the other through a triage hand-off.
 - **Orthogonal to `content`:** Timeline produces DM-reference chronology documents. Content produces player-facing timeline visualizations. Both can spawn the `historian`, but for different purposes.
 - **Useful after `debrief`:** Once a session report exists, the timeline skill can incorporate its events into the campaign chronology.
