@@ -367,6 +367,8 @@ Chronicler's lore-update proposal, written to a temporary file in
 the file itself with its absolute path). The DM reviews the file, may edit it directly,
 and approves; chronicler then executes exactly what the approved file says rather than
 re-deriving intent from the discussion. What you approved is what lands on disk.
+A lore item the DM declines for good goes in the file's section 7 and is deleted
+from the report and the brief at execution, so `prep` never carries it forward.
 _Avoid_: proposal dumps in chat, chronicler improvising beyond the approved text
 
 **temporal triage**:

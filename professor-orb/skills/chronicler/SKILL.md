@@ -109,6 +109,7 @@ Organize proposed changes into buckets. Adapt the buckets to this project's conv
 5. **Artifact cleanup (opportunistic).** For any article you are editing, scan for import artifacts documented in the conventions and add cleanup items to the proposal. Clean artifacts only when an article is being edited for another reason.
 6. **Temporal flags carried forward.** If the lore agent's proposal included temporal inconsistency flags, list them under "Deferred / Flagged" below rather than resolving them yourself. Resolving a temporal question is the DM's call, optionally with the `historian` agent.
 7. **Lore items to mark resolved.** For each item from the report's Lore Candidates section or the brief's Lore Resolution section that this pass resolves, whether by creating an article, editing one, or updating an index: name the item, its carrier or carriers (report, brief, or both), and how it was resolved. This is what Step 2b's write-back executes from; an item not listed here does not get marked.
+8. **Lore items to remove.** Items the DM has declined for good, each with its carrier or carriers and the DM's reason in their own words. Empty when you first draft: an item reaches this bucket only through Step 1d, or when the DM moves it here by hand. Step 2b's write-back deletes each one from its carriers, which is what keeps a declined item from coming back: `prep` builds its Lore Resolution section from the unticked items it finds, and a deleted item is not there to find.
 
 #### Step 1c: Write the proposal file
 
@@ -145,6 +146,10 @@ Write the complete structured proposal to `.professor-orb/proposals/YYYY-MM-DD-p
 | Item | Carrier(s) | How it was resolved |
 |------|-----------|---------------------|
 
+## 7. Lore Items to Remove (count)
+| Item | Carrier(s) | DM's reason |
+|------|-----------|-------------|
+
 ## Deferred / Flagged
 - [candidate]: [reason for deferring, or a temporal question carried forward from the lore agent]
 ```
@@ -153,13 +158,27 @@ Write the complete structured proposal to `.professor-orb/proposals/YYYY-MM-DD-p
 
 **Chat gets a summary, not the dump.** In the conversation, give the DM a short summary (the totals from the header, and any items flagged for their attention), and deliver the file itself per SHARED-PRINCIPLES Principle 2. Do not paste the full table structure into chat.
 
-**The DM may edit the file directly.** Tell the DM they can revise the file by hand at the absolute path you gave (reword a summary, cut a row, change a target folder) instead of dictating changes back through chat. Either path is fine. What matters is that the file on disk, not the conversation, is what Phase 2 executes.
+**The DM may edit the file directly.** Tell the DM they can revise the file by hand at the absolute path you gave (reword a summary, cut a row, change a target folder) instead of dictating changes back through chat. Either path is fine. What matters is that the file on disk, not the conversation, is what Phase 2 executes. Tell them, too, that cutting a lore item has two forms: deleting its rows takes it out of this pass and leaves it open for a later one, and moving its section 6 row into section 7 (with a reason) takes it off the list for good.
 
-**Ask for approval as a structured decision.** Use AskUserQuestion, with the summary stated in the question itself (Principle 15), to offer the DM a choice: approve as written, approve with edits they will make directly in the file, walk through items together, or reject. Free-form back-and-forth about specific items (why a folder was chosen, whether a summary reads right) is open-ended creative discussion and stays plain conversation; only the go/no-go decision itself needs AskUserQuestion.
+**Ask for approval as a structured decision.** Use AskUserQuestion, with the summary stated in the question itself (Principle 15), to offer the DM a choice: approve as written, approve with edits they will make directly in the file, walk through items together, or reject. Free-form back-and-forth about specific items (why a folder was chosen, whether a summary reads right) is open-ended creative discussion and stays plain conversation; only the go/no-go decision itself needs AskUserQuestion. A rejection goes to Step 1e.
 
 #### Step 1d: Incorporate feedback
 
 If the DM asks for changes through chat rather than editing the file directly, revise the proposal file and update its "Status" line, then re-summarize only the changed sections in chat and deliver the revised file (Principle 2). Do not proceed to Phase 2 until the DM has given a clear approval signal for the current state of the file.
+
+**When the DM cuts a lore item in chat**, during review or a walk-through, ask with AskUserQuestion whether it is off the list for good or only out of this pass, naming the item in the question itself (Principle 15).
+
+- **Off the list for good.** Delete its rows from sections 1 through 6 and add a section 7 row: the item, its carrier or carriers, and the DM's reason in their own words. If they gave no reason, ask for one in chat; "none given" is an acceptable answer.
+- **Out of this pass only.** Delete its rows and add nothing. The Lore Candidate stays unticked, and `prep` carries it forward as it carries any open item.
+
+#### Step 1e: If the DM rejects the proposal
+
+A rejection ends the run without Phase 2. Before it ends:
+
+1. Set the proposal file's Status line to `Rejected YYYY-MM-DD: <the DM's reason in their words>`, with today's date, or `Rejected YYYY-MM-DD` if they gave no reason.
+2. Ask once, with AskUserQuestion, what happens to the lore items the proposal covered, stating in the question how many there are and naming them if there are few (Principle 15). Offer: take them all off the list for good, keep them all for a later pass, or decide item by item in chat.
+3. Delete each item coming off the list from every carrier, exactly as Step 2b deletes a section 7 row. Leave the items kept for later as they are.
+4. Report back which items came off and from which carriers, naming any carrier that was missing. Write no articles, indexes, or log entries, and skip the final pipeline-state step: no pipeline step completed.
 
 ### Phase 2: Execute
 
@@ -179,7 +198,7 @@ Update the file's "Status" line to "Executing" before you begin, so a re-read mi
 4. **Update indexes** after the articles they reference are settled.
 5. **Create new indexes** last (and clean up ownership in parent indexes).
 6. **Apply artifact cleanup** as you edit each article, not as a separate pass.
-7. **Mark resolved lore items last**, once every article they refer to exists. For each row of the proposal's "Lore Items to Mark Resolved" table, tick the item's checkbox and append a one-line note of how it was resolved, in every carrier that holds it: the session report's Lore Candidates section and the prep brief's Lore Resolution section, both, wherever each exists. Use this shape:
+7. **Mark resolved lore items and remove declined ones last**, once every article they refer to exists. For each row of the proposal's "Lore Items to Mark Resolved" table, tick the item's checkbox and append a one-line note of how it was resolved, in every carrier that holds it: the session report's Lore Candidates section and the prep brief's Lore Resolution section, both, wherever each exists. Use this shape:
 
    ```
    - [x] Sunken Temple has no article. North Star 2 puts the party at its entrance.
@@ -187,6 +206,8 @@ Update the file's "Status" line to "Executing" before you begin, so a re-read mi
    ```
 
    If a carrier does not exist (no prep brief was written, or the report has been archived), mark the ones that do and say plainly in the report-back which carrier was missing. A missing carrier is never a reason to fail the run. Mark an item resolved even where you satisfied it incidentally rather than by working from the list: the point of the record is that nobody is later unsure whether the work was done.
+
+   For each row of section 7, "Lore Items to Remove", delete the item's line, and any resolution-note line indented beneath it, from every carrier that holds it: the session report's Lore Candidates section and the prep brief's Lore Resolution section. A missing carrier is named in the report-back, exactly as for resolved items, and never fails the run.
 
 #### Step 2c: Enforce the project's conventions
 
@@ -220,6 +241,7 @@ Return a concise diff summary:
 **New indexes:** [list or "None"]
 **Artifacts cleaned:** N items across M articles
 **Lore items marked resolved (N):** [list, naming any carrier that was missing]
+**Lore items removed (N):** [list, naming any carrier that was missing]
 **Deferred for DM decision:** [list or "None"]
 ```
 
@@ -264,7 +286,7 @@ After everything else in a **session-driven run** has succeeded, the very last t
 - **Never skip reading the conventions fresh.** Read `.professor-orb/conventions.json` (or the base schema) every run.
 - **Never do a "while I'm in there" rewrite outside of documented artifact cleanup.** Fix documented artifacts. Do not rewrite paragraphs, retitle sections, or reformat tables beyond what the proposal specifies (Principle 8).
 - **Never leave dead cross-references in lore articles.**
-- **Never edit narrative content in session reports or prep files.** Those are historical records belonging to `debrief` and `prep`. You may update **work-tracking state** in them, and only that: ticking a lore item's checkbox in the report's Lore Candidates section or the brief's Lore Resolution section and appending the one-line resolution note. A checkbox in a work list is not history. The recap is. Do not touch a narrative recap, an open thread, a North Star, a Work Review entry, or anything else in either file.
+- **Never edit narrative content in session reports or prep files.** Those are historical records belonging to `debrief` and `prep`. You may update **work-tracking state** in them, and only that: ticking a lore item's checkbox in the report's Lore Candidates section or the brief's Lore Resolution section and appending the one-line resolution note, or deleting an item the DM declined for good (a section 7 row, or an item taken off the list at Step 1e). A checkbox in a work list is not history. The recap is. Do not touch a narrative recap, an open thread, a North Star, a Work Review entry, or anything else in either file.
 - **Never resolve a temporal inconsistency yourself.** Carry it forward as a flag; the DM resolves it, optionally with the `historian` agent.
 - **Never ignore the DM's direct statements or direct file edits.** If the DM corrects something during approval, or edits the proposal file, that is canon (Principle 1).
 - **Never ask a structured go/no-go decision outside AskUserQuestion.** Plain-text approval requests in chat are not a substitute for the Step 1c approval choice.
@@ -273,7 +295,7 @@ After everything else in a **session-driven run** has succeeded, the very last t
 
 - **Position in the session pipeline:** debrief, then prep, then content and/or chronicler, then the `kb-validator` agent.
 - **Inputs:** On a session-driven run, the report from `debrief` (required for that mode) and the prep file from `prep` when one exists (its Lore Resolution section names which lore items are priorities). On a standalone run, the DM's named subject and the KB itself; no report is required or sought. Either way, the `lore` agent's in-conversation proposal is an optional supplement when the same conversation produced one.
-- **Outputs:** The proposal file in `.professor-orb/proposals/`; new articles (in the campaign's `articles/` folder on a session-driven run, in `kbRoot` on a standalone run); edited articles and index updates where those articles live; log entries; and work-tracking state updates marking lore items resolved in the source report and prep brief. Never narrative changes to a report or a brief.
+- **Outputs:** The proposal file in `.professor-orb/proposals/`; new articles (in the campaign's `articles/` folder on a session-driven run, in `kbRoot` on a standalone run); edited articles and index updates where those articles live; log entries; and work-tracking state updates in the source report and prep brief: marking lore items resolved, and removing the ones the DM declined for good. Never narrative changes to a report or a brief.
 - **Downstream of `debrief`:** This is the designated follow-up for the report's Lore Candidates section, which `debrief` writes and which survives the conversation that produced it.
 - **Downstream of `prep`:** The brief's Lore Resolution section names which lore items are priorities for this pass, and its `Needed for next session` tier is what to clear first.
 - **Handoff to `kb-validator`:** After execution, the `kb-validator` agent can audit the touched articles' frontmatter, cross-references, and index ownership as a post-write QA pass.
