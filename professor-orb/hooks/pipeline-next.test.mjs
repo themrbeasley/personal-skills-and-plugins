@@ -3,9 +3,10 @@
 //
 // Drives the real hook as a child process against a disposable fixture
 // project, exactly the way Claude Code invokes it: no stdin payload, the
-// hook reads .professor-orb/pipeline-state.json (and, for the lane clause,
-// .professor-orb/versioning.json) from its own process.cwd(). Node built-ins
-// only, no test framework.
+// hook reads .professor-orb/conventions.json for each setting's
+// sessionReportsRoot, then <sessionReportsRoot>/<campaign>/pipeline-state.json
+// for every campaign (and, for the lane clause, .professor-orb/versioning.json)
+// from its own process.cwd(). Node built-ins only, no test framework.
 //
 // The property under test matters more than usual for this hook: it must
 // never SPEAK WRONGLY. A Stop hook that appends a lane clause when it should
@@ -59,27 +60,43 @@ function hashOf(s) {
   return h;
 }
 
+const DEFAULT_CONVENTIONS = {
+  schemaVersion: 1,
+  settings: [{ name: "rolara", kbRoot: "settings/rolara", sessionReportsRoot: "session-reports/rolara" }],
+};
+
 // Builds a disposable project directory, writes whichever fixture files are
 // given, then fires the hook with that directory as its cwd (matching how
 // the hook resolves process.cwd() for real). Returns stdout, exactly as the
 // hook would print it into the Stop hook's transcript.
-function runHook(caseName, { pipelineState, versioning, legacyVersioning } = {}) {
+//
+// states: { "<setting folder>/<campaign>": state object or raw string },
+// written under session-reports/. pipelineState is shorthand for one campaign,
+// "rolara/Camp", which is what every lane-clause case uses. conventions: an
+// object, a raw string, or null for no file at all. legacyState: written to the
+// pre-1.20.0 shared location, .professor-orb/pipeline-state.json.
+function runHook(
+  caseName,
+  { pipelineState, states, conventions = DEFAULT_CONVENTIONS, legacyState, versioning, legacyVersioning } = {}
+) {
   const dir = path.join(os.tmpdir(), `orb-pipeline-next-${process.pid}-${Math.abs(hashOf(caseName))}`);
   rmSync(dir, { recursive: true, force: true });
   mkdirSync(path.join(dir, ".professor-orb"), { recursive: true });
 
-  if (pipelineState !== undefined) {
-    const content = typeof pipelineState === "string" ? pipelineState : JSON.stringify(pipelineState);
-    writeFileSync(path.join(dir, ".professor-orb", "pipeline-state.json"), content, "utf8");
+  const write = (filePath, value) => {
+    mkdirSync(path.dirname(filePath), { recursive: true });
+    writeFileSync(filePath, typeof value === "string" ? value : JSON.stringify(value), "utf8");
+  };
+
+  if (conventions !== null) write(path.join(dir, ".professor-orb", "conventions.json"), conventions);
+  const all = { ...(states || {}) };
+  if (pipelineState !== undefined) all["rolara/Camp"] = pipelineState;
+  for (const [where, state] of Object.entries(all)) {
+    write(path.join(dir, "session-reports", ...where.split("/"), "pipeline-state.json"), state);
   }
-  if (versioning !== undefined) {
-    const content = typeof versioning === "string" ? versioning : JSON.stringify(versioning);
-    writeFileSync(path.join(dir, ".professor-orb", "versioning.json"), content, "utf8");
-  }
-  if (legacyVersioning !== undefined) {
-    const content = typeof legacyVersioning === "string" ? legacyVersioning : JSON.stringify(legacyVersioning);
-    writeFileSync(path.join(dir, ".professor-orb", "catalog-versioning.json"), content, "utf8");
-  }
+  if (legacyState !== undefined) write(path.join(dir, ".professor-orb", "pipeline-state.json"), legacyState);
+  if (versioning !== undefined) write(path.join(dir, ".professor-orb", "versioning.json"), versioning);
+  if (legacyVersioning !== undefined) write(path.join(dir, ".professor-orb", "catalog-versioning.json"), legacyVersioning);
 
   try {
     const out = execFileSync("node", [HOOK], { cwd: dir, encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] });
@@ -93,6 +110,10 @@ function runHook(caseName, { pipelineState, versioning, legacyVersioning } = {})
 
 function freshState(lastStep) {
   return { lastStep, sessionDate: "2026-07-28", updatedAt: new Date().toISOString() };
+}
+
+function staleState(lastStep) {
+  return { lastStep, sessionDate: "2026-07-28", updatedAt: new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString() };
 }
 
 function report() {
@@ -122,7 +143,7 @@ console.log("=== speaking cases: lane clause appended ===");
   check(
     "chronicler + git mode: clause wording is exact",
     r.out,
-    "Next: the kb-validator agent can audit the changes, and /timeline can record events in the campaign chronology. /scribe can commit the KB changes, and /log the campaign's staged articles.\n"
+    "Camp: Next: the kb-validator agent can audit the changes, and /timeline can record events in the campaign chronology. /scribe can commit the KB changes, and /log the campaign's staged articles.\n"
   );
 }
 
@@ -140,7 +161,7 @@ console.log("=== speaking cases: lane clause appended ===");
     versioning: { mode: "git", decided: "2026-01-01" },
   });
   checkContains("debrief + git mode: /log clause appended", r.out, "/log", true);
-  check("debrief + git mode: clause wording is exact", r.out, "Next: /prep can build a session brief, or /chronicler can update the KB from the session report. /log can commit the session report.\n");
+  check("debrief + git mode: clause wording is exact", r.out, "Camp: Next: /prep can build a session brief, or /chronicler can update the KB from the session report. /log can commit the session report.\n");
 }
 
 {
@@ -149,7 +170,7 @@ console.log("=== speaking cases: lane clause appended ===");
     versioning: { mode: "git", decided: "2026-01-01" },
   });
   checkContains("content + git mode: /log clause appended", r.out, "/log", true);
-  check("content + git mode: clause wording is exact", r.out, "Next: /chronicler can update the KB if not done yet, or /timeline for chronology. /log can commit the recap and handouts.\n");
+  check("content + git mode: clause wording is exact", r.out, "Camp: Next: /chronicler can update the KB if not done yet, or /timeline for chronology. /log can commit the recap and handouts.\n");
 }
 
 {
@@ -225,12 +246,12 @@ console.log("\n=== silence cases: the hook must not speak wrongly ===");
 }
 
 {
-  // Missing pipeline-state.json entirely: the whole hook stays silent, lane
+  // No campaign has a pipeline-state.json: the whole hook stays silent, lane
   // clause or not.
   const r = runHook("no-pipeline-state", {
     versioning: { mode: "git", decided: "2026-01-01" },
   });
-  check("no pipeline-state.json: completely silent", r.out, "");
+  check("no campaign state: completely silent", r.out, "");
 }
 
 {
@@ -240,7 +261,7 @@ console.log("\n=== silence cases: the hook must not speak wrongly ===");
     pipelineState: freshState("prep"),
     versioning: { mode: "git", decided: "2026-01-01" },
   });
-  check("prep + git mode: output is byte-identical to today's baseline", r.out, PREP_BASELINE);
+  check("prep + git mode: output is the baseline under the campaign's prefix", r.out, "Camp: " + PREP_BASELINE);
   checkContains("prep + git mode: no lane clause of any kind", r.out, "/log", false);
 }
 
@@ -249,7 +270,7 @@ console.log("\n=== silence cases: the hook must not speak wrongly ===");
   const r = runHook("prep-no-marker", {
     pipelineState: freshState("prep"),
   });
-  check("prep + no versioning.json: output is byte-identical to today's baseline", r.out, PREP_BASELINE);
+  check("prep + no versioning.json: output is the baseline under the campaign's prefix", r.out, "Camp: " + PREP_BASELINE);
 }
 
 {
@@ -272,6 +293,76 @@ console.log("\n=== silence cases: the hook must not speak wrongly ===");
     versioning: { mode: "git", decided: "2026-01-01" },
   });
   check("unrecognized lastStep: silent", r.out, "");
+}
+
+console.log("\n=== per-campaign state: one line per fresh campaign, none for the rest ===");
+
+{
+  const r = runHook("two-campaigns", {
+    states: { "rolara/Alpha": freshState("debrief"), "rolara/Bravo": freshState("prep") },
+  });
+  check(
+    "two fresh campaigns: one line each, in folder order",
+    r.out,
+    "Alpha: Next: /prep can build a session brief, or /chronicler can update the KB from the session report.\n" +
+      "Bravo: " + PREP_BASELINE
+  );
+}
+
+{
+  const r = runHook("two-settings", {
+    conventions: {
+      schemaVersion: 1,
+      settings: [
+        { name: "rolara", sessionReportsRoot: "session-reports/rolara" },
+        { name: "supers", sessionReportsRoot: "session-reports/supers" },
+      ],
+    },
+    states: { "rolara/Big-Guys-Gang": freshState("prep"), "supers/Adjustice": freshState("prep") },
+  });
+  check("every setting's campaigns are read, settings in order", r.out, "Big-Guys-Gang: " + PREP_BASELINE + "Adjustice: " + PREP_BASELINE);
+}
+
+{
+  const r = runHook("fresh-and-stale", {
+    states: { "rolara/Alpha": staleState("debrief"), "rolara/Bravo": freshState("prep") },
+  });
+  check("a stale campaign is silent and does not silence a fresh one", r.out, "Bravo: " + PREP_BASELINE);
+}
+
+{
+  const r = runHook("fresh-and-malformed", {
+    states: { "rolara/Alpha": "{ not json", "rolara/Bravo": freshState("prep") },
+  });
+  check("a malformed campaign state is silent and does not silence a fresh one", r.out, "Bravo: " + PREP_BASELINE);
+}
+
+{
+  const r = runHook("stale-only", { pipelineState: staleState("prep") });
+  check("a state older than two hours: silent", r.out, "");
+}
+
+{
+  const r = runHook("no-conventions", { pipelineState: freshState("prep"), conventions: null });
+  check("no conventions.json: silent, there is no root to look under", r.out, "");
+}
+
+{
+  const r = runHook("v2-conventions", { pipelineState: freshState("prep"), conventions: { kbRoot: "kb" } });
+  check("conventions.json with no settings array (v1/v2): silent", r.out, "");
+}
+
+{
+  const r = runHook("malformed-conventions", { pipelineState: freshState("prep"), conventions: "{ not json" });
+  check("unparseable conventions.json: silent", r.out, "");
+  check("unparseable conventions.json: exits 0", r.code, 0);
+}
+
+{
+  // The pre-1.20.0 shared file names no campaign. Reading it is how one
+  // campaign's step was reported as another's, so the hook ignores it.
+  const r = runHook("legacy-root-state", { legacyState: freshState("prep") });
+  check("a legacy .professor-orb/pipeline-state.json is ignored", r.out, "");
 }
 
 console.log("\n=== prototype pollution: a crafted or corrupted lastStep must not leak Object.prototype ===");
