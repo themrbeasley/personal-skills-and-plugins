@@ -597,20 +597,24 @@ Replace `runValidator` with:
 
 ```js
 // Returns { blocked: boolean, output: string }. validate-write signals a block
-// with exit 2 and stderr; a pass or warn exits 0. sessionId undefined sends no
-// session_id at all, the shape of an older harness.
+// with exit 2 and stderr; a pass or warn exits 0. A default parameter fires on
+// an explicitly passed undefined as much as on an omitted argument, so
+// "session_id absent, the shape of an older harness" needs its own sentinel:
+// pass sessionId: null to omit the field from the payload entirely. Every
+// other call site either omits the argument (gets "s1") or passes a real id.
 function runValidator(dir, file, transcript, sessionId = "s1") {
+  const payload = {
+    hook_event_name: "PostToolUse",
+    tool_name: "Write",
+    cwd: dir,
+    transcript_path: transcript,
+    tool_input: { file_path: file },
+  };
+  if (sessionId !== null) payload.session_id = sessionId;
   try {
     execFileSync("node", [HOOK], {
       cwd: dir,
-      input: JSON.stringify({
-        hook_event_name: "PostToolUse",
-        tool_name: "Write",
-        session_id: sessionId,
-        cwd: dir,
-        transcript_path: transcript,
-        tool_input: { file_path: file },
-      }),
+      input: JSON.stringify(payload),
       encoding: "utf8",
       env: tempEnv(dir),
     });
@@ -642,7 +646,7 @@ console.log("one session cannot read another's options:");
     JSON.stringify({ sessionId: "s-old", options: OFFERED })
   );
   check("an option offered in another session does not block", runValidator(dir, file, transcript, "s1").blocked, false);
-  check("no session id passes rather than blocks", runValidator(dir, file, transcript, undefined).blocked, false);
+  check("no session id passes rather than blocks", runValidator(dir, file, transcript, null).blocked, false);
   rmSync(dir, { recursive: true, force: true });
 })();
 
