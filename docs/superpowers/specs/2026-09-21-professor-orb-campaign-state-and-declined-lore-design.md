@@ -119,8 +119,11 @@ past two hours old.
   line (`/catalog`, `/log`, `/scribe`, `/migrate`, `homebrew`, `timeline`,
   `forge-prompt`, `orb`) becomes "never writes pipeline state". The path moved,
   and the path was never the point of the rule.
-- `/log`'s description gains pipeline state in its list of what the lane
-  holds.
+- `/log`'s Step 3 lane list gains the campaign's `pipeline-state.json`, and
+  Step 6's surprise guard exempts it the way it already exempts `articles/`.
+  Without the exemption, a `.json` file in a lane of Markdown reads as the
+  "file inside the lane that does not match the schema" the guard stops on,
+  and every `/log` run after a pipeline skill would stop to ask about it.
 - `CONTEXT.md`'s **pipeline state** entry: one file per campaign, in the
   campaign's session-reports folder. Its **log command** entry names the file
   as part of the lane.
