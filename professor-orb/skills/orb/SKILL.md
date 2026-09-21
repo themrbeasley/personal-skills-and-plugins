@@ -53,6 +53,7 @@ Professor Orb is a post-session workflow plugin for D&D DMs. Every skill drafts 
 Pipeline state is kept per campaign, at `<sessionReportsRoot>/<campaign>/pipeline-state.json`. Read the `settings` array in `.professor-orb/conventions.json`; for each setting, list the folders directly under its `sessionReportsRoot` and read the `pipeline-state.json` in each one that has it. If the DM named a campaign, read only that campaign's. Each file carries `lastStep`, `sessionDate`, and `updatedAt`, and the bullets below apply to each campaign on its own.
 
 - **`.professor-orb/` missing.** Nothing has been set up yet. Suggest running `setup` first; little else works reliably without it.
+- **`.professor-orb/` exists but `conventions.json` has no `settings` array (a v1 or v2 file).** Setup has not migrated this project to the current layout yet, so per-campaign state cannot be located until it does. Suggest running setup's resync, not `debrief`.
 - **`.professor-orb/` exists but no campaign has a `pipeline-state.json`.** Setup has run but the pipeline has not started. Suggest `debrief` as the first step.
 - **`lastStep` is `"debrief"`.** Suggest `prep` next, or `chronicler` if the DM wants the KB updated before planning the next session.
 - **`lastStep` is `"prep"`.** Suggest `content` (recaps and handouts) and/or `chronicler` (KB updates); either or both can run from here.
