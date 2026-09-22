@@ -75,9 +75,12 @@ tag registry exists and where to find it; it does not embed the tag list.
 
   // Which version of professor-orb's base rule set this file was generated
   // against, copied from the "schemaVersion" of references/base-rules.json.
-  // It lets a later setup run detect that the base layer has moved on.
-  // Independent of "version": that one describes the file format, this one
-  // describes the rule set the file was instantiated from.
+  // It is a coarse hint that the base layer has moved on, not proof it
+  // hasn't: a rule can be added to base-rules.json without this field being
+  // bumped, so setup's Step 1 diffs base rule IDs directly rather than
+  // trusting this comparison alone. Independent of "version": that one
+  // describes the file format, this one describes the rule set the file was
+  // instantiated from.
   "schemaVersion": 1,
 
   // One entry per setting. A setting is one world: its own knowledge base,
@@ -442,6 +445,13 @@ proposes nothing for it.
 > `workflows/validation-sweep.mjs`, and `agents/kb-validator.md` Step 4. The base
 > rule data is single-sourced at `references/base-rules.json`; the semantics are
 > not. Changing one requires changing the other three.
+>
+> Adding, removing, or changing the `check` kind or required `params` shape of a
+> base rule also bumps `references/base-rules.json`'s `schemaVersion`, in the
+> same change. A rule added without that bump is invisible to a straight
+> `schemaVersion` comparison; setup's Step 1 does not rely on one alone (see the
+> rule-ID diff described there), but a stale `schemaVersion` still understates
+> how far a project's file has drifted from the base set.
 
 Four categories, matching the four kinds of conventions a knowledge base
 typically encodes. Each `check` kind below is a fixed vocabulary the hook
