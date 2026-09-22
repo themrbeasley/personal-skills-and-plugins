@@ -4,6 +4,7 @@ client_secret_*.json
 
 # Local Claude settings
 .claude/settings.local.json
+.claude/worktrees/
 
 # Node / Workers
 node_modules/
