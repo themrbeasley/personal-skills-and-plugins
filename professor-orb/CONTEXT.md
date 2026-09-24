@@ -203,13 +203,14 @@ the month and year, where a condition stays true after play moves past it.
 _Avoid_: lore commentary under this heading, current campaign state, calling it canon
 
 **staging area**:
-The campaign's `articles/` folder, `<sessionReportsRoot>/<campaign>/articles/`, where
-`chronicler` writes new articles on a session-driven run. An article lives there while it
-moves toward publishable, and reaches `kbRoot` only when the DM promotes it. Staged
-articles sit outside folder-index parity, `/sweep`, and every `scope: "kb"` validator rule
-until promotion.
-_Avoid_: "staging root" (it is a fixed subdirectory, not a configured path), and "draft
-folder" (a staged article is finished prose, not a draft).
+The campaign folder, `<sessionReportsRoot>/<campaign>/`, where `chronicler` writes new
+articles on a session-driven run: in the bucket that matches the article's type (`npcs/`,
+`lore/`) with a row in that bucket's index, or in the `articles/` fallback when no bucket
+fits. An article lives there while it moves toward publishable, and reaches `kbRoot` only
+when the DM promotes it. Staged articles sit outside `/sweep` and every `scope: "kb"`
+validator rule until promotion; an unscoped rule applies to them as it does anywhere.
+_Avoid_: "staging root" (it is not a configured path), and "draft folder" (a staged
+article is finished prose, not a draft).
 
 **lane model**:
 The split that governs committing: three prongs, three commands, and a commit that
@@ -306,8 +307,9 @@ The Master-INDEX is simply the KB root's one index. Parity also feeds the DM's
 separate wiki-website project, where folders/indexes define the site's categories.
 Rolara needs a one-time migration to parity (its `items/` folder alone holds 6
 sub-index files today): snapshot commit, unattended execution, after-action report.
-A staged article sitting in the campaign's `articles/` folder is outside parity
-entirely until the DM promotes it; parity governs `kbRoot` only.
+A staged article in the campaign's `articles/` fallback is outside parity until the
+DM promotes it. One staged in a campaign bucket is under parity wherever the project's
+parity rule carries no `scope: "kb"`.
 _Avoid_: free-floating thematic indexes without a folder, multiple indexes per folder
 
 **index maintenance**:

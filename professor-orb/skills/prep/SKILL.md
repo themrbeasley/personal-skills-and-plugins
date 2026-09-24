@@ -100,7 +100,7 @@ The campaign's outstanding lore work, and the only durable record of it. `chroni
 
 **Sources, in this order:**
 
-1. The session report's **Lore Candidates** section, for anything still unchecked.
+1. The session report's **Lore Candidates** section, for anything still unchecked, including its **Left for chronicler** list.
 2. Any north star that depends on a lore decision the DM has not made. You are already told to note these; this is where they go.
 3. Anything the Work Review surfaced that the DM has not addressed. You are already told to mention these; this is where they go.
 4. Unresolved items carried forward from the previous brief's Lore Resolution section.
@@ -113,20 +113,22 @@ The campaign's outstanding lore work, and the only durable record of it. `chroni
 
 Propose the tiers, then let the DM adjust them during the Phase 3 review exactly as they adjust north stars. If the DM promotes an item, it stays promoted (Principle 1).
 
+**Every item names who closes it.** End each line with the skill or person that will close it: `(chronicler)` for article work, index work, or a wording fix in a past report or brief, which chronicler proposes as a correction row; `(DM ruling)` for a decision only the DM can make. Seed no item that neither can act on.
+
 **Carry-forward discipline.** An item the previous brief marked resolved does not come back, ever (Principle 3). When you carry an item across, note where it came from so `chronicler` can find every copy later:
 
 ```
 ## Lore Resolution
 
 **Needed for next session**
-- [ ] Sunken Temple has no article. North Star 2 puts the party at its entrance.
-- [ ] Vela Thorne's article contradicts the Cinder Pact reveal. (from 2026-08-13-REPORT)
+- [ ] Sunken Temple has no article. North Star 2 puts the party at its entrance. (chronicler)
+- [ ] Vela Thorne's article contradicts the Cinder Pact reveal. (from 2026-08-13-REPORT) (DM ruling)
 
 **Wanted this cycle**
-- [ ] Harbormaster Quill mentioned twice, still unarticled.
+- [ ] Harbormaster Quill mentioned twice, still unarticled. (chronicler)
 
 **Backlog**
-- [ ] Ashfall Compact membership list is incomplete.
+- [ ] Ashfall Compact membership list is incomplete. (chronicler)
 ```
 
 Do not resolve any of these yourself. Naming them is the whole job (see "Never write lore content" below).
