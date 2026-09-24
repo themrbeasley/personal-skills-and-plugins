@@ -1116,7 +1116,7 @@ const FIXER_AGENT = "rule-fixer";
 function formatAutofixRequest(ruleId, guidance, ctx) {
   return [
     `AUTOFIX AVAILABLE for [${ruleId}]. Dispatch the professor-orb ${FIXER_AGENT} agent now, once for this file, and do not fix this yourself.`,
-    `  file: ${ctx.relProjectPath}`,
+    `  file: ${ctx.absFilePath}`,
     `  rule: ${ruleId}`,
     `  guidance: ${guidance}`,
     "This fix class is pre-approved, by the DM authoring the rule or by the enforcement level they confirmed at setup, so apply it without asking.",

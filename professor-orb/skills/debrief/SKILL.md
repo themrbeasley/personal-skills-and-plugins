@@ -113,9 +113,15 @@ Wait for the `lore` agent to return its findings, then **merge them into the rep
 
 - **Entities Without Articles** and the new-article bucket of its **Update Proposal** become Lore Candidates items.
 - The edit and index buckets of its **Update Proposal** become Lore Candidates items too, worded as the change rather than as a new article.
-- **Contradictions** and **Temporal Inconsistencies** do **not** become Lore Candidates. They are chronicler's "Deferred / Flagged" material and the `historian` agent's business. Note under the section that the agent raised N of each and leave them in the conversation for chronicler to pick up.
+- **Contradictions**, **Temporal Inconsistencies**, and the agent's own **Deferred / Flagged** items (those requiring a DM decision, content-excluded, or ambiguous) do **not** become Lore Candidates. Offer each to the DM during the review below. Any the DM does not settle there goes into a **Left for chronicler** list directly beneath the Lore Candidates items, one unchecked line per finding, naming the files involved and quoting the two sides (or, for a deferred item, what needs deciding). Write every item out. Never record a count in place of the items: the conversation that holds them ends, and a count leaves chronicler nothing to act on.
 - **Non-obvious Connections** are neither; mention them to the DM and do not write them into the report.
-- **Deferred / Flagged** items (the agent's own bucket for items requiring a DM decision, content-excluded, or ambiguous) do not become Lore Candidates either. Like Contradictions and Temporal Inconsistencies, note under the section that the agent flagged N such items and leave them in the conversation for chronicler to pick up into its own Deferred / Flagged bucket.
+
+```
+**Left for chronicler**
+
+- [ ] Contradiction: `Quinitorius.md` puts him aboard the Stone of Endurance; the last three reports put him aboard the *Twilight's Vigil*.
+- [ ] Deferred: `Zedd-Dood.md` stub needs separating from the Cadaver Collector.
+```
 
 Present the merged section to the DM for approval (Principle 2), then update the report file. Tell them the `chronicler` skill is what canonizes any of it into the KB.
 
