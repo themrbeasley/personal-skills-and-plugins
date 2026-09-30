@@ -307,8 +307,9 @@ console.log("\n=== tag matching ===");
 
 console.log("\n=== Grep content gate ===");
 
-// Grep names no single file, so the per-article tag check cannot apply. What
-// it can do is refuse the output modes that return body text at all.
+// A Grep over a folder names no single file, so the per-article tag check
+// cannot apply. What it can do is refuse the output modes that return body
+// text at all. A Grep whose path is one file gets the per-article check.
 function runGrep({ conventions, files, toolInput, targetRel }) {
   const dir = path.join(os.tmpdir(), `orb-excl-grep-${process.pid}-${Math.abs(hashOf(targetRel))}`);
   rmSync(dir, { recursive: true, force: true });
@@ -343,6 +344,29 @@ function runGrep({ conventions, files, toolInput, targetRel }) {
   });
   check("content-mode grep inside a prong root is denied", r.code, 2);
   check("the grep denial explains the supported route", r.err.includes("files_with_matches"), true);
+}
+
+{
+  // 2026-09-29: a Grep whose path is one file names that file, so it gets the
+  // same per-article check a Read does instead of the folder-wide refusal.
+  const r = runGrep({
+    conventions: CONVENTIONS,
+    files: { "settings/w/people/A.md": plain },
+    toolInput: { pattern: "x", path: "settings/w/people/A.md", output_mode: "content" },
+    targetRel: "grep-content-one-plain-file",
+  });
+  check("content-mode grep of one ordinary file is allowed", r.code, 0);
+}
+
+{
+  const r = runGrep({
+    conventions: CONVENTIONS,
+    files: { "settings/w/people/A.md": tagged("Excluded") },
+    toolInput: { pattern: "x", path: "settings/w/people/A.md", output_mode: "content" },
+    targetRel: "grep-content-one-excluded-file",
+  });
+  check("content-mode grep of one excluded file is denied", r.code, 2);
+  check("that denial names the tag, as a Read's would", r.err.includes('"Excluded"'), true);
 }
 
 {

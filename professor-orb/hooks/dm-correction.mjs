@@ -26,11 +26,15 @@ import path from "node:path";
 // "incorrect", "not what I said") or the verb "happen" under a negation.
 // "never" alone is NOT enough: "the party never found the ledger" is the DM
 // narrating, not correcting, and the test pins that case as silent.
+// "Not what I asked" and "not what I meant" are excluded for the same reason:
+// they correct the assistant's reading of a request and name no claim to trace.
+// On 2026-09-29 "meant" fired on exactly that and flooded a turn with 13 KB of
+// lines that shared nothing but common words.
 const CORRECTION_PATTERNS = [
   /\bnever\s+(?:\w+\s+){0,2}happen(?:ed)?\b/i,
   /\b(?:did\s*n[o']?t|didnt|does\s*n[o']?t)\s+(?:\w+\s+){0,2}happen(?:ed)?\b/i,
   /\b(?:that'?s|that\s+is|this\s+is|it'?s|you'?re|thats)\s+(?:just\s+)?(?:wrong|incorrect|false|backwards)\b/i,
-  /\bnot\s+what\s+i\s+(?:said|told|asked|meant)\b/i,
+  /\bnot\s+what\s+i\s+(?:said|told)\b/i,
   /\bi\s+(?:already\s+)?told\s+you\b/i,
   /\bno,?\s+it\s+(?:was|wasn'?t|is|isn'?t)\b(?!\s+(?:worth|nothing|fine|okay|ok|just|what|a\s+big\s+deal))/i, // ponytail: idiom blocklist covers cases seen in review; extend if new false positives surface
   /\bwrong\s+(?:pronouns?|name|date|order|person|place)\b/i,
@@ -60,6 +64,19 @@ const MAX_HITS_PER_FILE = 5;
 // MAX_FILES. Belt-and-suspenders: MAX_FILES bounds the common case, this
 // bounds the worst case.
 const MAX_WALK_MS = 7000;
+// Characters of a hit line shown, centred on the first matched term. A body
+// line is often a whole paragraph, and twenty of them overflowed the inline
+// output limit so the list went unseen. The file:line pointer carries the rest.
+const MAX_SNIPPET_CHARS = 200;
+
+function snippet(text, terms) {
+  if (text.length <= MAX_SNIPPET_CHARS) return text;
+  const lower = text.toLowerCase();
+  const at = Math.min(...terms.map((t) => lower.indexOf(t)).filter((i) => i >= 0));
+  const start = Math.max(0, Math.min(at - MAX_SNIPPET_CHARS / 4, text.length - MAX_SNIPPET_CHARS));
+  const end = start + MAX_SNIPPET_CHARS;
+  return (start > 0 ? "…" : "") + text.slice(start, end).trim() + (end < text.length ? "…" : "");
+}
 
 // Words that carry no search signal. Short list on purpose: the length filter
 // below removes most function words already, and an over-long stoplist starts
@@ -227,7 +244,7 @@ function findHits(roots, terms) {
               truncated = true;
               break;
             }
-            fileHits.push({ file: abs, line: i + 1, text: lines[i].trim() });
+            fileHits.push({ file: abs, line: i + 1, text: snippet(lines[i].trim(), terms) });
           }
         }
         if (fileHits.length > 0) fileGroups.push(fileHits);
