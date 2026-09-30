@@ -9,6 +9,7 @@ A personal collection of Claude Code skills, plugins, and a Cloudflare-Workers M
 - **[foundryvtt/](foundryvtt/)** — Claude Code plugin: a Foundry VTT toolkit whose `live-test` skill tries module and automation changes in a live world on throwaway actors.
 - **[google-tasks-mcp/](google-tasks-mcp/)** — Remote MCP server exposing Google Tasks via OAuth, built on Cloudflare Workers + Durable Objects.
 - **[sequencer/](sequencer/)** — A Claude Code skill for building Foundry VTT Sequencer visual-effect macros (integrates with Midi-QOL, DAE, and Portal).
+- **[land/](land/)** — A user-level Claude Code skill: `/land` commits a branch, merges it into local main, and pushes main once you confirm, in any repo.
 - **docs/** — Design specs and implementation plans.
 
 See [CLAUDE.md](CLAUDE.md) for architecture notes and per-project commands.
