@@ -2,7 +2,7 @@
 
 - **Date:** 2026-09-30
 - **Branch:** `claude/foundry-packaging-handoff-3952a2`
-- **Status:** spec written, awaiting approval
+- **Status:** approved; built and checked, awaiting /land
 - **Source handoff:** `%TEMP%\foundry-live-test-packaging-handoff-2026-09-30.md`
 
 This file is the spec, the step list, and the progress tracker.
@@ -86,12 +86,12 @@ When the installer asks where to install, choose the **local** option ("this rep
 
 ## Steps and tracker
 
-- [ ] 1. The user approves this spec
-- [ ] 2. Create `foundryvtt/.claude-plugin/plugin.json`
-- [ ] 3. Create `foundryvtt/skills/live-test/SKILL.md` from the Data copy with the four edits (the Data copy is untouched)
-- [ ] 4. Add the `marketplace.json` entry
-- [ ] 5. Add the `CLAUDE.md` section and the `README.md` line
-- [ ] 6. Check the work:
+- [x] 1. The user approves this spec
+- [x] 2. Create `foundryvtt/.claude-plugin/plugin.json`
+- [x] 3. Create `foundryvtt/skills/live-test/SKILL.md` from the Data copy with the four edits (the Data copy is untouched)
+- [x] 4. Add the `marketplace.json` entry
+- [x] 5. Add the `CLAUDE.md` section and the `README.md` line
+- [x] 6. Check the work:
   - both JSON files parse
   - the versions match
   - a diff of `SKILL.md` against the Data copy shows only the four edits
