@@ -14,7 +14,7 @@
 
 | Task | State |
 |---|---|
-| 1. Build `land/` and retire the repo command | not started |
+| 1. Build `land/` and retire the repo command | done |
 | 2. Land this branch with the new skill (finish-the-branch gate) | not started |
 | 3. rolara: Landing heading, retire its command, land it | not started |
 | 4. Junction into `~/.claude/skills/land` | not started |

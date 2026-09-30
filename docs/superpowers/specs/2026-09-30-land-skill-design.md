@@ -2,7 +2,7 @@
 
 - **Date:** 2026-09-30
 - **Branch:** `claude/recursing-varahamihira-791b13`
-- **Status:** spec written, awaiting approval
+- **Status:** approved 2026-09-30; being built (see the plan)
 
 ## Goal
 
@@ -61,7 +61,7 @@ First do any pre-commit step a Landing section names. Then, as the old command: 
 ### 4. Merge into local main
 
 1. `git -C "<MAIN>" status --porcelain`. `??` lines stay where they are. Any other line: list it and stop.
-2. Default: `git -C "<MAIN>" merge --no-ff BRANCH -m "<title>"`. The title is `Merge <plugin> X.Y.Z: <summary>` when the branch releases a plugin (several joined with ", "), otherwise `Merge <area>: <summary>`, with `<area>` the top-level folder the branch changed most (`repo tooling` for the root or `.claude/`). `<summary>` is `$ARGUMENTS` when given, otherwise a short phrase in the voice of `git log --merges --oneline -5`.
+2. Default: `git -C "<MAIN>" merge --no-ff BRANCH -m "<title>"`. The title is `Merge <plugin> X.Y.Z: <summary>` when the branch releases a plugin (several joined with ", "), otherwise `Merge <area>: <summary>`. `<area>` is the `area` most of the branch's `type(area):` commits name, so a branch's spec and plan in `docs/` don't name the merge; when the commits name none, the top-level folder the branch changed most (`repo tooling` for the root or `.claude/`). `<summary>` is `$ARGUMENTS` when given, otherwise a short phrase in the voice of `git log --merges --oneline -5`.
 3. A Landing section that says fast-forward only: `git -C "<MAIN>" merge --ff-only BRANCH`. When it can't, stop and offer the choices the section lists.
 4. "Already up to date": go on to step 5.
 5. If the merge stops: git refused before starting (quote it, name the paths, stop), or it hit conflicts (`merge --abort`, report the paths, stop; the conflict gets resolved on `BRANCH` and `/land` runs again).
@@ -77,10 +77,10 @@ One line each: the commits made, the merge commit's hash and title, and what was
 
 ## rolara's Landing section
 
-Added to `rolara-project/CLAUDE.md` after "Repository structure":
+Added to `rolara-project/CLAUDE.md` at the end of the "Repository structure" subsection, before "Publishing to the wiki". It is a level-3 heading because it sits inside "KB Infrastructure & Conventions"; a level-2 heading would swallow the subsections after it. The skill matches the heading at any level.
 
 ```markdown
-## Landing
+### Landing
 
 `/land` follows these rules in this repo:
 - Before committing, add this session's `log.jsonl` row if it has none yet.

@@ -59,6 +59,10 @@ Re-run `cf-typegen` after changing bindings in `wrangler.jsonc`. No test suite.
 
 Builds Foundry VTT Sequencer visual-effect macros (projectiles, impacts, auras, summoning flourishes). Integrates with Midi-QOL, DAE, and Portal; implements the *visuals*, not game balance. Layout: `SKILL.md` + `references/` + `evals/`.
 
+## `land/` — user-level Claude Code skill
+
+`/land` finishes a branch in any repo: commit, merge into local main, push main once confirmed. This folder is the master copy; `~/.claude/skills/land` is a junction to it in the main checkout, so an edit goes live when it lands on `main`. Edit it here, on a branch. Each repo's own rules come from its `CLAUDE.md`, under a "Landing" heading when they differ from the defaults. Layout: `SKILL.md` only.
+
 ## `sequencer-workspace/` and `docs/`
 
 Development material, not shipped. `sequencer-workspace/` holds eval iteration outputs for `sequencer`. `docs/superpowers/specs/` holds designs, `docs/superpowers/plans/` implementation plans.
