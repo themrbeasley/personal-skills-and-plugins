@@ -2,7 +2,7 @@
 
 - **Date:** 2026-09-30
 - **Branch:** `claude/foundry-packaging-handoff-3952a2`
-- **Status:** approved; built and checked, awaiting /land
+- **Status:** done. Live on main (087de88), installed in the Data folder, and the old Data-folder copy is in the Recycle Bin. Module-repo installs happen as needed.
 - **Source handoff:** `%TEMP%\foundry-live-test-packaging-handoff-2026-09-30.md`
 
 This file is the spec, the step list, and the progress tracker.
@@ -96,7 +96,7 @@ When the installer asks where to install, choose the **local** option ("this rep
   - the versions match
   - a diff of `SKILL.md` against the Data copy shows only the four edits
   - `claude plugin validate foundryvtt`, if the command exists
-- [ ] 7. Finish the branch with `/land` (merge to local `main`; push after the user confirms)
-- [ ] 8. The user installs in the Data folder (local scope) and confirms that `/foundryvtt:live-test` is listed
-- [ ] 9. With the user's go-ahead, delete `Data\.claude\commands\foundry-live-test.md`
+- [x] 7. Finish the branch with `/land` (merge to local `main`; push after the user confirms)
+- [x] 8. The user installs in the Data folder (local scope) and confirms that `/foundryvtt:live-test` is listed
+- [x] 9. With the user's go-ahead, delete `Data\.claude\commands\foundry-live-test.md`
 - [ ] 10. The user installs in module repos as needed
