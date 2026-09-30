@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 // PreToolUse hook (matcher: Read|Edit|Write|NotebookEdit|Grep): refuses a tool
 // call that would surface an article the project has excluded by frontmatter
-// tag. For the file tools that means checking the target article's own tags.
-// For Grep, which names no single file, it means refusing the output modes
-// that return text from inside files at all.
+// tag. For the file tools, and for a Grep whose path is one file, that means
+// checking the target article's own tags. For a Grep over a folder, which
+// names no single file, it means refusing the output modes that return text
+// from inside files at all.
 //
 // This is the tag-based half of content exclusion. Its sibling, the
 // path-scoped permission deny rule setup writes into .claude/settings.json,
@@ -41,7 +42,7 @@
 //
 // Node.js built-ins only.
 
-import { readFileSync, existsSync } from "node:fs";
+import { readFileSync, existsSync, statSync } from "node:fs";
 import path from "node:path";
 
 // Used only when conventions.json cannot be read or names no vocabulary of its
@@ -169,8 +170,10 @@ function matchedTag(frontmatter, tags) {
 //
 // Returns the offending mode, or null when the call is allowed.
 //
-// This gate is blunt on purpose. A Grep call names no single file, so the hook
-// cannot check any one article's frontmatter the way the Read path does.
+// This gate is blunt on purpose. A Grep over a folder names no single file, so
+// the hook cannot check any one article's frontmatter the way the Read path
+// does. (A Grep whose path is one file gets that per-article check; main()
+// routes it there when this returns non-null.)
 // Deciding whether an excluded article actually sits under the search path
 // would mean opening every markdown file beneath it inside a 10 second hook
 // timeout, and a hook that times out is a hook that silently allows, which is
@@ -253,28 +256,41 @@ function main() {
     }
   }
 
+  // Set when a content-returning Grep's path is one file. That Grep names its
+  // article, so it takes the per-article path below exactly as a Read would.
+  // 2026-09-29: the folder-wide refusal fired on a Grep of one named article
+  // and told the agent no single file was named.
+  let grepFile = "";
   if (toolName === "Grep") {
     // A readable conventions.json that names no excluded tags is a project
     // that opted out; anything else (missing, malformed, or configured) gates.
     if (conventionsReadable && !configuredExclusions) process.exit(0);
     const leak = grepLeakMode(toolInput, projectRoot, roots);
     if (leak === null) process.exit(0);
-    process.stderr.write(
-      `Blocked: this project excludes some articles from Claude by frontmatter tag, and a Grep in ${leak === "-o" ? '"-o" mode' : '"content" mode'} returns text from inside files.\n` +
-        "A Grep names no single file, so this hook cannot check any one article's tags the way it can for Read.\n" +
-        'Use output_mode "files_with_matches" (or "count") to find candidates, then Read each file you need. Each of those Reads is checked individually, and an excluded one is refused by name.\n' +
-        "This denial is final. Do not route around it with Bash, ripgrep, or a script.\n"
-    );
-    process.exit(2);
+    try {
+      if (statSync(path.resolve(projectRoot, toolInput.path)).isFile()) grepFile = toolInput.path;
+    } catch {
+      // No path, or nothing at it: a folder search, refused below.
+    }
+    if (!grepFile) {
+      process.stderr.write(
+        `Blocked: this project excludes some articles from Claude by frontmatter tag, and a Grep in ${leak === "-o" ? '"-o" mode' : '"content" mode'} returns text from inside files.\n` +
+          "A Grep over a folder names no single file, so this hook cannot check any one article's tags the way it can for Read.\n" +
+          'Use output_mode "files_with_matches" (or "count") to find candidates, then Read or Grep each file you need. Each of those is checked individually, and an excluded one is refused by name.\n' +
+          "This denial is final. Do not route around it with Bash, ripgrep, or a script.\n"
+      );
+      process.exit(2);
+    }
   }
 
   // NotebookEdit carries notebook_path; the file tools carry file_path.
   const target =
-    typeof toolInput.file_path === "string" && toolInput.file_path
+    grepFile ||
+    (typeof toolInput.file_path === "string" && toolInput.file_path
       ? toolInput.file_path
       : typeof toolInput.notebook_path === "string"
         ? toolInput.notebook_path
-        : "";
+        : "");
   if (!target) process.exit(0);
   if (!target.toLowerCase().endsWith(".md")) process.exit(0);
 

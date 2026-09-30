@@ -73,6 +73,9 @@ console.log("must stay silent:");
   "No, it isn't a big deal, don't worry about it",
   "no, it was worth it in the end",
   "no, it is what it is",
+  // 2026-09-29: correcting the assistant's reading of a request names no claim.
+  "That's not what I meant, i meant specifically if you were a fresh session reading the ninefold path entry in the homebrew log",
+  "that's not what I asked for",
   "",
 ].forEach((p) => checkFires(p, false));
 
@@ -162,6 +165,32 @@ console.log("lane search:");
     ["leaves an unrelated line out", out.includes("superpowered plants"), false],
     ["states the search is scope, not truth", out.includes("scope, not truth"), true],
     ["carries a file:line pointer", /2026-09-18-Clean-Hands-REPORT\.md:\d+/.test(out), true],
+  ];
+  report(cases, out);
+  rmSync(dir, { recursive: true, force: true });
+})();
+
+console.log("a hit on a long line comes back as a snippet:");
+(function () {
+  // 2026-09-29: twenty whole paragraphs ran to 13 KB, past the inline limit,
+  // so the list this hook exists to deliver was parked in a file unseen.
+  const filler = "The party crossed the marsh and argued about supplies. ".repeat(40);
+  const dir = project(
+    "snippet",
+    [{ name: "adjustice", kbRoot: "kb/adjustice", sessionReportsRoot: "session-reports/adjustice" }],
+    {
+      "session-reports/adjustice/clean-hands/2026-09-18-Clean-Hands-REPORT.md": md(
+        "Session Report",
+        filler + "The reporter asked what the team was called. " + filler
+      ),
+    }
+  );
+  const out = runHook("That NEVER happened, the reporter never asked what the team was called", dir);
+  const hitLine = out.split("\n").find((l) => l.includes("Clean-Hands-REPORT.md:")) || "";
+  const cases = [
+    ["the hit is still reported", hitLine !== "", true],
+    ["the snippet keeps the matched words", hitLine.includes("reporter asked what the team was called"), true],
+    ["the snippet is bounded", hitLine.length < 400, true],
   ];
   report(cases, out);
   rmSync(dir, { recursive: true, force: true });

@@ -62,6 +62,7 @@ function fixture(name, reportBody, offered, dmSaid, offeredSession = "s1") {
         {
           name: "adjustice",
           kbRoot: "kb/adjustice",
+          homebrewRoot: "homebrew/adjustice",
           sessionReportsRoot: "session-reports/adjustice",
           rules: base.rules,
         },
@@ -127,6 +128,9 @@ console.log("the 2026-09-18 case:");
   check("a paraphrase of an offered option blocks the write", r.blocked, true);
   check("the violation names the rule", r.output.includes("contentOptionEcho"), true);
   check("the violation quotes the sentence", r.output.includes("answered on camera"), true);
+  // A yes can never clear this check, so the message must not ask for one.
+  check("the violation states what clears it", r.output.includes("content words"), true);
+  check("the violation does not ask for a confirmation", r.output.includes("Confirm it with the DM"), false);
   rmSync(dir, { recursive: true, force: true });
 })();
 
@@ -219,6 +223,20 @@ console.log("must not fire:");
     check(name, runValidator(dir, file, transcript).blocked, false);
     rmSync(dir, { recursive: true, force: true });
   }
+})();
+
+console.log("the homebrew catalog is exempt:");
+(function () {
+  // 2026-09-29: in homebrew, picking an option IS how the DM settles a rule, so
+  // an entry's rules text restates options by design. The same sentence and
+  // record that block a session report must not block a catalog entry.
+  const { dir, transcript } = fixture("homebrew", LAUNDERED, OFFERED, "we wrapped up at the warehouse, pretty short night");
+  const entry = path.join(dir, "homebrew", "adjustice", "spells", "Test-Spell.md");
+  mkdirSync(path.dirname(entry), { recursive: true });
+  writeFileSync(entry, ["---", "type: spell", "---", "", LAUNDERED, ""].join("\n"));
+  const r = runValidator(dir, entry, transcript);
+  check("an option-derived sentence in a catalog entry does not trip the rule", r.output.includes("contentOptionEcho"), false);
+  rmSync(dir, { recursive: true, force: true });
 })();
 
 console.log("one session cannot read another's options:");

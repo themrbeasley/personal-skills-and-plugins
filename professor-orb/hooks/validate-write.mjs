@@ -856,7 +856,18 @@ function dmMessages(transcriptPath) {
 // catches a correction, and SHARED-PRINCIPLES' propagation paragraph is what
 // covers the DM's own prose case. This check's job stops at "the DM
 // substantially wrote this", not "the DM endorsed this".
+//
+// The homebrew prong is exempt. This check guards records of what happened,
+// where an option only points at a topic. In a homebrew design the option IS
+// the decision: the homebrew skill routes every structured rules call through
+// AskUserQuestion, and /catalog runs on text the DM already confirmed. On
+// 2026-09-29 this check blocked a spell entry whose rule the DM had picked,
+// reviewed, and cataloged, and no confirmation could clear it. The exemption
+// lives here rather than as a rule `scope` because setup's resync detects
+// drift by rule ID only, so a changed scope would never reach an installed
+// project.
 function checkOptionEcho(params, ctx) {
+  if (ctx.prongKind === "homebrew") return true;
   const minWords = typeof params.minContentWords === "number" ? params.minContentWords : 4;
   const threshold = typeof params.overlapThreshold === "number" ? params.overlapThreshold : 0.4;
   const proseThreshold = typeof params.proseThreshold === "number" ? params.proseThreshold : 0.5;
@@ -904,7 +915,9 @@ function checkOptionEcho(params, ctx) {
         return [
           `This sentence restates a question option from this session, and the DM never wrote it in prose: "${sentence}"`,
           `  the option offered: "${option.text}"`,
-          "  Confirm it with the DM in their own words, or cut it. An option points at a topic; what happened comes back in the DM's own words.",
+          // States the actual test. The earlier "confirm it with the DM" sent a
+          // DM to say yes, which shares too few words to ever clear it.
+          `  This clears only when one message the DM typed holds at least ${Math.round(proseThreshold * 100)}% of this sentence's content words; a yes or a short confirmation will not. Ask the DM to tell it in their own words, or cut it.`,
         ].join("\n");
       }
     }
