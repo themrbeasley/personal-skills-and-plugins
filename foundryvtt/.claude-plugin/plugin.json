@@ -1,0 +1,6 @@
+{
+  "name": "foundryvtt",
+  "description": "Foundry VTT toolkit. live-test tries a module, macro or automation change in a signed-in world through the browser, on throwaway actors, logging problems to a report instead of fixing mid-wave.",
+  "version": "1.0.0",
+  "author": { "name": "Mr. Beasley" }
+}
