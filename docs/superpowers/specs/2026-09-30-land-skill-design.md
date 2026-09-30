@@ -2,7 +2,7 @@
 
 - **Date:** 2026-09-30
 - **Branch:** `claude/recursing-varahamihira-791b13`
-- **Status:** approved 2026-09-30; being built (see the plan)
+- **Status:** built and landed 2026-09-30
 
 ## Goal
 
