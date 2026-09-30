@@ -45,7 +45,7 @@ Depends on sidecars in the *consumer* repo (the workflow `.js`, `report-template
 Foundry VTT toolkit, listed in `marketplace.json`. One skill, `skills/live-test/SKILL.md` (`/foundryvtt:live-test`): tests a change live in a signed-in world through the browser, on throwaway actors, logging problems to a report. Model-invoked at a plan's testing stage. Table-specific on purpose (port, LAN address, test actors, module quirks). Spec: `docs/superpowers/specs/2026-09-30-foundryvtt-plugin-design.md`.
 
 - **Installed per project at local scope**, never user level, so Foundry context stays out of unrelated sessions.
-- **Installs are cached by version.** A change reaches projects only when `version` goes up in both `foundryvtt/.claude-plugin/plugin.json` and its `marketplace.json` entry; they must match. `/land` doesn't bump it.
+- **Installs are cached by version.** A change reaches projects only when `version` goes up in both `foundryvtt/.claude-plugin/plugin.json` and its `marketplace.json` entry; they must match. `/land` offers the bump when a branch changed `foundryvtt/`.
 - **Edit the skill here**, not an installed copy; installed copies are overwritten on update.
 
 ## `google-tasks-mcp/` — Cloudflare Workers MCP server
