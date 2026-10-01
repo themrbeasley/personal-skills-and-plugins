@@ -560,9 +560,9 @@ Setup classifies each candidate convention by enforcement scope before proposing
 it to the DM.
 
 **This classification is not the `scope` field.** `scope` is the prong
-restriction described under "Note on `scope`" above: its only value is `"kb"`,
-the hook gates on `rule.scope === "kb"`, and it says nothing about whether a rule
-is checkable per write. The two are independent. All four structural base rules
+restriction described under "Note on `scope`" above: its values are `"kb"` and
+`"staged"`, the hook gates on each, and it says nothing about whether a rule is
+checkable per write. The two are independent. All four structural base rules
 carry `scope: "kb"`, yet only one of them is whole-KB scope.
 
 A rule's enforcement scope is determined by **its check kind**, specifically by
