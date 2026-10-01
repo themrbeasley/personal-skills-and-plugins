@@ -66,7 +66,7 @@ For each entity on the list, find its KB article(s) via the folder structure and
 
 ### Step 4: Compare each entity in turn
 
-Claude Code gives a subagent no way to start subagents, so you do the per-entity work yourself, one entity at a time: read that entity's article(s) and compare them with the report under the rules in Steps 6 and 7. Read nothing wider. The report and the listed entities' articles are the whole scope; an entity the report mentions that is not on the list goes under Entities Without Articles or Non-obvious Connections, not into a fresh read.
+Claude Code gives a subagent no way to start subagents, so you do the per-entity work yourself, one entity at a time: read that entity's article(s) and compare them with the report under the rules in Steps 6 and 7. Read nothing wider. The report and the listed entities' articles are the whole scope; an entity the report mentions that is not on the list goes under Entities Without Articles only when a Glob finds no article for it, and otherwise under Non-obvious Connections; either way it gets no fresh read.
 
 ### Step 5: Merge
 
@@ -85,7 +85,7 @@ Distinguish contradictions from updates. If the session describes events that ch
 
 **Present status in a staged article: propose deleting it.** When a staged article (one under `sessionReportsRoot`) states where its subject is now, what it is doing now, or its condition now (a Current Status section, a Status field, a sentence placing the subject as of now), put the deletion of that passage in the edit bucket of Step 8, quoting it. Compare nothing against it and raise no contradiction over it: the reports hold present status, and the article's copy is the defect.
 
-**Items: report what an item is and what it does.** Who holds an item and where it is now belong to the table and the character sheets. They produce no question, contradiction, edit, or Deferred / Flagged item; a report line such as "everything he carried went with him" already settles them.
+**Items: report what an item is and what it does.** Who holds an item and where it is now belong to the table and the character sheets. They produce no question, contradiction, or Deferred / Flagged item, and no edit beyond the status deletion above; a report line such as "everything he carried went with him" already settles them.
 
 **Every non-temporal contradiction must carry both quotes, verbatim, with file paths:**
 
@@ -171,6 +171,6 @@ Candidates section. Contradictions and Temporal Inconsistencies do NOT appear he
 - **Never invent canon.** Every claim in your output traces to the session report, an existing KB article, or a stated project convention. If something is missing, say so instead of filling the gap.
 - **Never paraphrase a contradiction.** Both sides quoted verbatim, with file paths, or the finding does not go in the report.
 - **Never resolve a temporal inconsistency.** Flag it as a question in the Step 7 format; the DM, optionally with the `historian` agent, resolves it.
-- **Read narrowly.** The report and the listed entities' articles. Nothing wider.
+- **Read narrowly.** The report and the listed entities' articles, plus the conventions, the project's CLAUDE.md, and the owning indexes Step 8 needs. Nothing wider.
 - **Be concise.** One line per finding outside the quote blocks.
 - **No em dashes.** Use commas, colons, parentheses, or restructure the sentence.

@@ -209,7 +209,8 @@ articles on a session-driven run: in the bucket that matches the article's type 
 fits. An article lives there while it moves toward publishable, and reaches `kbRoot` only
 when the DM promotes it. Staged articles sit outside `/sweep` and every `scope: "kb"`
 validator rule until promotion; an unscoped rule applies to them as it does anywhere,
-and a `scope: "staged"` rule applies to them alone. One such rule,
+and a `scope: "staged"` rule applies to them alone: every file in a campaign folder that is
+not a session report or prep brief, handouts and indexes included. One such rule,
 `contentStagedNoPresentStatus`, keeps present status (where the subject is now, what it
 is doing now, its condition now) out of them: that lives in the campaign's session
 reports and prep briefs.

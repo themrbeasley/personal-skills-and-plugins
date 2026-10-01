@@ -253,7 +253,10 @@ Node built-ins, as for every suite here.
   at rollout: a full setup resync (the 14-step migration with its snapshot), or
   adding the rule entry above to both settings by hand and setting `generatedBy` to
   `"manual"`. Setup's drift check names the rule as missing until one of them is
-  done. The hand edit is the lighter path for a single rule.
+  done. The hand edit must also copy `professor-orb/workflows/validation-sweep.mjs`
+  over rolara's `.claude/workflows/validation-sweep.mjs`; without it, rolara's older
+  sweep hands the staged rule to the vault checkers (a resync copies it at Step 8).
+  The hand edit is the lighter path for a single rule.
 - **Two fixes in the rolara repo**, separate from this release: `CLAUDE.md` line 154
   marks "Current Status" as a vault-only header, and the leftover Current Status
   section in `Big-Guys-Gang/content/references/Deck-of-Many-Things-Rolara-Provenance.md`

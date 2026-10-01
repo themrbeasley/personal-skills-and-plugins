@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// UserPromptSubmit hook: catches a DM correction and, in Task 2, searches the
+// UserPromptSubmit hook: catches a DM correction and searches the
 // project for every copy of what they corrected.
 //
 // Six principles in SHARED-PRINCIPLES already state that the DM's word is law.
@@ -93,13 +93,15 @@ const STOPWORDS = new Set([
   "theres", "cant", "wont", "hasnt", "havent",
 ]);
 
-// The correction's content words, which are what the lane is searched for. A
+// The correction's content words, which are what the project is searched for. A
 // term must be four characters or longer: shorter tokens match everywhere and
 // turn every report into a hit.
 function searchTerms(text) {
   const seen = new Set();
   for (const raw of text.toLowerCase().split(/[^a-z0-9']+/)) {
-    const word = raw.replace(/'/g, "");
+    // A possessive keeps its name: "aethon's" searches as "aethon". Stripping
+    // the apostrophe alone left "aethons", which no line holds.
+    const word = raw.replace(/'s$/, "").replace(/'/g, "");
     if (word.length < 4) continue;
     if (STOPWORDS.has(word)) continue;
     seen.add(word);
@@ -307,7 +309,7 @@ function main() {
     out.push("then fix every copy before anything else this turn. When what they corrected");
     out.push("was something you said in chat, no file holds it and nothing needs fixing.");
   } else {
-    out.push(`${hits.length} line${hits.length === 1 ? "" : "s"} in this project mention it:`);
+    out.push(`${hits.length} line${hits.length === 1 ? " in this project mentions" : "s in this project mention"} it:`);
     out.push("");
     for (const hit of hits) {
       const rel = path.relative(cwd, hit.file).split(path.sep).join("/");
@@ -317,7 +319,8 @@ function main() {
     out.push("Read each line against what the DM corrected. Put to the DM only the lines that repeat");
     out.push("the corrected claim, and ask once whether to fix them all. A line that shares words with");
     out.push("the correction without repeating the claim is not a copy. When no line repeats it, say");
-    out.push("nothing about this search. A correction is not closed while a copy survives.");
+    out.push("nothing to the DM about this list, and find what they corrected yourself, as when");
+    out.push("nothing matches. A correction is not closed while a copy survives.");
   }
 
   if (truncated) {

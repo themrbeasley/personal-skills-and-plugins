@@ -861,7 +861,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 
 Each step changes the rolara repo and waits for the DM's go-ahead. None of it is part of this branch.
 
-1. **Put the rule in rolara's `conventions.json`.** The DM picks one way: a full setup resync, or adding the `contentStagedNoPresentStatus` entry from `references/base-rules.json` to both settings' `rules` by hand and setting `generatedBy` to `"manual"`. The hand edit is the lighter path for one rule.
+1. **Put the rule in rolara's `conventions.json`.** The DM picks one way: a full setup resync, or adding the `contentStagedNoPresentStatus` entry from `references/base-rules.json` to both settings' `rules` by hand and setting `generatedBy` to `"manual"`, and in the same change copying `professor-orb/workflows/validation-sweep.mjs` over rolara's `.claude/workflows/validation-sweep.mjs`, so `/sweep` drops the staged rule instead of holding the vault to it (a resync does this at its Step 8). The hand edit is the lighter path for one rule.
 2. **`CLAUDE.md` line 154:** mark "Current Status" as a header for vault articles only.
 3. **The Deck file:** remove the Current Status section (line 65) and the status lede ("Currently depleted of the cards pulled by the party") from `session-reports/rolara/Big-Guys-Gang/content/references/Deck-of-Many-Things-Rolara-Provenance.md`, after showing the DM the text being removed.
 4. **Confirm in a fresh rolara session** that the plugin reports 1.22.0 behavior: saving a staged article with a `## Current Status` heading is refused with the rule's message.

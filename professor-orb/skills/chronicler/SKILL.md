@@ -62,7 +62,7 @@ Two destinations are normal, and the run mode from Step 1a decides which is the 
 - `validation-sweep` enumerates each setting's `kbRoot` only, so `/sweep` does not scan staged articles.
 - An article staged in a bucket is owned by that bucket's index. One in the `articles/` fallback has no owning index, and that is correct rather than a defect.
 
-Frontmatter rules, filename rules, and the content rules in "What an article is" apply in full at both destinations. Staging is about readiness, never about relaxing the standard.
+Frontmatter rules, filename rules, and the content rules in "What an article is" apply in full at both destinations, except the present, which binds staged articles only. Staging is about readiness, never about relaxing the standard.
 
 ## DM Eyes-Only blocks
 

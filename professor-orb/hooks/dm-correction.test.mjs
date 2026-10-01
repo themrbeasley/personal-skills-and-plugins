@@ -172,6 +172,32 @@ console.log("lane search:");
   rmSync(dir, { recursive: true, force: true });
 })();
 
+console.log("a possessive name still counts as the name:");
+(function () {
+  // The tokenizer strips apostrophes, so "Aethon's" became "aethons", which
+  // matches no line, and under the half-the-words bar the subject's own name
+  // dropped out of the search. Six terms here, so a line needs three.
+  const dir = project(
+    "possessive",
+    [{ name: "rolara", kbRoot: "settings/rolara", sessionReportsRoot: "session-reports/rolara" }],
+    {
+      "session-reports/rolara/BGG/reports/2026-09-30-Gambit-REPORT.md": md(
+        "Session Report",
+        "Aethon waits at the Stone of Endurance.",
+        "",
+        "The Stone of Endurance hums at night."
+      ),
+    }
+  );
+  const out = runHook("You're wrong, Aethon's post was the Twilight's Vigil, not the Stone of Endurance.", dir);
+  const cases = [
+    ["finds the line holding exactly half the terms", out.includes("Aethon waits at the Stone of Endurance."), true],
+    ["leaves out the line holding fewer than half", out.includes("hums at night"), false],
+  ];
+  report(cases, out);
+  rmSync(dir, { recursive: true, force: true });
+})();
+
 console.log("words a correction shares with unrelated lines are not a match:");
 (function () {
   // 2026-09-30: "every" and "single" matched an amulet and a deity, twenty

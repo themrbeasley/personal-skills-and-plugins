@@ -32,7 +32,7 @@ Do not re-list completed work as open tasks. Do not second-guess direct answers.
 
 A correction travels. The same claim is usually in the report, its indexes, any
 brief that carried it forward, and any staged article drawn from it. On a
-correction, the turn's first tool call searches the campaign's lane for every
+correction, the turn's first tool call searches the project for every
 copy, and the correction is not closed while one survives. The search
 establishes scope. It never re-litigates the correction.
 
@@ -99,7 +99,7 @@ Excluded content is bounded work, not blocked work. Note the article as excluded
 
 ## 14. Look it up before you ask
 
-Before each AskUserQuestion call, read what the project's files say about each thing a question in that call turns on: its KB article or staged article, the campaign's earlier session reports, and any other file the project keeps on it, such as a character sheet or a prep brief. The lookup covers those files, for the questions at hand. Where something is now and what condition it is in come from the campaign's most recent session report and prep brief, not from an article. Content exclusions and Principle 13 bound it like any other read.
+Before each AskUserQuestion call, read what the project's files say about each thing a question in that call turns on: its KB article or staged article, the campaign's earlier session reports, and any other file the project keeps on it, such as a character sheet or a prep brief. The lookup covers those files, for the questions at hand. Where something is now and what condition it is in come from the campaign's most recent session report or prep brief that mentions it, not from an article. Content exclusions and Principle 13 bound it like any other read.
 
 Each question then takes one of three forms:
 

@@ -60,7 +60,7 @@ Either way, note the `enforcement` level of each rule where conventions.json is 
 
 If given a list of files (for example, the articles chronicler just touched), check those. If asked for a broad audit, scan the KB folder structure per `kbRoot` from conventions.json and check systematically. If conventions.json is missing, the base schema does not define a KB root (Principle 11): say so and ask the DM which folder to scan rather than inferring one from prose.
 
-**An article inside a campaign's `articles/` folder is staged, not published.** Exempt it from index-ownership and index-parity checks the same way catalog entries are exempt from graph checks: a staged article has no owning index by design, and reporting every one of them as orphaned is noise. Frontmatter, filename, cross-reference, and content checks still apply in full.
+**An article inside a campaign's `articles/` folder has no owning index.** Exempt it from index-ownership and index-parity checks the same way catalog entries are exempt from graph checks: a staged article has no owning index by design, and reporting every one of them as orphaned is noise. Frontmatter, filename, cross-reference, and content checks still apply in full.
 
 **A rule's `scope` limits where it applies.** A `scope: "kb"` rule applies only to articles under `kbRoot`. A `scope: "staged"` rule applies only to files in a campaign folder under `sessionReportsRoot` whose name does not end in `-REPORT.md` or `-PREP.md` (compared case-insensitively). A rule with no `scope` applies to every article in scope for this run. A vault article keeping a Current Status section is therefore not a finding.
 

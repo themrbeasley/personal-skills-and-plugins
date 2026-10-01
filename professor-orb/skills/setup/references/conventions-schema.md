@@ -377,7 +377,7 @@ this order and stop at the first hit:
 | `absorbThreshold` | `structuralAbsorbThreshold` | check kind alone; `params.maxEntries` is compared, not matched on |
 | `wikilinkPolicy` | *(none)* | n/a; always unmatched |
 | `tagVocabulary` | *(none)* | n/a; always unmatched |
-| `prohibitedPattern` | `contentNoEmDashes`, `contentStagedNoPresentStatus` | `scope`: a rule carrying `scope: "staged"` is `contentStagedNoPresentStatus`; any other is `contentNoEmDashes`, as before (no v1 file predates the `"staged"` scope). `params.pattern` and `params.appliesTo` are compared, not matched on |
+| `prohibitedPattern` | `contentNoEmDashes`, `contentStagedNoPresentStatus` | `scope`: a rule carrying `scope: "staged"` is `contentStagedNoPresentStatus`; any other is `contentNoEmDashes`, as before (no v1 file carries the `"staged"` scope). `params.pattern` and `params.appliesTo` are compared, not matched on |
 | `bodyImpliesFrontmatter` | *(none)* | n/a; always unmatched |
 
 This table is derived from the base rule set as shipped. If
