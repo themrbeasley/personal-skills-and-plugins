@@ -139,6 +139,20 @@ console.log("\n=== base rules artifact ===");
   check("the type enum carries both groups",
     base.rules.frontmatterTypeEnum.params.values.includes("Person") &&
     base.rules.frontmatterTypeEnum.params.values.includes("magic-item"), true);
+  const status = base.rules.contentStagedNoPresentStatus;
+  check("the staged status rule ships scoped, blocking, with a message",
+    status && [status.check, status.scope, status.enforcement, typeof status.params.message, status.autofix],
+    ["prohibitedPattern", "staged", "block", "string", undefined]);
+  if (status) {
+    const statusRe = new RegExp(status.params.pattern, status.params.flags);
+    const caught = ["## Current Status", "### Status", "**Status:** Free", "- **Status:** Free",
+      "**Status**: Free", "where as of Day 293 he occupies an apartment"];
+    const nearMisses = ["## Status Effects", "the status of the treaty", "as of the Day of Ash", "## History"];
+    check("the status pattern catches every present-status form",
+      caught.filter((s) => !statusRe.test(`intro\n${s}\nmore`)), []);
+    check("the status pattern passes the near misses",
+      nearMisses.filter((s) => statusRe.test(`intro\n${s}\nmore`)), []);
+  }
 }
 
 console.log("\n=== extendedBy and scope ===");

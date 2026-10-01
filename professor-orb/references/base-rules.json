@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 2,
+  "schemaVersion": 3,
   "rules": {
     "structuralIndexParity": {
       "provenance": "professor-orb",
@@ -164,6 +164,20 @@
       "enforcement": "warn",
       "description": "Prose uses the pronoun a referenced character's article names for writing.",
       "params": { "sourceTypes": ["Person"] }
+    },
+    "contentStagedNoPresentStatus": {
+      "provenance": "professor-orb",
+      "category": "content",
+      "check": "prohibitedPattern",
+      "scope": "staged",
+      "enforcement": "block",
+      "description": "A staged article carries no present-status heading, Status field, or as-of-Day sentence.",
+      "params": {
+        "pattern": "^#{1,6}[ \\t]*(?:current[ \\t]+)?status[ \\t]*:?[ \\t]*$|^[ \\t]*(?:[-*][ \\t]+)?\\*\\*(?:current[ \\t]+)?status:?\\*\\*|\\bas of day[ \\t]+\\d",
+        "flags": "im",
+        "appliesTo": "body",
+        "message": "A staged article carries no present status: where its subject is now, what it is doing now, or its condition now. That lives in the campaign's session reports and prep briefs. Delete the heading or field and the status under it rather than renaming or moving it; a past event that sat under it belongs in History."
+      }
     }
   }
 }

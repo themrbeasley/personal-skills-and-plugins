@@ -298,11 +298,16 @@ to that array could never match, which would silently stop enforcing the rule
 for the extended type rather than enforcing it. A project that needs a new
 type-to-suffix pair states it as its own `provenance: "project"` rule.
 
-**Note on `scope`:** the only value is `"kb"`, and it restricts the rule to the
-setting knowledge base. It is how a rule that only makes sense against KB
-articles avoids being applied to material held elsewhere in the project. A rule
-with no `scope` applies wherever the component checking it looks. Several base
-rules ship with `scope: "kb"`.
+**Note on `scope`:** two values. `"kb"` restricts the rule to the setting
+knowledge base. It is how a rule that only makes sense against KB articles
+avoids being applied to material held elsewhere in the project, and several base
+rules ship with it. `"staged"` restricts the rule to staged articles: files in
+the setting's `sessionReportsRoot` whose name does not end in `-REPORT.md` or
+`-PREP.md`, compared case-insensitively. Those suffixes are professor-orb's names
+for session reports and prep briefs, and they are matched instead of `type`
+because a project may extend those types. `contentStagedNoPresentStatus` ships
+with it. `/sweep` checks vault articles only, so it drops every `"staged"` rule.
+A rule with no `scope` applies wherever the component checking it looks.
 
 **Note on `description`:** this field is a terse sentence, never narrative.
 It states what the rule checks, in one clean sentence, and nothing else.
@@ -372,7 +377,7 @@ this order and stop at the first hit:
 | `absorbThreshold` | `structuralAbsorbThreshold` | check kind alone; `params.maxEntries` is compared, not matched on |
 | `wikilinkPolicy` | *(none)* | n/a; always unmatched |
 | `tagVocabulary` | *(none)* | n/a; always unmatched |
-| `prohibitedPattern` | `contentNoEmDashes` | check kind alone; `params.pattern` and `params.appliesTo` are compared, not matched on |
+| `prohibitedPattern` | `contentNoEmDashes`, `contentStagedNoPresentStatus` | `scope`: a rule carrying `scope: "staged"` is `contentStagedNoPresentStatus`; any other is `contentNoEmDashes`, as before (no v1 file predates the `"staged"` scope). `params.pattern` and `params.appliesTo` are compared, not matched on |
 | `bodyImpliesFrontmatter` | *(none)* | n/a; always unmatched |
 
 This table is derived from the base rule set as shipped. If
@@ -516,7 +521,7 @@ Checked against the article's body text.
 |---|---|---|
 | `wikilinkPolicy` | `format` (description string, e.g. `[[Filename\|Display Text]]`), `requireExistingTarget` (bool), `requireDisplayText` (bool, default false) | Wikilinks in the body are well-formed and, if `requireExistingTarget` is true, point at a file that exists in the KB. If `requireDisplayText` is true, a wikilink with no separator at all (e.g. `[[Target]]`) is flagged as missing display text; a wikilink that carries one, whether table-escaped (`[[Target\|Display]]`) or plain, still passes. Inside Markdown tables the pipe separator appears escaped as `\|` (a bare pipe would split the cell); checkers treat the escaped and bare forms as the same separator, never as a malformed link |
 | `tagVocabulary` | *(none beyond the owning setting's `tagRegistryPath`)* | Tags used in frontmatter are cross-checked against the tag registry; new tags are reported with suggested near-matches, never blocked (see note below) |
-| `prohibitedPattern` | `pattern` (regex string), `appliesTo` (`"body"` or `"frontmatter"`), `flags` (regex flags string, default `"u"`), `excludeTableDelimiters` (bool, body only, default false) | The text does not contain a disallowed pattern, e.g. em dashes. Set `flags` for case-insensitive or multiline matching (e.g. `"im"`); JavaScript regex does not support inline `(?im)` groups, so put those flags here instead. When the pattern also bans a double-hyphen used as a prose em-dash substitute, set `excludeTableDelimiters: true` so Markdown table delimiter rows and horizontal rules are not flagged |
+| `prohibitedPattern` | `pattern` (regex string), `appliesTo` (`"body"` or `"frontmatter"`), `flags` (regex flags string, default `"u"`), `excludeTableDelimiters` (bool, body only, default false), `message` (string, optional) | The text does not contain a disallowed pattern, e.g. em dashes. Set `flags` for case-insensitive or multiline matching (e.g. `"im"`); JavaScript regex does not support inline `(?im)` groups, so put those flags here instead. When the pattern also bans a double-hyphen used as a prose em-dash substitute, set `excludeTableDelimiters: true` so Markdown table delimiter rows and horizontal rules are not flagged. When `message` is set, a failure reports it followed by the matching line, trimmed to 120 characters, instead of the bare pattern; a rule whose pattern a reader cannot parse at a glance sets one |
 | `bodyImpliesFrontmatter` | `bodyPattern` (regex string), `flags` (regex flags string, default `"u"`), `requireFrontmatter` (object, never an array, mapping frontmatter field names to a required boolean, string, or number) | If the article body matches `bodyPattern`, every field named in `requireFrontmatter` must be present in frontmatter with exactly the given value; a missing field fails. Built for publish gating: a body carrying a DM-only content marker must set `publish: false` explicitly, because a missing field would fall back to the site's default and leak. Booleans and strings compare strictly, so a quoted `"false"` does not satisfy a required `false` (it is a real bug worth surfacing); a required number is compared against the frontmatter parser's string reading of it, so `2` matches `field: 2`. See `frontmatterImpliesFrontmatter` (Frontmatter rules, above) for the same mechanism triggered by a frontmatter condition instead of a body pattern |
 | `optionEcho` | `overlapThreshold` (number, default 0.4), `minContentWords` (number, default 4), `proseThreshold` (number, default 0.5) | A body sentence with at least `minContentWords` content words fails when its word overlap (Jaccard) with a question option offered this session reaches `overlapThreshold` and no single message the DM typed holds at least `proseThreshold` of its content words. Options come from the per-session record the AskUserQuestion hook keeps; DM messages come from the session transcript, one message at a time, never pooled. A short confirmation never clears it: only the DM's own prose does. Silent when there is no options record or no readable transcript. Skips the homebrew prong entirely, since a homebrew design settles its rules by option and `/catalog` runs on DM-confirmed text. Write-time only; the sweep has no session to compare against |
 | `pronounDeclaration` | `appliesToTypes` (array of `type` values, default `["Person"]`) | For an article whose `type` is listed, the first body line opening a pronoun declaration (`pronoun` or `pronouns` followed by a colon or hyphen, naming at least one recognized set) must name the set prose uses when it lists more than one. Recognized sets: they/them, she/her, he/him, it/its, xe/xem, ze/hir, each matched by any of its forms as a whole word. A set is named for prose by the phrase `in writing`, `for prose`, `in prose`, `written as`, or `use` following it (the listed set nearest before the phrase wins); a line listing one set names that one. Never a mechanical fix: which set to write is the DM's call about their own character |

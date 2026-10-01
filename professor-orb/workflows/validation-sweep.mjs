@@ -818,6 +818,11 @@ async function run() {
       rules = {}
     }
     if (!rules || typeof rules !== 'object') rules = {}
+    // The sweep checks vault articles only, and a scope "staged" rule governs
+    // staged articles alone, which sit outside the sweep. Handing one to a
+    // checker shard would hold the vault to it, and rolara's vault keeps
+    // Current Status sections on purpose.
+    for (const ruleId of Object.keys(rules)) if (rules[ruleId] && rules[ruleId].scope === 'staged') delete rules[ruleId]
     let singleOwnershipRuleId = 'singleOwnership'
     for (const ruleId of Object.keys(rules)) {
       if (rules[ruleId] && rules[ruleId].check === 'singleOwnership') {
