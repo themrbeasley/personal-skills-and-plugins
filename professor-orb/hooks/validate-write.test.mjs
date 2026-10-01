@@ -284,6 +284,68 @@ function scopedV3(scope) {
   check('scope "kb" rule does run for a file in the kb prong', r.code, 2);
 }
 
+console.log('\n=== scope "staged" and the prohibitedPattern message ===');
+
+// A stand-in for the shipped status rule, with a simple pattern: this block
+// pins the gate and the message. The shipped pattern is pinned against the
+// artifact in "base rules artifact".
+function stagedV3({ message } = {}) {
+  const params = { pattern: "^## Current Status$", flags: "im", appliesTo: "body" };
+  if (message) params.message = message;
+  return {
+    version: 3,
+    settings: [
+      {
+        name: "rolara",
+        kbRoot: "settings/rolara",
+        homebrewRoot: "homebrew/rolara",
+        sessionReportsRoot: "session-reports/rolara",
+        rules: {
+          contentStagedNoPresentStatus: {
+            provenance: "professor-orb",
+            category: "content",
+            check: "prohibitedPattern",
+            scope: "staged",
+            enforcement: "block",
+            description: "A staged article carries no present-status heading.",
+            params,
+          },
+        },
+      },
+    ],
+  };
+}
+
+const STATUS_BODY = "---\ntype: Person\n---\n\n# Aethon\n\n## Current Status\n\nAboard the Vigil.\n";
+const MSG = "A staged article carries no present status. Delete it.";
+
+{
+  const target = "session-reports/rolara/Big-Guys-Gang/npcs/Aethon.md";
+  const r = runHook({ conventions: stagedV3({ message: MSG }), files: { [target]: STATUS_BODY }, targetRel: target });
+  check('a "staged" rule blocks a staged article', r.code, 2);
+  check("the block carries the rule's message", r.err.includes(MSG), true);
+  check("the block quotes the matched line", r.err.includes('Found: "## Current Status"'), true);
+}
+
+for (const target of [
+  "session-reports/rolara/Big-Guys-Gang/reports/2026-09-30-Zelexs-Gambit-REPORT.md",
+  "session-reports/rolara/Big-Guys-Gang/prep/2026-10-07-Next-PREP.md",
+  "session-reports/rolara/Big-Guys-Gang/reports/2026-09-30-lowercase-report.md",
+  "settings/rolara/npcs/Aethon.md",
+  "homebrew/rolara/items/Aethon.md",
+]) {
+  const r = runHook({ conventions: stagedV3({ message: MSG }), files: { [target]: STATUS_BODY }, targetRel: target });
+  check(`a "staged" rule skips ${target}`, r.code, 0);
+}
+
+{
+  // Control: a "staged" rule with no message keeps the bare-pattern output the
+  // rule relies on.
+  const target = "session-reports/rolara/Big-Guys-Gang/npcs/Plain.md";
+  const r = runHook({ conventions: stagedV3(), files: { [target]: STATUS_BODY }, targetRel: target });
+  check("with no message, the bare-pattern output is unchanged", r.err.includes("Prohibited pattern (^## Current Status$) found in body."), true);
+}
+
 console.log("\n=== owning-setting selection across two settings ===");
 
 // Every other v3 fixture in this file declares exactly one setting, which makes
