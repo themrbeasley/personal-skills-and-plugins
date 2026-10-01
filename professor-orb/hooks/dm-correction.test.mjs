@@ -165,6 +165,61 @@ console.log("lane search:");
     ["leaves an unrelated line out", out.includes("superpowered plants"), false],
     ["states the search is scope, not truth", out.includes("scope, not truth"), true],
     ["carries a file:line pointer", /2026-09-18-Clean-Hands-REPORT\.md:\d+/.test(out), true],
+    ["names what it searched", out.includes("in this project mention it"), true],
+    ["asks only about copies", out.includes("only the lines that repeat"), true],
+  ];
+  report(cases, out);
+  rmSync(dir, { recursive: true, force: true });
+})();
+
+console.log("a possessive name still counts as the name:");
+(function () {
+  // The tokenizer strips apostrophes, so "Aethon's" became "aethons", which
+  // matches no line, and under the half-the-words bar the subject's own name
+  // dropped out of the search. Six terms here, so a line needs three.
+  const dir = project(
+    "possessive",
+    [{ name: "rolara", kbRoot: "settings/rolara", sessionReportsRoot: "session-reports/rolara" }],
+    {
+      "session-reports/rolara/BGG/reports/2026-09-30-Gambit-REPORT.md": md(
+        "Session Report",
+        "Aethon waits at the Stone of Endurance.",
+        "",
+        "The Stone of Endurance hums at night."
+      ),
+    }
+  );
+  const out = runHook("You're wrong, Aethon's post was the Twilight's Vigil, not the Stone of Endurance.", dir);
+  const cases = [
+    ["finds the line holding exactly half the terms", out.includes("Aethon waits at the Stone of Endurance."), true],
+    ["leaves out the line holding fewer than half", out.includes("hums at night"), false],
+  ];
+  report(cases, out);
+  rmSync(dir, { recursive: true, force: true });
+})();
+
+console.log("words a correction shares with unrelated lines are not a match:");
+(function () {
+  // 2026-09-30: "every" and "single" matched an amulet and a deity, twenty
+  // lines in all, none of them about the claim. Eight search words now need
+  // four in one line.
+  const dir = project(
+    "commonwords",
+    [{ name: "rolara", kbRoot: "settings/rolara", homebrewRoot: "homebrew/rolara", sessionReportsRoot: "session-reports/rolara" }],
+    {
+      "homebrew/rolara/magic-items/Amulet.md": md("magic-item", "Every amulet guards against a single form of harm, set when it is made."),
+      "settings/rolara/deities/Sun.md": md("Person", "Every temple, every prayer, every sunrise is hers."),
+      "session-reports/rolara/BGG/reports/2026-09-30-Gambit-REPORT.md": md("Session Report", "Aethon stayed aboard the Vigil."),
+    }
+  );
+  const out = runHook(
+    "Every single report since he was encountered at the underwater temple has tracked his status and location without fail, so you're wrong there.",
+    dir
+  );
+  const cases = [
+    ["still reads as a correction", out.includes(MARKER), true],
+    ["lists no line", /:\d+\s\s/.test(out), false],
+    ["says nothing in the project matched", out.includes("No line in this project matched"), true],
   ];
   report(cases, out);
   rmSync(dir, { recursive: true, force: true });
@@ -204,8 +259,9 @@ console.log("a correction the hook cannot locate still speaks:");
   const out = runHook("That never happened", dir);
   const cases = [
     ["still says it read as a correction", out.includes(MARKER), true],
-    ["says nothing matched", out.includes("No line in the campaign lane matched"), true],
+    ["says nothing matched", out.includes("No line in this project matched"), true],
     ["does not claim a hit", /:\d+\s\s/.test(out), false],
+    ["covers a claim made only in chat", out.includes("something you said in chat"), true],
   ];
   report(cases, out);
   rmSync(dir, { recursive: true, force: true });
@@ -239,11 +295,9 @@ console.log("a large first root must not starve a later root's budget:");
       ),
     }
   );
-  // findHits floors perRootCap at 50 (Math.max(50, ...)) regardless of how low
-  // MAX_FILES goes, so a 2-root split cannot be driven below 50 by the env
-  // override alone; "big" ships 60 filler files, comfortably over that floor,
-  // so walking it alone truncates and sets `truncated`, while the outer loop
-  // still moves on to walk "small" in full and finds the real target.
+  // With a budget of 10, fairShares gives "small" its one file and "big" the
+  // remaining 9 of its 60, so "big" truncates and sets `truncated` while
+  // "small" is still read in full and the real target is found.
   const out = runHook(
     "that never happened, the reporter never asked what the team was called",
     dir,
@@ -334,6 +388,118 @@ console.log("one noisy file does not crowd out its siblings:");
   const cases = [
     ["the report file appears despite a 40-match prep file walked first", out.includes("Clean-Hands-REPORT.md"), true],
     ["the prep file is capped rather than taking every slot", (out.match(/2026-09-18-PREP\.md:/g) || []).length <= 5, true],
+  ];
+  report(cases, out);
+  rmSync(dir, { recursive: true, force: true });
+})();
+
+console.log("a large root is searched in full when the budget covers the project:");
+(function () {
+  // 2026-10-01: rolara's 2250 files fit a 6000-file budget, but an even split
+  // over seven roots gave each 857, so 998 of the 1855-file vault were never
+  // searched and every run said it had stopped short. Here 62 files fit a
+  // budget of 90; an even three-way split would cap the big root.
+  const dir = project(
+    "fullvault",
+    [{ name: "big", kbRoot: "settings/big", homebrewRoot: "homebrew/big", sessionReportsRoot: "session-reports/big" }],
+    {
+      ...Object.fromEntries(
+        Array.from({ length: 59 }, (_, i) => [
+          `settings/big/filler-${String(i).padStart(2, "0")}.md`,
+          md("Person", "Nothing relevant here, filler content only."),
+        ])
+      ),
+      "settings/big/zz-target.md": md("Person", "The reporter asked what the team was called."),
+      "homebrew/big/Item.md": md("magic-item", "Nothing relevant here."),
+      "session-reports/big/BGG/2026-09-18-Clean-Hands-REPORT.md": md("Session Report", "Nothing relevant here."),
+    }
+  );
+  const out = runHook("that never happened, the reporter never asked what the team was called", dir, {
+    DM_CORRECTION_MAX_FILES: "90",
+  });
+  const cases = [
+    ["finds the line in the big root's last file", out.includes("zz-target.md"), true],
+    ["does not claim it stopped short", out.includes("may be incomplete"), false],
+  ];
+  report(cases, out);
+  rmSync(dir, { recursive: true, force: true });
+})();
+
+// The hook reads files from disk itself, so neither the harness's path deny
+// rule nor block-excluded.mjs stands between excluded content and this turn.
+const EXCLUSION_RULES = {
+  frontmatterExcludedTagLocation: {
+    check: "tagImpliesPath",
+    enforcement: "off",
+    params: { tags: ["NSFW"], requiredSegment: "nsfw" },
+  },
+};
+
+console.log("walled-off content never reaches the output:");
+(function () {
+  const dir = project(
+    "walled",
+    [{ name: "r", kbRoot: "settings/r", rules: EXCLUSION_RULES }],
+    {
+      "settings/r/characters/Open.md": md("Person", "The reporter asked what the team was called."),
+      "settings/r/characters/nsfw/Walled.md": md("Person", "WALLED-FOLDER the reporter asked what the team was called."),
+      "settings/r/characters/Tagged.md": [
+        "---",
+        "type: Person",
+        "tags: [NSFW]",
+        "---",
+        "",
+        "TAGGED-FILE the reporter asked what the team was called.",
+        "",
+      ].join("\n"),
+      // Folder names compare case-insensitively at any depth.
+      "settings/r/places/NSFW/deep/Walled2.md": md("Location", "DEEP-CAPS the reporter asked what the team was called."),
+      // A byte-order mark, CRLF endings, and tags as a YAML block list.
+      "settings/r/characters/Crlf.md":
+        "﻿---\r\ntype: Person\r\ntags:\r\n  - Villain\r\n  - nsfw\r\n---\r\n\r\nCRLF-TAGGED the reporter asked what the team was called.\r\n",
+    }
+  );
+  const out = runHook("that never happened, the reporter never asked what the team was called", dir);
+  const cases = [
+    ["an ordinary file is still found", out.includes("Open.md"), true],
+    ["nothing under the walled-off folder is shown", out.includes("WALLED-FOLDER") || out.includes("nsfw"), false],
+    ["a file tagged as excluded is not shown", out.includes("TAGGED-FILE") || out.includes("Tagged.md"), false],
+    ["a nested folder named in capitals is walled off too", out.includes("DEEP-CAPS"), false],
+    ["a CRLF file with a block-list tag is not shown", out.includes("CRLF-TAGGED"), false],
+    ["Claude is told walled-off content went unsearched", out.includes("Walled-off content"), true],
+  ];
+  report(cases, out);
+  rmSync(dir, { recursive: true, force: true });
+})();
+
+console.log("a searched root that sits inside a walled-off folder is skipped:");
+(function () {
+  const dir = project("walledroot", [{ name: "r", kbRoot: "kb/nsfw", sessionReportsRoot: "session-reports/r", rules: EXCLUSION_RULES }], {
+    "kb/nsfw/Inside.md": md("Person", "INSIDE-ROOT the reporter asked what the team was called."),
+    "session-reports/r/BGG/2026-09-18-Clean-Hands-REPORT.md": md("Session Report", "The reporter asked what the team was called."),
+  });
+  const out = runHook("that never happened, the reporter never asked what the team was called", dir);
+  const cases = [
+    ["the other root is still searched", out.includes("Clean-Hands-REPORT.md"), true],
+    ["nothing from the walled-off root is shown", out.includes("INSIDE-ROOT"), false],
+  ];
+  report(cases, out);
+  rmSync(dir, { recursive: true, force: true });
+})();
+
+console.log("a project naming no exclusions still keeps NSFW-tagged files out:");
+(function () {
+  // Same fallback as block-excluded.mjs's per-file check: a project that names
+  // no vocabulary of its own is guarded by the default tag, not by nothing.
+  const dir = project("fallback", [{ name: "r", kbRoot: "settings/r" }], {
+    "settings/r/Open.md": md("Person", "The reporter asked what the team was called."),
+    "settings/r/Tagged.md": "---\ntype: Person\ntags: [nsfw]\n---\n\nTAGGED-FILE the reporter asked what the team was called.\n",
+  });
+  const out = runHook("that never happened, the reporter never asked what the team was called", dir);
+  const cases = [
+    ["an ordinary file is still found", out.includes("Open.md"), true],
+    ["a file tagged NSFW is not shown", out.includes("TAGGED-FILE"), false],
+    ["no walled-off note for a project that excludes nothing", out.includes("Walled-off content"), false],
   ];
   report(cases, out);
   rmSync(dir, { recursive: true, force: true });

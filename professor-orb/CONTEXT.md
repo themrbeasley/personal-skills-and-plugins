@@ -208,7 +208,12 @@ articles on a session-driven run: in the bucket that matches the article's type 
 `lore/`) with a row in that bucket's index, or in the `articles/` fallback when no bucket
 fits. An article lives there while it moves toward publishable, and reaches `kbRoot` only
 when the DM promotes it. Staged articles sit outside `/sweep` and every `scope: "kb"`
-validator rule until promotion; an unscoped rule applies to them as it does anywhere.
+validator rule until promotion; an unscoped rule applies to them as it does anywhere,
+and a `scope: "staged"` rule applies to them alone: every file in a campaign folder that is
+not a session report or prep brief, handouts and indexes included. One such rule,
+`contentStagedNoPresentStatus`, keeps present status (where the subject is now, what it
+is doing now, its condition now) out of them: that lives in the campaign's session
+reports and prep briefs.
 _Avoid_: "staging root" (it is not a configured path), and "draft folder" (a staged
 article is finished prose, not a draft).
 
@@ -352,16 +357,17 @@ setup skill copying the workflow script into the consumer's `.claude/workflows/`
 making it a real slash command (plugins cannot ship workflows directly).
 _Avoid_: "the audit", auto-fixing without the batch approval
 
-**lore fan-out**:
-The lore agent's structure in professor-orb: one subagent per entity touched in
-the session, each reading only the session report and that entity's article(s),
-findings merged by the parent into a single proposal. Default model (contradiction
-checking is judgment work; haiku is for the mechanical sweep). Every contradiction
-flag is quote-anchored: the exact existing KB sentence and the exact session-report
-claim, side by side, never a paraphrase of either. False contradictions become
-visible because the quotes don't actually conflict. Flags feed temporal triage,
-the same flow as the historian's; one inconsistency flow, not two.
-_Avoid_: paraphrased contradiction reports, haiku for lore judgment calls
+**lore check**:
+The lore agent's pass over one session: a single agent that reads the session report
+and each listed entity's article(s), one entity at a time, and merges its findings into
+one proposal. Claude Code gives a subagent no way to start subagents, so the earlier
+one-subagent-per-entity design never ran. Default model (contradiction checking is
+judgment work; haiku is for the mechanical sweep). Every contradiction flag is
+quote-anchored: the exact existing KB sentence and the exact session-report claim, side
+by side, never a paraphrase of either. False contradictions become visible because the
+quotes don't actually conflict. Flags feed temporal triage, the same flow as the
+historian's; one inconsistency flow, not two.
+_Avoid_: "lore fan-out" (it cannot fan out), paraphrased contradiction reports, haiku for lore judgment calls
 
 **proposal file**:
 Chronicler's lore-update proposal, written to a temporary file in

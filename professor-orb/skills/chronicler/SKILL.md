@@ -30,7 +30,7 @@ If CLAUDE.md points to other reference documents, read those too.
 
 An article records the world. It does not record the campaign's progress through the world.
 
-Write what is true about the subject: what it is, what it does, where it sits, who it is connected to, what has happened to it. A fact stays in scope even when the party has not learned it yet. "Vela Thorne killed Duke Aldric" is a fact about Vela, and it belongs in her article whether or not anyone at the table has worked it out. How plainly you frame such a fact is a judgment call that can change over the course of an adventure; whether the fact belongs is not.
+Write what is true about the subject: what it is, what it does, where it is fixed in place (a fortress's site, an order's seat), who it is connected to, what has happened to it. A fact stays in scope even when the party has not learned it yet. "Vela Thorne killed Duke Aldric" is a fact about Vela, and it belongs in her article whether or not anyone at the table has worked it out. How plainly you frame such a fact is a judgment call that can change over the course of an adventure; whether the fact belongs is not.
 
 Four kinds of sentence are about the campaign rather than the world. None of them belongs in an article, at either destination, in any article type:
 
@@ -40,6 +40,8 @@ Four kinds of sentence are about the campaign rather than the world. None of the
 - **The plan.** Anything not yet run: a planned reveal, an intended scene, a prepared contingency. "She will flee the city if confronted." Sourced from a prep brief, it describes an event that has not happened.
 
 **The test is the sentence's subject, not your judgment about sensitivity.** If a sentence is about the party, a session, the players, or a plan, it is campaign material. Rewrite it as a world fact or leave it out. All four already live in the session report and the prep brief, where they are correct; a second copy inside an article drifts out of sync with the first.
+
+**In a staged article, one more kind: the present.** Where the subject is now, what it is doing now, and its condition now. It takes three forms: a `Current Status` or `Status` section, a `**Status:**` field, and a sentence that places the subject as of now ("She is aboard the *Stone of Endurance*," "as of Day 293 he occupies an apartment"). The campaign's session reports and prep briefs hold the present, session by session. An article changes only when this skill runs, so a present-tense status in it freezes on the day it was written; on 2026-09-30 one sent a wrong location to the table mid-session. Write the events that led to the present state into History and leave the state itself to the reports. When a Lore Candidate asks to update a staged article's status, delete the status passage instead. The `contentStagedNoPresentStatus` validator rule refuses a status heading, a Status field, or an "as of Day N" sentence in a staged article; a sentence that places the subject is yours to catch. Articles in `kbRoot` follow the project's own style on this.
 
 **One carve-out: temporal declarations.** A time-travel interpretation the DM declared through the `timeline` skill (loop, branch, rewrite, or unresolved) is canon about a world phenomenon, not campaign status, and is in scope. A declaration article belongs in `kbRoot` regardless of run mode, because `timeline` reads only `kbRoot`.
 
@@ -60,7 +62,7 @@ Two destinations are normal, and the run mode from Step 1a decides which is the 
 - `validation-sweep` enumerates each setting's `kbRoot` only, so `/sweep` does not scan staged articles.
 - An article staged in a bucket is owned by that bucket's index. One in the `articles/` fallback has no owning index, and that is correct rather than a defect.
 
-Frontmatter rules, filename rules, and the content rules in "What an article is" apply in full at both destinations. Staging is about readiness, never about relaxing the standard.
+Frontmatter rules, filename rules, and the content rules in "What an article is" apply in full at both destinations, except the present, which binds staged articles only. Staging is about readiness, never about relaxing the standard.
 
 ## DM Eyes-Only blocks
 
@@ -72,7 +74,7 @@ A passage fenced in `%%` is hidden from rendered views, including a published si
 
 **Preserve every block you encounter.** An edit made for any other reason must not reflow, relocate, split, or dissolve a block, and must not quote its contents into another article's visible prose or into an index entry.
 
-**Never put campaign material inside a block.** `%%` governs who sees a fact, not whether the fact belongs. The four categories in "What an article is" stay out whether hidden or not.
+**Never put campaign material inside a block.** `%%` governs who sees a fact, not whether the fact belongs. The campaign kinds in "What an article is" stay out whether hidden or not.
 
 **Placement, when the DM asks for one:** immediately after the prose it relates to, not in a trailing section, so that an eventual unwrap is a clean edit rather than a rewrite.
 

@@ -536,7 +536,7 @@ function checkTagVocabulary(params, ctx) {
 }
 
 function checkProhibitedPattern(params, ctx) {
-  const { pattern, appliesTo = "body", excludeTableDelimiters = false, flags = "u" } = params;
+  const { pattern, appliesTo = "body", excludeTableDelimiters = false, flags = "u", message } = params;
   if (!pattern) return true;
 
   // JavaScript regex has no inline flag groups (e.g. "(?im)..."); a rule that
@@ -570,10 +570,17 @@ function checkProhibitedPattern(params, ctx) {
       .join("\n");
   }
 
-  if (re.test(text)) {
-    return `Prohibited pattern (${pattern}) found in ${appliesTo}.`;
+  const found = re.exec(text);
+  if (!found) return true;
+  // A rule whose pattern a reader cannot parse at a glance carries a message
+  // instead, plus the line it caught. A writer handed only a regex can satisfy
+  // it by renaming the heading it matched, which is the wrong fix.
+  if (typeof message === "string" && message.trim() !== "") {
+    const lineStart = text.lastIndexOf("\n", found.index) + 1;
+    const line = text.slice(lineStart).split("\n")[0].trim();
+    return `${message.trim()} Found: "${line.length > 120 ? line.slice(0, 119) + "…" : line}"`;
   }
-  return true;
+  return `Prohibited pattern (${pattern}) found in ${appliesTo}.`;
 }
 
 // Shared by checkBodyImpliesFrontmatter and checkFrontmatterImpliesFrontmatter:
@@ -1180,6 +1187,15 @@ function prongContaining(projectRoot, setting, absFilePath) {
   return null;
 }
 
+// A staged article: a file in the session-reports prong that is not a session
+// report or a prep brief. Those two are told apart by professor-orb's filename
+// suffixes rather than by `type`, because a project may extend the report and
+// prep types (rolara uses "Report" and "Prep") while keeping the suffixes.
+const REPORT_OR_PREP = /-(?:REPORT|PREP)\.md$/i;
+function isStaged(ctx) {
+  return ctx.prongKind === "session-reports" && !REPORT_OR_PREP.test(ctx.fileName);
+}
+
 // ---------------------------------------------------------------------------
 // Main
 // ---------------------------------------------------------------------------
@@ -1358,6 +1374,9 @@ function main() {
     // now carries the prong that owns the file, so a homebrew or
     // session-reports write skips the rule instead of being measured by it.
     if (rule.scope === "kb" && ctx.prongKind && ctx.prongKind !== "kb") continue;
+
+    // scope "staged" restricts a rule to staged articles; see isStaged.
+    if (rule.scope === "staged" && !isStaged(ctx)) continue;
 
     let result;
     try {
