@@ -189,13 +189,15 @@ function exclusionsFrom(conventions) {
       if (ruleTags.length > 0 && segment !== "") segments.add(segment.toLowerCase());
     }
   }
-  return { segments, tags: tags.size > 0 ? [...tags] : FALLBACK_TAGS };
+  return { segments, tags: tags.size > 0 ? [...tags] : FALLBACK_TAGS, configured: tags.size > 0 };
 }
 
 // Whether the file's frontmatter names an excluded tag: a whole-token,
 // case-insensitive match anywhere in the block, as block-excluded.mjs matches.
+// Unlike block-excluded, which bounds its read to keep bodies out of memory,
+// this hook already holds the whole file, so it reads to the closing fence.
 function carriesExcludedTag(content, tags) {
-  const lines = content.split(/\r?\n/, 81);
+  const lines = content.split(/\r?\n/);
   if (lines[0].trim() !== "---") return false;
   const close = lines.findIndex((l, i) => i > 0 && l.trim() === "---");
   const block = lines.slice(1, close === -1 ? undefined : close).join("\n");
@@ -207,8 +209,8 @@ function carriesExcludedTag(content, tags) {
 
 // How many files each root may read, given every root's file count. A root
 // smaller than an even share is read in full and its unused share passes to
-// the larger roots, which split what is left evenly. No root's share depends
-// on where it sits in the settings array.
+// the larger roots, which split what is left evenly. Where a root sits in the
+// settings array moves its share by one file at most.
 function fairShares(sizes, budget) {
   const shares = sizes.map(() => 0);
   const smallestFirst = sizes.map((_, i) => i).sort((a, b) => sizes[a] - sizes[b]);
@@ -240,8 +242,9 @@ function interleave(groups) {
 // of a claim shares most of its words. The 2026-09-18 correction yields four
 // terms, so its bar stays at two and both of its copies are still found.
 //
-// Both budgets are divided across roots, never spent first-come, because that
-// starves whatever comes last. Measured on the real consumer project: a first
+// The file and hit budgets are divided across roots, never spent first-come,
+// because that starves whatever comes last. (The wall-clock ceiling is the one
+// shared budget: a timeout leaves later roots unread, and the output says so.) Measured on the real consumer project: a first
 // setting of 1855 articles exhausted a global file cap before the second
 // setting was reached at all, and once files were divided, a global 20-hit cap
 // still let that setting's coincidental matches fill the list before the
@@ -266,9 +269,10 @@ function interleave(groups) {
 // survive the budget, and the survivors sort by path so the list still reads
 // grouped by file.
 //
-// Returns { hits, truncated }. `truncated` covers all four ways the search can
-// stop short: a root's file share, the wall-clock ceiling, a file's own hit
-// ceiling, and the hit budget itself. The last is deliberate; before it, a
+// Returns { hits, truncated }. `truncated` covers every way the search can
+// stop short: a root's file share, a root listing past the whole budget, the
+// wall-clock ceiling, a file skipped as oversized or unreadable, a file's own
+// hit ceiling, and the hit budget itself. The last is deliberate; before it, a
 // search that ran out of slots said nothing, which is the false confidence
 // divided budgets exist to remove.
 function findHits(roots, terms, exclusions) {
@@ -290,7 +294,9 @@ function findHits(roots, terms, exclusions) {
         return;
       }
       for (const entry of entries) {
-        if (outOfTime()) {
+        // No share can exceed the whole budget, so a root that lists past it
+        // stops listing rather than spend the clock the reading pass needs.
+        if (outOfTime() || files.length >= MAX_FILES) {
           truncated = true;
           return;
         }
@@ -299,7 +305,8 @@ function findHits(roots, terms, exclusions) {
           if (entry.name === "node_modules" || entry.name.startsWith(".")) continue;
           if (exclusions.segments.has(entry.name.toLowerCase())) continue;
           walk(abs);
-        } else if (entry.name.toLowerCase().endsWith(".md")) {
+        } else if (entry.isFile() && entry.name.toLowerCase().endsWith(".md")) {
+          // isFile, so a symlink never leads the read into a walled-off folder.
           files.push(abs);
         }
       }
@@ -326,9 +333,13 @@ function findHits(roots, terms, exclusions) {
       }
       let content;
       try {
-        if (statSync(abs).size > MAX_FILE_BYTES) continue;
+        if (statSync(abs).size > MAX_FILE_BYTES) {
+          truncated = true;
+          continue;
+        }
         content = readFileSync(abs, "utf8");
       } catch {
+        truncated = true;
         continue;
       }
       if (carriesExcludedTag(content, exclusions.tags)) continue;
@@ -381,7 +392,14 @@ function main() {
   const cwd = typeof input.cwd === "string" && input.cwd.length > 0 ? input.cwd : process.cwd();
   const terms = searchTerms(prompt);
   const conventions = readConventions(cwd);
-  const { hits, truncated } = findHits(laneRoots(conventions, cwd), terms, exclusionsFrom(conventions));
+  const exclusions = exclusionsFrom(conventions);
+  // A root that itself sits inside a walled-off folder is never searched, as
+  // the path deny rule and the sweep treat it. Measured from the project so a
+  // project that happens to live under a folder of that name is not blanked.
+  const roots = laneRoots(conventions, cwd).filter(
+    (r) => !path.relative(cwd, r).split(/[\\/]/).some((s) => exclusions.segments.has(s.toLowerCase()))
+  );
+  const { hits, truncated } = findHits(roots, terms, exclusions);
 
   const out = [
     "The DM's last message reads as a correction. Their statement stands on its own;",
@@ -408,6 +426,15 @@ function main() {
     out.push("the correction without repeating the claim is not a copy. When no line repeats it, say");
     out.push("nothing to the DM about this list, and find what they corrected yourself, as when");
     out.push("nothing matches. A correction is not closed while a copy survives.");
+  }
+
+  // Printed whenever the project excludes content, never only when a skipped
+  // file matched: a conditional note would itself reveal what an excluded
+  // article says.
+  if (exclusions.configured) {
+    out.push("");
+    out.push("Walled-off content (the folders and tagged articles this project excludes) was not");
+    out.push("searched. If the claim could sit there, tell the DM it needs checking by hand.");
   }
 
   if (truncated) {

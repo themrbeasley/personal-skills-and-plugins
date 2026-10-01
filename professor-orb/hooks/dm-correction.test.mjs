@@ -452,6 +452,11 @@ console.log("walled-off content never reaches the output:");
         "TAGGED-FILE the reporter asked what the team was called.",
         "",
       ].join("\n"),
+      // Folder names compare case-insensitively at any depth.
+      "settings/r/places/NSFW/deep/Walled2.md": md("Location", "DEEP-CAPS the reporter asked what the team was called."),
+      // A byte-order mark, CRLF endings, and tags as a YAML block list.
+      "settings/r/characters/Crlf.md":
+        "﻿---\r\ntype: Person\r\ntags:\r\n  - Villain\r\n  - nsfw\r\n---\r\n\r\nCRLF-TAGGED the reporter asked what the team was called.\r\n",
     }
   );
   const out = runHook("that never happened, the reporter never asked what the team was called", dir);
@@ -459,6 +464,24 @@ console.log("walled-off content never reaches the output:");
     ["an ordinary file is still found", out.includes("Open.md"), true],
     ["nothing under the walled-off folder is shown", out.includes("WALLED-FOLDER") || out.includes("nsfw"), false],
     ["a file tagged as excluded is not shown", out.includes("TAGGED-FILE") || out.includes("Tagged.md"), false],
+    ["a nested folder named in capitals is walled off too", out.includes("DEEP-CAPS"), false],
+    ["a CRLF file with a block-list tag is not shown", out.includes("CRLF-TAGGED"), false],
+    ["Claude is told walled-off content went unsearched", out.includes("Walled-off content"), true],
+  ];
+  report(cases, out);
+  rmSync(dir, { recursive: true, force: true });
+})();
+
+console.log("a searched root that sits inside a walled-off folder is skipped:");
+(function () {
+  const dir = project("walledroot", [{ name: "r", kbRoot: "kb/nsfw", sessionReportsRoot: "session-reports/r", rules: EXCLUSION_RULES }], {
+    "kb/nsfw/Inside.md": md("Person", "INSIDE-ROOT the reporter asked what the team was called."),
+    "session-reports/r/BGG/2026-09-18-Clean-Hands-REPORT.md": md("Session Report", "The reporter asked what the team was called."),
+  });
+  const out = runHook("that never happened, the reporter never asked what the team was called", dir);
+  const cases = [
+    ["the other root is still searched", out.includes("Clean-Hands-REPORT.md"), true],
+    ["nothing from the walled-off root is shown", out.includes("INSIDE-ROOT"), false],
   ];
   report(cases, out);
   rmSync(dir, { recursive: true, force: true });
@@ -476,6 +499,7 @@ console.log("a project naming no exclusions still keeps NSFW-tagged files out:")
   const cases = [
     ["an ordinary file is still found", out.includes("Open.md"), true],
     ["a file tagged NSFW is not shown", out.includes("TAGGED-FILE"), false],
+    ["no walled-off note for a project that excludes nothing", out.includes("Walled-off content"), false],
   ];
   report(cases, out);
   rmSync(dir, { recursive: true, force: true });
