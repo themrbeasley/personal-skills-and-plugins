@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // UserPromptSubmit hook: catches a DM correction and, in Task 2, searches the
-// campaign lane for every copy of what they corrected.
+// project for every copy of what they corrected.
 //
 // Six principles in SHARED-PRINCIPLES already state that the DM's word is law.
 // All six held on 2026-09-18 and none fired: a false sentence entered a report
@@ -78,14 +78,16 @@ function snippet(text, terms) {
   return (start > 0 ? "…" : "") + text.slice(start, end).trim() + (end < text.length ? "…" : "");
 }
 
-// Words that carry no search signal. Short list on purpose: the length filter
-// below removes most function words already, and an over-long stoplist starts
-// removing the nouns a correction turns on.
 const STOPWORDS = new Set([
   "that", "this", "never", "happened", "happen", "wrong", "incorrect", "said",
   "told", "about", "there", "their", "they", "them", "with", "from", "have",
   "what", "when", "where", "which", "were", "was", "and", "the", "for", "not",
   "didnt", "doesnt", "actually", "really", "just", "only", "also", "fucking",
+  // Contractions, after the tokenizer strips the apostrophe. "you're wrong" is
+  // one of the correction patterns, so "youre" was a search word in nearly
+  // every correction, matched nothing, and only raised the bar for the rest.
+  "youre", "thats", "dont", "isnt", "wasnt", "arent", "werent", "theyre",
+  "theres", "cant", "wont", "hasnt", "havent",
 ]);
 
 // The correction's content words, which are what the lane is searched for. A
@@ -156,9 +158,12 @@ function interleave(groups) {
   return out;
 }
 
-// Every markdown line under roots holding at least two search terms, or one
-// when the correction yielded only one term. Two is the floor because a single
-// common noun ("reporter") matches half a campaign, and the DM reads this list.
+// Every markdown line under roots holding at least half the search terms,
+// rounded up and never fewer than two, or one when the correction yielded only
+// one term. Half, not a flat two: on 2026-09-30 an eight-word correction matched
+// twenty lines that shared only "every" and "single" with it, while a real copy
+// of a claim shares most of its words. The 2026-09-18 correction yields four
+// terms, so its bar stays at two and both of its copies are still found.
 //
 // Both budgets are divided per root, never shared, because a shared one
 // starves whatever comes last. Measured on the real consumer project: a first
@@ -187,7 +192,7 @@ function interleave(groups) {
 // divided budgets exist to remove.
 function findHits(roots, terms) {
   if (terms.length === 0) return { hits: [], truncated: false };
-  const floor = terms.length === 1 ? 1 : 2;
+  const floor = terms.length === 1 ? 1 : Math.max(2, Math.ceil(terms.length / 2));
   const perRootCap = Math.max(50, Math.floor(MAX_FILES / Math.max(1, roots.length)));
   const walkStart = Date.now();
   let truncated = false;
@@ -295,18 +300,21 @@ function main() {
   if (hits.length === 0) {
     // A correction the hook cannot locate still gets said out loud. Silence here
     // would read as "nothing to fix", which is the failure this hook exists for.
-    out.push("No line in the campaign lane matched it. Find what they corrected yourself,");
-    out.push("then fix every copy before anything else this turn.");
+    out.push("No line in this project matched it. Find what they corrected yourself,");
+    out.push("then fix every copy before anything else this turn. When what they corrected");
+    out.push("was something you said in chat, no file holds it and nothing needs fixing.");
   } else {
-    out.push(`${hits.length} line${hits.length === 1 ? "" : "s"} in the campaign lane mention it:`);
+    out.push(`${hits.length} line${hits.length === 1 ? "" : "s"} in this project mention it:`);
     out.push("");
     for (const hit of hits) {
       const rel = path.relative(cwd, hit.file).split(path.sep).join("/");
       out.push(`  ${rel}:${hit.line}  ${hit.text}`);
     }
     out.push("");
-    out.push("Report this list to the DM and ask once whether to fix them all.");
-    out.push("A correction is not closed while a copy survives.");
+    out.push("Read each line against what the DM corrected. Put to the DM only the lines that repeat");
+    out.push("the corrected claim, and ask once whether to fix them all. A line that shares words with");
+    out.push("the correction without repeating the claim is not a copy. When no line repeats it, say");
+    out.push("nothing about this search. A correction is not closed while a copy survives.");
   }
 
   if (truncated) {

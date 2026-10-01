@@ -40,7 +40,7 @@ This paragraph is prose, and prose is the weakest thing in this plugin: six
 principles here already state that the DM's word is law, and on 2026-09-18 all
 six held while a false sentence spread through a report, two indexes, and three
 commits. The mechanism that catches a correction is the `dm-correction` hook,
-which searches the lane itself before this file is even read. What this
+which searches the project itself before this file is even read. What this
 paragraph covers is the case the hook's pattern list misses.
 
 ## 4. Distinguish DM prep from player objectives

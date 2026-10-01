@@ -165,6 +165,35 @@ console.log("lane search:");
     ["leaves an unrelated line out", out.includes("superpowered plants"), false],
     ["states the search is scope, not truth", out.includes("scope, not truth"), true],
     ["carries a file:line pointer", /2026-09-18-Clean-Hands-REPORT\.md:\d+/.test(out), true],
+    ["names what it searched", out.includes("in this project mention it"), true],
+    ["asks only about copies", out.includes("only the lines that repeat"), true],
+  ];
+  report(cases, out);
+  rmSync(dir, { recursive: true, force: true });
+})();
+
+console.log("words a correction shares with unrelated lines are not a match:");
+(function () {
+  // 2026-09-30: "every" and "single" matched an amulet and a deity, twenty
+  // lines in all, none of them about the claim. Eight search words now need
+  // four in one line.
+  const dir = project(
+    "commonwords",
+    [{ name: "rolara", kbRoot: "settings/rolara", homebrewRoot: "homebrew/rolara", sessionReportsRoot: "session-reports/rolara" }],
+    {
+      "homebrew/rolara/magic-items/Amulet.md": md("magic-item", "Every amulet guards against a single form of harm, set when it is made."),
+      "settings/rolara/deities/Sun.md": md("Person", "Every temple, every prayer, every sunrise is hers."),
+      "session-reports/rolara/BGG/reports/2026-09-30-Gambit-REPORT.md": md("Session Report", "Aethon stayed aboard the Vigil."),
+    }
+  );
+  const out = runHook(
+    "Every single report since he was encountered at the underwater temple has tracked his status and location without fail, so you're wrong there.",
+    dir
+  );
+  const cases = [
+    ["still reads as a correction", out.includes(MARKER), true],
+    ["lists no line", /:\d+\s\s/.test(out), false],
+    ["says nothing in the project matched", out.includes("No line in this project matched"), true],
   ];
   report(cases, out);
   rmSync(dir, { recursive: true, force: true });
@@ -204,8 +233,9 @@ console.log("a correction the hook cannot locate still speaks:");
   const out = runHook("That never happened", dir);
   const cases = [
     ["still says it read as a correction", out.includes(MARKER), true],
-    ["says nothing matched", out.includes("No line in the campaign lane matched"), true],
+    ["says nothing matched", out.includes("No line in this project matched"), true],
     ["does not claim a hit", /:\d+\s\s/.test(out), false],
+    ["covers a claim made only in chat", out.includes("something you said in chat"), true],
   ];
   report(cases, out);
   rmSync(dir, { recursive: true, force: true });
