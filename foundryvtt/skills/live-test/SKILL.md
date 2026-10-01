@@ -13,11 +13,11 @@ A patch or automation is ready to test in a live Foundry world, or the user has 
 
 ### Steps
 
-1. **Point Foundry at the code under test** (module work only). Foundry loads a local module through a folder link (junction) at `Data/modules/<id>` that points at the repo's main checkout (Data is `%LOCALAPPDATA%\FoundryVTT\Data`). If there's no link yet (a new module repo), ask the user to close Foundry, then create it with `cmd /c mklink /J "<link>" "<main checkout>"`. To test a different checkout, such as a git worktree:
+1. **Point Foundry at the code under test** (module work only). Do this before the user launches Foundry or signs in, so they never have to close and reopen it. Foundry loads a local module through a folder link (junction) at `Data/modules/<id>` that points at the repo's main checkout (Data is `%LOCALAPPDATA%\FoundryVTT\Data`). If there's no link yet (a new module repo), ask the user to close Foundry, then create it with `cmd /c mklink /J "<link>" "<main checkout>"`. To test a different checkout, such as a git worktree:
    - Ask the user to close Foundry, then build the module's compendiums in that checkout.
    - Remove the link with `cmd /c rmdir "<link>"`, never `Remove-Item` (PowerShell 5.1 can follow a junction and delete the real files). Recreate it with `cmd /c mklink /J "<link>" "<checkout>"`.
    - Tell the user the link moved and when it goes back. Point it back at the main checkout once the change is approved or merged.
-2. **Have the user connect.** Unless they've already signed you in, ask the user to open **http://localhost:8678** in the built-in browser, sign in as Gamemaster, and say go once the world has loaded. Don't open it or wait on it yourself: load times vary by world and module set. Never use 192.168.1.11 (the LAN address forces an "Allow once" prompt on every action, which blocks auto mode). Once they say go, check that `location.origin` is localhost, which world is loaded, and that you're signed in as Gamemaster. If the world is wrong, ask the user to switch. When testing a module, fetch a changed file (for example `/modules/<id>/scripts/main.mjs`) from the page and check it contains the change, so you know Foundry is serving the code under test.
+2. **Have the user connect.** Unless they've already signed you in, ask the user to open **http://localhost:8678** in the built-in browser, sign in as Gamemaster, and say go once the world has loaded. Don't open it or wait on it yourself: load times vary by world and module set. Never use 192.168.1.11 (the LAN address forces an "Allow once" prompt on every action, which blocks auto mode). Once they say go, check that `location.origin` is localhost, which world is loaded, and that you're signed in as Gamemaster. If the world is wrong, ask the user to switch. Test only in the world the user names: their worlds are split by campaign day (for example Rolara-Wednesday) and every one is in play, and the old "rolara" world is an out-of-date archive, so never pick or suggest one yourself. When testing a module, fetch a changed file (for example `/modules/<id>/scripts/main.mjs`) from the page and check it contains the change, so you know Foundry is serving the code under test.
 3. **Pick a test report file** in the current workspace (for example `<workspace>/reports/live-test-<date>.md`). Create it if needed.
 4. **Set up without touching real characters:**
    - Before the first test, record the ids of all actors, items, chat messages, folders and scenes, plus the tokens on the test scene. Cleanup checks against this list.
@@ -36,11 +36,12 @@ A patch or automation is ready to test in a live Foundry world, or the user has 
 ### Guardrails
 
 - Never change the active scene or anything players can see.
-- The user can toggle modules for testing. Tell them which ones you need and why.
+- Switch modules on or off yourself as the test needs: set `core.moduleConfiguration` with `game.settings.set`, then reload the page. Never ask the user to do it. Record the starting module list with the other ids and restore it during cleanup.
 - Any LevelDB or module file write needs Foundry **closed**. Ask the user to close it; don't do it yourself.
 - Every write outside the throwaway actor and scene needs its own go-ahead.
 - If a Levels "no matching level" prompt appears, click "Generate level from document top and bottom" and report it.
 - Midi requests NPC saves through Epic Rolls when its `rollNPCSaves` setting is `"rer"`. The workflow waits until someone clicks the die under the token portrait on the overlay. Start the activity in one javascript_tool call, click the die, then read the results in another call. A single awaited call times out after 45 seconds.
+- A save or check rolled from code can open a roll window (Midi's "Constitution Saving Throw" and the like) and wait there. If a step seems to do nothing, list open windows with `[...foundry.applications.instances.values()]` (it's a Map, so `Object.values` returns nothing) and click the window's "Normal" button (`button[data-action="normal"]`).
 - Return plain values from javascript_tool (`JSON.stringify`, `toObject()`). Returning a Foundry document fails with "Object reference chain is too long".
 - Toggle statuses with `actor.toggleStatusEffect(id)`. The token HUD icons are about 9 px in the browser pane, and a pixel click can hit the wrong one.
 - Don't use em dashes.
