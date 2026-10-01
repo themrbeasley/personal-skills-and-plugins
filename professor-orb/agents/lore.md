@@ -107,6 +107,8 @@ Distinguish contradictions from updates. If the session describes events that ch
 
 **Present status in a staged article: propose deleting it.** When a staged article (one under `sessionReportsRoot`) states where its subject is now, what it is doing now, or its condition now (a Current Status section, a Status field, a sentence placing the subject as of now), put the deletion of that passage in the edit bucket of Step 8, quoting it. Compare nothing against it and raise no contradiction over it: the reports hold present status, and the article's copy is the defect.
 
+**Items: report what an item is and what it does.** Who holds an item and where it is now belong to the table and the character sheets. They produce no question, contradiction, edit, or Deferred / Flagged item; a report line such as "everything he carried went with him" already settles them.
+
 **Every non-temporal contradiction must carry both quotes, verbatim, with file paths:**
 
 ```

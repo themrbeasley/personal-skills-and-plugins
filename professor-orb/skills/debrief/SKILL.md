@@ -54,7 +54,7 @@ This phase is mandatory and every question in it goes through the AskUserQuestio
 2. **Players and PCs present.** Which PCs were at the table, which players were absent, how absent PCs were handled.
 3. **NPCs and factions touched.** For each major NPC: did status, disposition, or circumstances change? For each faction: shifts in power, relationships, or perception?
 4. **Locations visited.** New locations that need articles? Changes to existing locations?
-5. **Notable inventory updates.** Items gained, lost, destroyed, transformed. Magic items identified. Consumables used that matter narratively.
+5. **Items in the story.** An item that took part in a scene this session: bought, found, lost, destroyed, transformed, identified, or used in a way that mattered (the party buying a ship). Ask about an item only when it came up in the session and what the DM said leaves its fate unclear. A blanket answer ("everything he carried went with him") settles every item it covers. A character's kit belongs to the table and the character sheet, so the rest of it stays out of the interview.
 6. **Lore revelations, split into two buckets.** New canon established (things the DM invented or decided at the table that are now true) versus canon discovered (things the PCs learned that were already true).
 7. **Cliffhangers and open threads.** What is unresolved? What was foreshadowed? What has changed in the world that the party does not yet know about?
 
@@ -78,7 +78,7 @@ and neither fires.
 
 ### Phase 3: Report writing
 
-**Draft the report.** If the project has a report template, use it. If it has existing reports, match their structure. If neither exists, build one covering: metadata, narrative recap, PCs present, NPCs and factions, locations, inventory, lore revelations (new canon and discovered canon), and open threads. The open threads section describes the state of the world, not a list of tasks for the DM. Fill every section; for sections with nothing to report, write a stub rather than omitting it, downstream skills need predictable structure.
+**Draft the report.** If the project has a report template, use it. If it has existing reports, match their structure. If neither exists, build one covering: metadata, narrative recap, PCs present, NPCs and factions, locations, items in the story, lore revelations (new canon and discovered canon), and open threads. The open threads section describes the state of the world, not a list of tasks for the DM. Fill every section; for sections with nothing to report, write a stub rather than omitting it, downstream skills need predictable structure.
 
 **Every report carries a Lore Candidates section, whichever structure source won.** This is the one section to append when a template or the existing reports do not already have one, because it is the durable carrier the `chronicler` skill reads as its backbone; without it chronicler falls back to reading the whole report and pulls campaign material into articles. Seed it in this phase from what you already tracked: entities touched this session that have no KB article, new canon that needs capturing, and anything the DM flagged during interrogation. Write each as an unchecked item so it can be ticked later:
 
