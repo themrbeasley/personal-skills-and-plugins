@@ -279,6 +279,26 @@ real sweep file under stub runtime globals and checks the census command, becaus
 the defect was in the wiring, which a test of the function alone cannot see.
 Rolara gets the fix through the same sweep-copy refresh as the staged rule.
 
+## Also in this release: the correction hook searches the whole project, and never walled-off content
+
+Found while testing Change 4 and fixed at the DM's request on 2026-10-01. Two
+defects of commits written by Claude on 2026-09-20, both unreported until now:
+
+- **Half the vault went unsearched** (`ea8b8fb`). The 6000-file budget was split
+  evenly across roots, 857 each for rolara's seven, so 998 files of the
+  1855-file vault were never read, though the project holds only 2250 in all.
+  **Fix:** a listing pass that opens no file, then `fairShares`: a small root is
+  read in full and its unused share goes to the larger ones. On rolara the whole
+  project is now searched in about half a second.
+- **Walled-off content could be printed** (`8a95a1d`). The hook reads files from
+  disk itself, so neither the harness's path deny rule nor `block-excluded.mjs`
+  covered it, and a matching line from an `nsfw` folder could be listed into the
+  turn. **Fix:** the hook never enters a folder a `tagImpliesPath` rule names and
+  skips any file whose frontmatter carries an excluded tag, falling back to
+  block-excluded's default tag when the project names none. No leak was found
+  for the messages tested on rolara; the new tests show the old hook printing
+  one.
+
 ## Out of scope
 
 The report's own scope note lists failures that were Claude's, against

@@ -295,11 +295,9 @@ console.log("a large first root must not starve a later root's budget:");
       ),
     }
   );
-  // findHits floors perRootCap at 50 (Math.max(50, ...)) regardless of how low
-  // MAX_FILES goes, so a 2-root split cannot be driven below 50 by the env
-  // override alone; "big" ships 60 filler files, comfortably over that floor,
-  // so walking it alone truncates and sets `truncated`, while the outer loop
-  // still moves on to walk "small" in full and finds the real target.
+  // With a budget of 10, fairShares gives "small" its one file and "big" the
+  // remaining 9 of its 60, so "big" truncates and sets `truncated` while
+  // "small" is still read in full and the real target is found.
   const out = runHook(
     "that never happened, the reporter never asked what the team was called",
     dir,
@@ -390,6 +388,94 @@ console.log("one noisy file does not crowd out its siblings:");
   const cases = [
     ["the report file appears despite a 40-match prep file walked first", out.includes("Clean-Hands-REPORT.md"), true],
     ["the prep file is capped rather than taking every slot", (out.match(/2026-09-18-PREP\.md:/g) || []).length <= 5, true],
+  ];
+  report(cases, out);
+  rmSync(dir, { recursive: true, force: true });
+})();
+
+console.log("a large root is searched in full when the budget covers the project:");
+(function () {
+  // 2026-10-01: rolara's 2250 files fit a 6000-file budget, but an even split
+  // over seven roots gave each 857, so 998 of the 1855-file vault were never
+  // searched and every run said it had stopped short. Here 62 files fit a
+  // budget of 90; an even three-way split would cap the big root.
+  const dir = project(
+    "fullvault",
+    [{ name: "big", kbRoot: "settings/big", homebrewRoot: "homebrew/big", sessionReportsRoot: "session-reports/big" }],
+    {
+      ...Object.fromEntries(
+        Array.from({ length: 59 }, (_, i) => [
+          `settings/big/filler-${String(i).padStart(2, "0")}.md`,
+          md("Person", "Nothing relevant here, filler content only."),
+        ])
+      ),
+      "settings/big/zz-target.md": md("Person", "The reporter asked what the team was called."),
+      "homebrew/big/Item.md": md("magic-item", "Nothing relevant here."),
+      "session-reports/big/BGG/2026-09-18-Clean-Hands-REPORT.md": md("Session Report", "Nothing relevant here."),
+    }
+  );
+  const out = runHook("that never happened, the reporter never asked what the team was called", dir, {
+    DM_CORRECTION_MAX_FILES: "90",
+  });
+  const cases = [
+    ["finds the line in the big root's last file", out.includes("zz-target.md"), true],
+    ["does not claim it stopped short", out.includes("may be incomplete"), false],
+  ];
+  report(cases, out);
+  rmSync(dir, { recursive: true, force: true });
+})();
+
+// The hook reads files from disk itself, so neither the harness's path deny
+// rule nor block-excluded.mjs stands between excluded content and this turn.
+const EXCLUSION_RULES = {
+  frontmatterExcludedTagLocation: {
+    check: "tagImpliesPath",
+    enforcement: "off",
+    params: { tags: ["NSFW"], requiredSegment: "nsfw" },
+  },
+};
+
+console.log("walled-off content never reaches the output:");
+(function () {
+  const dir = project(
+    "walled",
+    [{ name: "r", kbRoot: "settings/r", rules: EXCLUSION_RULES }],
+    {
+      "settings/r/characters/Open.md": md("Person", "The reporter asked what the team was called."),
+      "settings/r/characters/nsfw/Walled.md": md("Person", "WALLED-FOLDER the reporter asked what the team was called."),
+      "settings/r/characters/Tagged.md": [
+        "---",
+        "type: Person",
+        "tags: [NSFW]",
+        "---",
+        "",
+        "TAGGED-FILE the reporter asked what the team was called.",
+        "",
+      ].join("\n"),
+    }
+  );
+  const out = runHook("that never happened, the reporter never asked what the team was called", dir);
+  const cases = [
+    ["an ordinary file is still found", out.includes("Open.md"), true],
+    ["nothing under the walled-off folder is shown", out.includes("WALLED-FOLDER") || out.includes("nsfw"), false],
+    ["a file tagged as excluded is not shown", out.includes("TAGGED-FILE") || out.includes("Tagged.md"), false],
+  ];
+  report(cases, out);
+  rmSync(dir, { recursive: true, force: true });
+})();
+
+console.log("a project naming no exclusions still keeps NSFW-tagged files out:");
+(function () {
+  // Same fallback as block-excluded.mjs's per-file check: a project that names
+  // no vocabulary of its own is guarded by the default tag, not by nothing.
+  const dir = project("fallback", [{ name: "r", kbRoot: "settings/r" }], {
+    "settings/r/Open.md": md("Person", "The reporter asked what the team was called."),
+    "settings/r/Tagged.md": "---\ntype: Person\ntags: [nsfw]\n---\n\nTAGGED-FILE the reporter asked what the team was called.\n",
+  });
+  const out = runHook("that never happened, the reporter never asked what the team was called", dir);
+  const cases = [
+    ["an ordinary file is still found", out.includes("Open.md"), true],
+    ["a file tagged NSFW is not shown", out.includes("TAGGED-FILE"), false],
   ];
   report(cases, out);
   rmSync(dir, { recursive: true, force: true });
