@@ -182,15 +182,15 @@ const findMarkdownCommand = (root, excludedSegments) => {
 // rule to "off" has said "stop checking placement", not "start reading the
 // protected folder". The rule professor-orb ships has an empty tags list, so a
 // consumer who never configured exclusions excludes nothing.
-const excludedSegmentsFrom = (settingConfigs) => {
+//
+// It takes each setting's rules as the setting entries hold them, parsed once
+// when the entries are built. Until 2026-10-01 it parsed a `rulesJson` field
+// those entries never carry, so it always returned nothing and every sweep
+// enumerated and sharded walled-off folders; validation-sweep.exclusion.test.mjs
+// runs the real file to keep that wiring honest.
+const excludedSegmentsFrom = (rulesBySetting) => {
   const found = new Set()
-  for (const cfg of Array.isArray(settingConfigs) ? settingConfigs : []) {
-    let rules = null
-    try {
-      rules = JSON.parse(String((cfg && cfg.rulesJson) || '{}'))
-    } catch {
-      continue
-    }
+  for (const rules of Array.isArray(rulesBySetting) ? rulesBySetting : []) {
     if (!rules || typeof rules !== 'object') continue
     for (const id of Object.keys(rules)) {
       const rule = rules[id]
@@ -1015,7 +1015,7 @@ async function run() {
   // nothing it can detect (it has no such folder, or it does and skipping it was
   // the safer error), while scanning one is unrecoverable once a shard has
   // quoted its contents into a finding.
-  const excludedSegments = excludedSegmentsFrom(orderedConfigs.map((cfg) => ({ rulesJson: cfg.rulesJson })))
+  const excludedSegments = excludedSegmentsFrom(orderedConfigs.map((cfg) => cfg.rules))
   if (excludedSegments.length > 0) {
     log(
       'Excluding ' +

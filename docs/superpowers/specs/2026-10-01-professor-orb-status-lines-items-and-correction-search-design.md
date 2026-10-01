@@ -263,6 +263,22 @@ Node built-ins, as for every suite here.
   (and its status lede, "Currently depleted of the cards pulled by the party") is
   removed, with the DM's go-ahead on that file's text.
 
+## Also in this release: the sweep skips walled-off folders
+
+Found by this branch's final review and fixed at the DM's request on 2026-10-01.
+Defect of commit `11fe92e` (2026-08-03, written by Claude): `/sweep` builds its
+excluded-folder list from each setting's `tagImpliesPath` rule, but the call
+passed a `rulesJson` field the setting entries never carry, so the list was always
+empty. Every sweep since has counted and sharded the files in walled-off folders
+(rolara has eight `nsfw` folders in its vault); the project's permission deny rule
+and the read-blocking hook were what kept checkers out of them.
+
+**Fix:** `excludedSegmentsFrom` takes the parsed `rules` the setting entries
+already hold. **Test:** `workflows/validation-sweep.exclusion.test.mjs` runs the
+real sweep file under stub runtime globals and checks the census command, because
+the defect was in the wiring, which a test of the function alone cannot see.
+Rolara gets the fix through the same sweep-copy refresh as the staged rule.
+
 ## Out of scope
 
 The report's own scope note lists failures that were Claude's, against
