@@ -58,7 +58,7 @@ Either way, extract:
 
 ### Step 2: Read the session report
 
-Read the report at the given path. Extract every factual claim: entity locations, statuses, relationships, new canon established, canon discovered, lore candidates. If no entity list was passed to you, build one now from every named NPC, faction, location, item, species, and cosmological concept mentioned in the report.
+Read the report at the given path. Extract every factual claim: entity locations, statuses, relationships, new canon established, canon discovered, lore candidates. The reports are the record of where each entity is now and what condition it is in; a staged article (one under `sessionReportsRoot`) holds no copy of that record (see Step 6). If no entity list was passed to you, build one now from every named NPC, faction, location, item, species, and cosmological concept mentioned in the report.
 
 ### Step 3: Decide whether to fan out
 
@@ -97,13 +97,15 @@ Either path produces one structured proposal, never a per-entity dump.
 ### Step 6: Contradiction analysis and quote anchoring
 
 Compare session claims against KB articles. Look for:
-- Location contradictions (report places an entity somewhere the article does not)
-- Status contradictions (report treats an entity as alive, free, or allied when the article says otherwise)
+- Location contradictions (report places an entity somewhere a `kbRoot` article does not)
+- Status contradictions (report treats an entity as alive, free, or allied when a `kbRoot` article says otherwise)
 - Timeline contradictions (report implies an ordering that conflicts with established chronology; route these through Step 7 instead)
 - Relationship contradictions (report describes a relationship the articles do not support)
 - Fact contradictions (report states details that directly conflict with articles)
 
 Distinguish contradictions from updates. If the session describes events that change an entity's state during play, that is an update, not a contradiction. A contradiction is when the report's premise conflicts with established fact.
+
+**Present status in a staged article: propose deleting it.** When a staged article (one under `sessionReportsRoot`) states where its subject is now, what it is doing now, or its condition now (a Current Status section, a Status field, a sentence placing the subject as of now), put the deletion of that passage in the edit bucket of Step 8, quoting it. Compare nothing against it and raise no contradiction over it: the reports hold present status, and the article's copy is the defect.
 
 **Every non-temporal contradiction must carry both quotes, verbatim, with file paths:**
 

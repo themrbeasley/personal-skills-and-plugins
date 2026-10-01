@@ -99,7 +99,7 @@ Excluded content is bounded work, not blocked work. Note the article as excluded
 
 ## 14. Look it up before you ask
 
-Before each AskUserQuestion call, read what the project's files say about each thing a question in that call turns on: its KB article or staged article, the campaign's earlier session reports, and any other file the project keeps on it, such as a character sheet or a prep brief. The lookup covers those files, for the questions at hand. Content exclusions and Principle 13 bound it like any other read.
+Before each AskUserQuestion call, read what the project's files say about each thing a question in that call turns on: its KB article or staged article, the campaign's earlier session reports, and any other file the project keeps on it, such as a character sheet or a prep brief. The lookup covers those files, for the questions at hand. Where something is now and what condition it is in come from the campaign's most recent session report and prep brief, not from an article. Content exclusions and Principle 13 bound it like any other read.
 
 Each question then takes one of three forms:
 
