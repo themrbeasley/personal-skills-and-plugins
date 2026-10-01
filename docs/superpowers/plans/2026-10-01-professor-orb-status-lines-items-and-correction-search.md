@@ -18,14 +18,14 @@ Update a row to `done` as each task's commit lands, so progress survives a conte
 
 | Task | What | State |
 | --- | --- | --- |
-| 0 | Commit spec and plan | not started |
-| 1 | Validator: `"staged"` scope and `message` param | not started |
-| 2 | The status rule, its docs, sweep and kb-validator scope handling | not started |
-| 3 | Present status in chronicler, lore agent, Principle 14 | not started |
-| 4 | Items in the story: debrief and lore agent | not started |
-| 5 | One lore agent: drop the fan-out | not started |
-| 6 | Correction hook: half-the-words floor and new wording | not started |
-| 7 | Version 1.22.0, all suites, live checks on rolara | not started |
+| 0 | Commit spec and plan | done (2e1647d) |
+| 1 | Validator: `"staged"` scope and `message` param | done, reviewed (lane A) |
+| 2 | The status rule, its docs, sweep and kb-validator scope handling | done, reviewed (lane A) |
+| 3 | Present status in chronicler, lore agent, Principle 14 | done, reviewed (lane C) |
+| 4 | Items in the story: debrief and lore agent | done, reviewed (lane C) |
+| 5 | One lore agent: drop the fan-out | done, reviewed (lane C) |
+| 6 | Correction hook: half-the-words floor and new wording | done, reviewed (lane B) |
+| 7 | Version 1.22.0, all suites, live checks on rolara | done |
 | After landing | Rolara rollout (DM approves each) | not started |
 
 ## Global Constraints
