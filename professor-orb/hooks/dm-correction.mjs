@@ -78,6 +78,9 @@ function snippet(text, terms) {
   return (start > 0 ? "…" : "") + text.slice(start, end).trim() + (end < text.length ? "…" : "");
 }
 
+// Words that carry no search signal. Short list on purpose: the length filter
+// below removes most function words already, and an over-long stoplist starts
+// removing the nouns a correction turns on.
 const STOPWORDS = new Set([
   "that", "this", "never", "happened", "happen", "wrong", "incorrect", "said",
   "told", "about", "there", "their", "they", "them", "with", "from", "have",
