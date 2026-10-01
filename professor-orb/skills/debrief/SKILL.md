@@ -103,11 +103,7 @@ Do not proceed to Phase 4 until the report file exists on disk.
 
 ### Phase 4: Lore agent handoff
 
-Once the report is written, spawn the `lore` agent with fan-out instructions:
-
-- Pass the report's file path and the full entity list you tracked in Phases 1 and 2.
-- Instruct the agent to fan out: one subagent per entity touched in the session, each subagent reading only the session report and that entity's KB article(s). The lore agent fans out per entity when the session touched three or more entities; smaller sessions are analyzed directly.
-- The parent `lore` agent merges the subagents' findings into a single structured proposal: non-obvious connections, contradictions, lore candidates, and entities without articles.
+Once the report is written, spawn the `lore` agent with the report's file path and the full entity list you tracked in Phases 1 and 2. It checks each entity's article against the report in turn and returns one structured proposal: non-obvious connections, contradictions, lore candidates, and entities without articles.
 
 Wait for the `lore` agent to return its findings, then **merge them into the report's Lore Candidates section**. This is the second and last write to the report, and it is what makes the agent's analysis durable rather than dying with this conversation. If the agent's response includes its own "Lore Candidates" bucket, use it directly: it is already the items from Update Proposal and Entities Without Articles, restated as checkboxes. Otherwise, map its output sections yourself, as follows:
 
@@ -166,7 +162,7 @@ Apply any additional writing style rules from `conventions.json` or the project'
 
 - **Position in the session pipeline:** debrief, then prep, then content and/or chronicler, then the `kb-validator` agent.
 - **Outputs:** A session report that `prep`, `content`, and `chronicler` all read as input.
-- **Spawns:** The `lore` agent at the start of Phase 4 for KB cross-referencing, fanned out per entity.
+- **Spawns:** The `lore` agent at the start of Phase 4 for KB cross-referencing.
 - **Handoff to `prep`:** After the report is written, suggest the DM run `prep` to plan the next session.
 - **Handoff to `chronicler`:** The report's Lore Candidates section is chronicler's input, and it survives this conversation. The `lore` agent's in-conversation proposal supplements it when the same conversation produced one.
 - **Handoff to `/log`:** `/log` can commit the session report.

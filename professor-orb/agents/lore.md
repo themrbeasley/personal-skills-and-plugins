@@ -6,15 +6,15 @@ description: |
   these findings into the report's Lore Candidates section, and the chronicler
   skill later proposes canonizing them to the DM.
 
-  Spawned by debrief's Phase 4 with the report path and tracked entity list. Fans
-  out one subagent per entity for three-plus entities, scoped to the report and
-  that entity's article; analyzes directly for one or two. Also useful on demand.
+  Spawned by debrief's Phase 4 with the report path and tracked entity list. Reads
+  the report and each listed entity's article(s), one entity at a time, and merges
+  the findings into one proposal. Also useful on demand.
 
   <example>
   Context: Debrief wrote a report touching six entities
   user: (debrief spawns this agent with the report path and entity list)
-  assistant: "Six entities, so I'll fan out one subagent per entity and merge into one proposal."
-  <commentary>Matches debrief's Phase 4 handoff; fan-out for larger sessions.</commentary>
+  assistant: "Six entities. I'll check each one's article against the report in turn and merge the findings into one proposal."
+  <commentary>Matches debrief's Phase 4 handoff.</commentary>
   </example>
 
   <example>
@@ -60,39 +60,17 @@ Either way, extract:
 
 Read the report at the given path. Extract every factual claim: entity locations, statuses, relationships, new canon established, canon discovered, lore candidates. The reports are the record of where each entity is now and what condition it is in; a staged article (one under `sessionReportsRoot`) holds no copy of that record (see Step 6). If no entity list was passed to you, build one now from every named NPC, faction, location, item, species, and cosmological concept mentioned in the report.
 
-### Step 3: Decide whether to fan out
+### Step 3: Locate each entity's articles
 
-- **Three or more entities:** fan out (Step 4).
-- **One or two entities:** skip fan-out and analyze directly (Step 5), reading the same scope a subagent would get: the report plus each entity's KB article(s). State in your output that you analyzed directly because the session touched few entities.
+For each entity on the list, find its KB article(s) via the folder structure and cross-reference format learned in Step 1. Before reading one, check it against the project's content-exclusion tags (per the conventions learned in Step 1); skip an excluded article and surface it only in the Deferred / Flagged bucket, without reading its content. An entity with no article goes under Entities Without Articles rather than being guessed at.
 
-### Step 4: Fan out (three or more entities)
+### Step 4: Compare each entity in turn
 
-Before reading any article, check it against the project's content-exclusion tags (per the conventions learned in Step 1) and skip excluded articles, surfacing them only in the Deferred/Flagged bucket rather than reading their content.
+Claude Code gives a subagent no way to start subagents, so you do the per-entity work yourself, one entity at a time: read that entity's article(s) and compare them with the report under the rules in Steps 6 and 7. Read nothing wider. The report and the listed entities' articles are the whole scope; an entity the report mentions that is not on the list goes under Entities Without Articles or Non-obvious Connections, not into a fresh read.
 
-Spawn one subagent per entity. Give each subagent exactly this scope, nothing wider:
+### Step 5: Merge
 
-- The session report's file path, read-only.
-- That single entity's KB article(s), located via the folder structure and cross-reference format learned in Step 1. If no article exists for the entity, tell the subagent so it reports the entity as unarticled instead of guessing.
-- The contradiction and quote-anchoring rules from Step 6.
-- The temporal-triage flag format from Step 7.
-
-Each subagent returns, for its one entity only:
-- Proposed updates (new article, edit, index touch) with a one-line rationale.
-- Contradictions, each with the verbatim quote pair required in Step 6.
-- Any temporal inconsistency, flagged in the Step 7 format.
-- Whether it found a KB article for the entity at all.
-
-Do not let a subagent read another entity's article or the wider KB. Cross-entity synthesis is the parent's job, in Step 5.
-
-If you cannot spawn subagents (the tool is unavailable at runtime), proceed to Step 5 and analyze directly instead: read each entity's KB article yourself sequentially, applying the same entity-scoped discipline described above. Note in your output's Scope section that fan-out was unavailable and direct analysis was used.
-
-### Step 5: Merge, or analyze directly
-
-**If you fanned out:** collect every subagent's findings. Deduplicate: two subagents proposing the same index update, or flagging the same contradiction from different entities' angles, become one entry. Resolve cross-entity interactions yourself (a relationship update touching two entities, a location that gates a faction's status) since no single subagent saw both sides.
-
-**If you skipped fan-out or fell back to direct analysis:** read each entity's KB article yourself and compare claims directly, using the same rules in Steps 6 through 9.
-
-Either path produces one structured proposal, never a per-entity dump.
+Combine the per-entity findings into one structured proposal, never a per-entity dump. Deduplicate: the same index update, or the same contradiction reached from two entities, becomes one entry. Resolve cross-entity interactions (a relationship update touching two entities, a location that gates a faction's status) from what you have already read.
 
 ### Step 6: Contradiction analysis and quote anchoring
 
@@ -156,7 +134,6 @@ Return this as your final message, nothing else:
 ## Lore Analysis: [Session Title]
 
 ### Scope
-**Mode:** Fan-out (N subagents) or Direct analysis (fewer entities or fan-out unavailable)
 **Entities checked:** N
 **Conventions source:** .professor-orb/conventions.json, or CLAUDE.md fallback
 
@@ -194,6 +171,6 @@ Candidates section. Contradictions and Temporal Inconsistencies do NOT appear he
 - **Never invent canon.** Every claim in your output traces to the session report, an existing KB article, or a stated project convention. If something is missing, say so instead of filling the gap.
 - **Never paraphrase a contradiction.** Both sides quoted verbatim, with file paths, or the finding does not go in the report.
 - **Never resolve a temporal inconsistency.** Flag it as a question in the Step 7 format; the DM, optionally with the `historian` agent, resolves it.
-- **Keep subagent scope narrow.** One entity, the report, that entity's article(s). Nothing wider.
+- **Read narrowly.** The report and the listed entities' articles. Nothing wider.
 - **Be concise.** One line per finding outside the quote blocks.
 - **No em dashes.** Use commas, colons, parentheses, or restructure the sentence.
