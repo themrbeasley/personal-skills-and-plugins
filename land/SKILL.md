@@ -1,8 +1,7 @@
 ---
 name: land
-description: Commits the current branch's work, merges it into local main, and pushes main to origin once you confirm.
+description: Commits the current branch's work, merges it into local main, and pushes main to origin once you confirm. Use when the user says land it, merge to main, finish the branch, or ship it.
 argument-hint: "[summary for the merge title]"
-disable-model-invocation: true
 ---
 
 # /land

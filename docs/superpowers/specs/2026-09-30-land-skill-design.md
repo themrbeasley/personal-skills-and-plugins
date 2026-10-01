@@ -13,11 +13,11 @@ Success looks like this:
 - In this repo, `/land` does everything the old command did, and also offers a version bump for foundryvtt (or any other plugin in `marketplace.json`) when the branch changed it.
 - In rolara, `/land` still fast-forwards only and adds the `log.jsonl` row, because rolara's `CLAUDE.md` says so.
 - In any other repo, `/land` lands work correctly with nothing in the skill written for that repo, including repos whose main branch is `master` and repos with no GitHub copy.
-- The skill costs no context until typed.
+- Claude runs it when asked to land in words, as well as when `/land` is typed.
 
 ## Decisions (settled 2026-09-30)
 
-1. **User level, typed only.** The skill is `~/.claude/skills/land/SKILL.md` with `disable-model-invocation: true`, so its description stays out of every session until `/land` is typed. The description is one short line.
+1. **User level, callable by Claude.** The skill is `~/.claude/skills/land/SKILL.md`. **Reversed 2026-10-01:** it first shipped with `disable-model-invocation: true` so its description cost no context until typed, which meant Claude could no longer run it when asked ("land it, boss") and the user had to type `/land`. The user's call: requiring the typed command when Claude already knows the skill is wrong. The switch is gone; the description says when to use it. Don't add it back.
 2. **Master copy in this repo, linked.** The source is a new top-level folder, `land/`. `~/.claude/skills/land` is a folder junction to the main checkout's `land/`, so a skill change goes live when it lands on `main`. `~/.claude` has no history; this repo does.
 3. **Repo rules come from `CLAUDE.md`.** The skill reads the repo's `CLAUDE.md` and the `CLAUDE.md` of each top-level folder the branch changed. A heading named "Landing" holds anything that differs from the defaults. Repos on the defaults add nothing.
 4. **rolara folds in.** Its three special rules become a two-line Landing section (linking files at the main checkout becomes a default everywhere). Its rule about deleting the session branch's GitHub copy is dropped.
@@ -34,7 +34,7 @@ Success looks like this:
 
 ## The skill
 
-Frontmatter: `name: land`, a one-line `description`, `argument-hint: "[summary for the merge title]"`, `disable-model-invocation: true`.
+Frontmatter: `name: land`, a one-line `description` that says when to use it, and `argument-hint: "[summary for the merge title]"`. No `disable-model-invocation` (decision 1).
 
 Every git command on the main checkout is written `git -C "<MAIN>" …`. Staging uses `:(literal)` pathspecs.
 
