@@ -1,12 +1,13 @@
-# claude-reflect
+# beas-reflect
 
-[![GitHub stars](https://img.shields.io/github/stars/BayramAnnakov/claude-reflect?style=flat-square)](https://github.com/BayramAnnakov/claude-reflect/stargazers)
-[![Version](https://img.shields.io/badge/version-3.2.0-blue?style=flat-square)](https://github.com/BayramAnnakov/claude-reflect/releases)
-[![License: MIT](https://img.shields.io/badge/License-MIT-green?style=flat-square)](https://opensource.org/licenses/MIT)
-[![Tests](https://img.shields.io/badge/tests-322%20passing-brightgreen?style=flat-square)](https://github.com/BayramAnnakov/claude-reflect/actions)
-[![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20Windows-lightgrey?style=flat-square)](https://github.com/BayramAnnakov/claude-reflect#platform-support)
+Based on [claude-reflect](https://github.com/BayramAnnakov/claude-reflect) by Bayram Annakov (MIT license). A self-learning system for Claude Code: it captures your corrections and discovers workflow patterns, then turns them into permanent memory and reusable skills.
 
-A self-learning system for Claude Code that captures corrections and discovers workflow patterns — turning them into permanent memory and reusable skills.
+## What's different from claude-reflect
+
+- **Every note is written as the action to take.** "don't add docstrings unless I ask" becomes "Write docstrings only when the user asks for them"; "never commit .env files" becomes "Keep .env files out of commits". Each note names the thing it is about and carries your reason after a colon when you gave one.
+- **The plugin's own instructions to Claude are written the same way**, and a test keeps prohibitions out of them.
+- **Semantic analysis works**: it returns answers, runs without loading your whole setup (about 3,000 input tokens per check instead of 70,000), saves nothing into your project history, and handles non-English text on Windows.
+- **The evidence** is in [docs/eval-results.md](docs/eval-results.md). In short: in a 30-rule memory, "Never use em dashes" stopped working on tasks unrelated to writing (14 of 20 replies slipped, the same as no rule), while "Keep em dashes out of all text" held (1 of 20).
 
 ## What it does
 
@@ -48,11 +49,11 @@ Example: You've asked "review my productivity" 12 times → suggests creating `/
 ## Installation
 
 ```bash
-# Add the marketplace
-claude plugin marketplace add bayramannakov/claude-reflect
+# Add the professor-orb marketplace (this repo), once
+claude plugin marketplace add themrbeasley/personal-skills-and-plugins
 
-# Install the plugin
-claude plugin install claude-reflect@claude-reflect-marketplace
+# Install the plugin at user level
+claude plugin install beas-reflect@professor-orb-marketplace --scope user
 
 # IMPORTANT: Restart Claude Code to activate the plugin
 ```
@@ -93,7 +94,6 @@ After installation, **restart Claude Code** (exit and reopen). Then hooks auto-c
 
 ## How It Works
 
-![claude-reflect in action](assets/reflect-demo.jpg)
 
 ### Two-Stage Process
 
@@ -114,7 +114,7 @@ Run `/reflect` to review and apply queued learnings to CLAUDE.md.
 
 ### Detection Methods
 
-Claude-reflect uses a **hybrid detection approach**:
+beas-reflect uses a **hybrid detection approach**:
 
 **1. Regex patterns (real-time capture)**
 
@@ -264,48 +264,36 @@ User: "no, always run tests before deploying"
 
 This makes skills smarter over time, not just CLAUDE.md.
 
-## Upgrading
+## Switching from claude-reflect
 
-### From v2.0.x or earlier
-
-If you see errors like "Duplicate hooks file detected" or "No such file or directory" after updating, you need to clear the plugin cache. This is due to known Claude Code caching issues:
-- [#14061](https://github.com/anthropics/claude-code/issues/14061) - `/plugin update` doesn't invalidate cache
-- [#15369](https://github.com/anthropics/claude-code/issues/15369) - Uninstall doesn't clear cached files
+Install one or the other: both capture the same corrections into the same queue file, so having both installed saves every correction twice. Corrections already waiting in the queue carry over.
 
 ```bash
-# 1. Uninstall the plugin
-claude plugin uninstall claude-reflect@claude-reflect-marketplace
-
-# 2. Clear both caches (required!)
-rm -rf ~/.claude/plugins/marketplaces/claude-reflect-marketplace
-rm -rf ~/.claude/plugins/cache/claude-reflect-marketplace
-
-# 3. Exit Claude Code completely (restart terminal or close app)
-
-# 4. Reinstall
-claude plugin install claude-reflect@claude-reflect-marketplace
+claude plugin uninstall claude-reflect@claude-reflect-marketplace --scope user
+claude plugin install beas-reflect@professor-orb-marketplace --scope user
+# Restart Claude Code
 ```
 
-### Standard Update
+## Updating
 
-For normal updates (when no cache issues):
+A change reaches Claude Code only when `version` goes up in both `beas-reflect/.claude-plugin/plugin.json` and the plugin's entry in `.claude-plugin/marketplace.json`. Then:
 
 ```bash
-# Use the /plugin menu in Claude Code
-/plugin
-# Select "Update now" for claude-reflect
+claude plugin marketplace update professor-orb-marketplace
+claude plugin update beas-reflect@professor-orb-marketplace
+# Restart Claude Code
 ```
 
 ## Uninstall
 
 ```bash
-claude plugin uninstall claude-reflect@claude-reflect-marketplace
+claude plugin uninstall beas-reflect@professor-orb-marketplace
 ```
 
 ## File Structure
 
 ```
-claude-reflect/
+beas-reflect/
 ├── .claude-plugin/
 │   └── plugin.json         # Plugin manifest (auto-registers hooks)
 ├── commands/
@@ -335,7 +323,7 @@ claude-reflect/
 
 ### Historical Scan
 
-First time using claude-reflect? Run:
+First time using beas-reflect? Run:
 
 ```bash
 /reflect --scan-history
@@ -398,7 +386,7 @@ After:
 
 6. **Skills get smarter** - When you correct Claude during a skill, that correction can be routed back to the skill file itself via `/reflect`
 
-7. **Extend session retention** - Claude Code deletes local sessions after 30 days by default. Since claude-reflect relies on session history for `/reflect --scan-history` and `/reflect-skills`, extend this in `~/.claude/settings.json`:
+7. **Extend session retention** - Claude Code deletes local sessions after 30 days by default. Since beas-reflect relies on session history for `/reflect --scan-history` and `/reflect-skills`, extend this in `~/.claude/settings.json`:
    ```json
    { "cleanupPeriodDays": 99999 }
    ```

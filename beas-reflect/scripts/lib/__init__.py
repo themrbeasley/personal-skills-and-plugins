@@ -1,1 +1,1 @@
-"""Claude-reflect shared utilities."""
+"""beas-reflect shared utilities."""

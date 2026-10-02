@@ -1,11 +1,16 @@
 # Changelog
 
-All notable changes to claude-reflect will be documented in this file.
+All notable changes to beas-reflect will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.0.0] - 2026-10-02
+
+First release of **beas-reflect**, copied from [claude-reflect](https://github.com/BayramAnnakov/claude-reflect) 3.2.0 (commit 2c892ca) by Bayram Annakov. The entries in this section are what beas-reflect changed; every section after it is claude-reflect's own history.
+
+### Renamed
+- **The plugin is beas-reflect**, listed in the professor-orb marketplace. Commands keep their names (`/reflect`, `/reflect-skills`, `/skip-reflect`, `/view-queue`), and the queue files keep theirs, so corrections waiting from claude-reflect carry over. The hidden AGENTS.md section tag still reads `claude-reflect`, so sections the original wrote are still found and updated.
 
 ### Changed
 - **Learnings are written as the action to take.** `/reflect` now words every entry with the move first and the user's reason after a colon, and names only the chosen option: "Write docstrings only when the user asks for them" where it used to write "Don't add docstrings to code unless explicitly asked". An outright ban becomes the move that keeps it out, with the user's scope ("never log secrets" becomes "Keep secrets out of logs"); only a ban the user lifts on request becomes "only when the user asks"; an entry with no reason from the user ends after the move. The extraction and error-guideline prompts, the guardrail card, and the error templates follow the same rule. Eval 1 (sonnet, 15 corrections x 3 runs): entries holding "don't", "do not" or "never" anywhere fell from 20/45 to 0/45 (extraction prompt) and 20/45 to 0/45 (formatting rules); entries naming the rejected option fell from 24/24 to 0/24 and 2/24.

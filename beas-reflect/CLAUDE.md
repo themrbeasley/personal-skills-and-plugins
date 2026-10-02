@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-claude-reflect is a Claude Code plugin that implements a two-stage self-learning system:
+beas-reflect is a Claude Code plugin, based on Bayram Annakov's claude-reflect, that implements a two-stage self-learning system:
 1. **Capture Stage** (automatic): Hooks detect correction patterns in user prompts and queue them
 2. **Process Stage** (manual): `/reflect` command processes queued learnings with human review and writes to CLAUDE.md files
 
@@ -23,7 +23,7 @@ tests/                      → Test suite (pytest)
 
 ### Data Flow
 
-1. User prompt → `capture_learning.py` (UserPromptSubmit hook) → `~/.claude/learnings-queue.json`
+1. User prompt → `capture_learning.py` (UserPromptSubmit hook) → `~/.claude/projects/[PROJECT_FOLDER]/learnings-queue.json`
 2. `/reflect` command → reads queue + scans sessions → filters/dedupes → routes to memory targets
 3. Session files live at `~/.claude/projects/[PROJECT_FOLDER]/*.jsonl`
 
@@ -59,8 +59,8 @@ tests/                      → Test suite (pytest)
 # Test capture hook with simulated input
 echo '{"prompt":"no, use gpt-5.1 not gpt-5"}' | python3 scripts/capture_learning.py
 
-# View current learnings queue
-cat ~/.claude/learnings-queue.json
+# View this project's learnings queue
+python3 scripts/read_queue.py
 
 # Test session extraction
 python3 scripts/extract_session_learnings.py ~/.claude/projects/[PROJECT]/*.jsonl --corrections-only
@@ -68,8 +68,8 @@ python3 scripts/extract_session_learnings.py ~/.claude/projects/[PROJECT]/*.json
 # Run tests
 python -m pytest tests/ -v
 
-# Clear queue for testing
-echo "[]" > ~/.claude/learnings-queue.json
+# Clear this project's queue for testing
+python3 scripts/clear_queue.py
 ```
 
 ## Plugin Structure
@@ -194,4 +194,4 @@ Requires Python 3.6+.
 
 ## Releasing
 
-See [RELEASING.md](RELEASING.md) for version bump checklist and release process.
+Raise `version` in both `beas-reflect/.claude-plugin/plugin.json` and this plugin's entry in the repo's `.claude-plugin/marketplace.json`; they must match. Installs are cached by version, so a change reaches Claude Code only when the number goes up. Add a CHANGELOG entry for the new version.

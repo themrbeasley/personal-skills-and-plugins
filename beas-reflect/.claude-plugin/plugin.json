@@ -1,12 +1,12 @@
 {
-  "name": "claude-reflect",
-  "version": "3.2.0",
-  "description": "Self-learning system for Claude Code that captures corrections and updates CLAUDE.md automatically",
+  "name": "beas-reflect",
+  "version": "1.0.0",
+  "description": "Captures your corrections and turns them into CLAUDE.md notes written as the action to take. Based on claude-reflect by Bayram Annakov.",
   "author": {
-    "name": "Bayram Annakov",
-    "url": "https://github.com/bayramannakov"
+    "name": "Mr. Beasley",
+    "url": "https://github.com/themrbeasley"
   },
-  "repository": "https://github.com/bayramannakov/claude-reflect",
+  "repository": "https://github.com/themrbeasley/personal-skills-and-plugins",
   "license": "MIT",
   "keywords": [
     "claude-code",

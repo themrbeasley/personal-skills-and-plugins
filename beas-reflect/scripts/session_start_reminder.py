@@ -25,7 +25,7 @@ def main() -> int:
     cleanup_days = get_cleanup_period_days()
     if cleanup_days is None or cleanup_days <= 30:
         print(f"\n⚠️  Claude Code deletes sessions after {cleanup_days or 30} days.")
-        print(f"   claude-reflect needs session history for /reflect and /reflect-skills.")
+        print(f"   beas-reflect needs session history for /reflect and /reflect-skills.")
         print(f"   Extend retention: add {{\"cleanupPeriodDays\": 99999}} to ~/.claude/settings.json")
 
     items = load_queue()

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Print the resolved claude-reflect paths for a project, as JSON.
+"""Print the resolved beas-reflect paths for a project, as JSON.
 
 Slash commands call this instead of re-deriving the project folder in shell.
 Three separate copies of that shell logic had drifted out of sync with

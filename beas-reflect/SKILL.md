@@ -1,9 +1,9 @@
 ---
-name: claude-reflect
+name: beas-reflect
 description: Self-learning system that captures corrections during sessions and reminds users to run /reflect to update CLAUDE.md. Use when discussing learnings, corrections, or when the user mentions remembering something for future sessions.
 ---
 
-# Claude Reflect - Self-Learning System
+# beas-reflect: Self-Learning System
 
 A two-stage system that helps Claude Code learn from user corrections.
 

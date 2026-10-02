@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Integration tests for claude-reflect scripts.
+"""Integration tests for beas-reflect scripts.
 
 These tests verify that both bash and Python versions produce the same results.
 Run with: python -m pytest tests/test_integration.py -v

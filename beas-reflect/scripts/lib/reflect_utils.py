@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Shared utilities for claude-reflect hooks and scripts.
+"""Shared utilities for beas-reflect hooks and scripts.
 
 Cross-platform compatible (Windows, macOS, Linux).
 """
@@ -795,7 +795,7 @@ def get_project_folder_name(project_dir: Optional[str] = None) -> str:
 
 
 def migrate_legacy_project_folder(project_dir: Optional[str] = None) -> None:
-    """Move claude-reflect's files out of a folder the pre-3.2 encoder created.
+    """Move this plugin's files out of a folder the old (pre-3.2) encoder created.
 
     The old encoder replaced only path separators, so a project path holding
     ``_``, ``.`` or a space (``/Users/bob/my_app``) got its queue written to

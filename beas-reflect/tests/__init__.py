@@ -1,1 +1,1 @@
-"""Tests for claude-reflect Python scripts."""
+"""Tests for beas-reflect Python scripts."""
