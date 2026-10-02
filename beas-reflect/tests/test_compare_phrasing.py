@@ -90,6 +90,18 @@ class TestSlipScoring(unittest.TestCase):
         self.assertTrue(prompt.rstrip().endswith("Do the task."))
 
 
+class TestGitLookup(unittest.TestCase):
+    """The before-version lookup for the entries comparison."""
+
+    def test_git_show_reads_paths_relative_to_the_plugin(self):
+        import subprocess
+        inside = subprocess.run(["git", "rev-parse", "--is-inside-work-tree"], cwd=str(cp.ROOT),
+                                capture_output=True, text=True)
+        if inside.stdout.strip() != "true":
+            self.skipTest("not a git checkout")
+        self.assertIn("name:", cp._git_show("HEAD", "SKILL.md"))
+
+
 class TestRulebook(unittest.TestCase):
     """The many-rule memory for the harder slip test."""
 

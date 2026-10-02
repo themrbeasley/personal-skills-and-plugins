@@ -13,7 +13,7 @@ Two comparisons, both run through the isolated `_run_claude()` call:
 Usage:
   python scripts/compare_phrasing.py slips --pilot
   python scripts/compare_phrasing.py slips --runs 20 --cases E,D,F,S,M
-  python scripts/compare_phrasing.py entries --before isolate-semantic-calls --runs 3
+  python scripts/compare_phrasing.py entries --before HEAD --runs 3   # working tree vs last commit
 
 Needs Python 3.8+ (math.comb) and the Claude CLI on PATH.
 """
@@ -246,7 +246,7 @@ def cmd_slips(args) -> None:
 # --- entries (Eval 1) --------------------------------------------------------
 
 def _git_show(ref: str, path: str) -> str:
-    return subprocess.run(["git", "show", "%s:%s" % (ref, path)], cwd=str(ROOT),
+    return subprocess.run(["git", "show", "%s:./%s" % (ref, path)], cwd=str(ROOT),
                           capture_output=True, text=True, encoding="utf-8", check=True).stdout
 
 
@@ -340,7 +340,7 @@ def main() -> None:
                                       help="cases file, for trying a variant wording without editing the shared one")
     sub.choices["slips"].add_argument("--rulebook", action="store_true",
                                       help="store every rule (25 filler + all targets) in one phrasing")
-    sub.choices["entries"].add_argument("--before", default="isolate-semantic-calls")
+    sub.choices["entries"].add_argument("--before", default="HEAD")
     sub.choices["entries"].add_argument("--stage", choices=["A", "B", "both"], default="both")
     args = parser.parse_args()
     {"slips": cmd_slips, "entries": cmd_entries}[args.command](args)
