@@ -1,7 +1,7 @@
 # Move our claude-reflect version into the professor-orb marketplace as beas-reflect
 
 - **Date:** 2026-10-02
-- **Status:** awaiting your review
+- **Status:** approved 2026-10-02; steps 1 to 6 done (313 tests pass, plugin and marketplace validate, /beas-reflect:view-queue loads); landing and the swap wait for your OK
 - **Scope (approved 2026-10-02):** copy our version into the plugins repo as `beas-reflect`, list it in the professor-orb marketplace, and replace the user-level claude-reflect install with it.
 
 ## Where things are now
