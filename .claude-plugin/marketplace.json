@@ -16,6 +16,12 @@
       "description": "Foundry VTT toolkit. live-test tries a module, macro or automation change in a signed-in world through the browser, on throwaway actors, logging problems to a report instead of fixing mid-wave.",
       "version": "1.0.2",
       "source": "./foundryvtt"
+    },
+    {
+      "name": "beas-reflect",
+      "description": "Captures your corrections and turns them into CLAUDE.md notes written as the action to take, naming the thing each note is about. Based on claude-reflect by Bayram Annakov.",
+      "version": "1.0.0",
+      "source": "./beas-reflect"
     }
   ]
 }

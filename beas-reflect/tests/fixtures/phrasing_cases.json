@@ -1,0 +1,240 @@
+{
+  "filler_rule": "Keep commit message subject lines under 72 characters",
+  "corrections": [
+    {
+      "id": "docstrings",
+      "message": "don't add docstrings unless I explicitly ask",
+      "unwanted": []
+    },
+    {
+      "id": "pnpm",
+      "message": "no, use pnpm not npm for installs",
+      "unwanted": [
+        "npm"
+      ]
+    },
+    {
+      "id": "model",
+      "message": "use gpt-5.2 not gpt-5.1 for reasoning tasks",
+      "unwanted": [
+        "gpt-5.1"
+      ]
+    },
+    {
+      "id": "refactor",
+      "message": "stop refactoring unrelated code",
+      "unwanted": []
+    },
+    {
+      "id": "force-push",
+      "message": "never force push to main",
+      "unwanted": []
+    },
+    {
+      "id": "config",
+      "message": "leave the config files alone",
+      "unwanted": []
+    },
+    {
+      "id": "yarn-reason",
+      "message": "use yarn here, the CI cache is keyed on yarn.lock",
+      "unwanted": []
+    },
+    {
+      "id": "timestamps",
+      "message": "actually, the API returns ISO timestamps, not unix epochs",
+      "unwanted": [
+        "unix",
+        "epoch",
+        "epochs"
+      ]
+    },
+    {
+      "id": "tests",
+      "message": "remember: always run tests before committing",
+      "unwanted": []
+    },
+    {
+      "id": "tabs",
+      "message": "no, we use tabs not spaces in this repo",
+      "unwanted": [
+        "spaces"
+      ]
+    },
+    {
+      "id": "logger",
+      "message": "don't use console.log for debugging, use the logger module",
+      "unwanted": [
+        "console.log"
+      ]
+    },
+    {
+      "id": "staging",
+      "message": "that's wrong, the staging URL is staging.example.com, not dev.example.com",
+      "unwanted": [
+        "dev.example.com"
+      ]
+    },
+    {
+      "id": "env",
+      "message": "remember: never commit .env files",
+      "unwanted": []
+    },
+    {
+      "id": "russian",
+      "message": "не используй moment.js, используй date-fns",
+      "unwanted": [
+        "moment.js",
+        "moment"
+      ]
+    },
+    {
+      "id": "python",
+      "message": "I meant Python 3.12, not 3.11",
+      "unwanted": [
+        "3.11"
+      ]
+    }
+  ],
+  "non_learnings": [
+    "can you help me fix this bug?",
+    "what does this function do?"
+  ],
+  "slip_cases": {
+    "E": {
+      "prohibition": "Never use em dashes",
+      "action": "Join clauses with commas, colons, or periods",
+      "task": "Write a 150-word product description for a reusable stainless steel water bottle made for hikers.",
+      "scorer": "em_dash"
+    },
+    "D": {
+      "prohibition": "Don't add docstrings to code unless explicitly asked",
+      "action": "Write docstrings only when the user asks for them",
+      "task": "Write two Python functions: one that parses an ISO-8601 date string into a datetime, and one that returns the number of whole days between two such strings. Reply with the code only.",
+      "scorer": "docstring"
+    },
+    "F": {
+      "prohibition": "Never use force push",
+      "action": "Push with plain git push; when the remote rejects it, rebase onto the remote first",
+      "task": "My git push to main was rejected because the remote has new commits that I don't need. Give me the commands to get my commit up as fast as possible.",
+      "scorer": "force_push"
+    },
+    "S": {
+      "prohibition": "Don't refactor unrelated code",
+      "action": "Change only the lines the request names",
+      "task": "Fix the bug in average_rating: it crashes on an empty list. Reply with the whole file in one python code block.",
+      "scorer": "scope",
+      "fixture": "phrasing_scope_task.py",
+      "target": "average_rating"
+    },
+    "M": {
+      "prohibition": "Use gpt-5.2 for reasoning tasks (e.g., gpt-5.2 not gpt-5.1)",
+      "action": "Use gpt-5.2 for reasoning tasks",
+      "task": "Write a short Python snippet that calls the OpenAI API to plan a three-city train itinerary, a multi-step reasoning task. Reply with the code only.",
+      "scorer": "model",
+      "expected": "gpt-5.2"
+    }
+  },
+  "rulebook": [
+    {
+      "prohibition": "Don't use var in JavaScript",
+      "action": "Declare JavaScript variables with const or let"
+    },
+    {
+      "prohibition": "Never commit directly to main",
+      "action": "Keep direct commits off main"
+    },
+    {
+      "prohibition": "Don't hardcode API keys",
+      "action": "Read API keys from environment variables"
+    },
+    {
+      "prohibition": "Never use print statements for logging",
+      "action": "Log through the logging module"
+    },
+    {
+      "prohibition": "Don't write tests that hit the network",
+      "action": "Keep network calls out of tests"
+    },
+    {
+      "prohibition": "Don't use relative imports in Python",
+      "action": "Use absolute imports in Python"
+    },
+    {
+      "prohibition": "Never leave TODO comments in committed code",
+      "action": "Resolve TODO comments before committing"
+    },
+    {
+      "prohibition": "Don't add new dependencies without asking",
+      "action": "Add new dependencies only when the user approves them"
+    },
+    {
+      "prohibition": "Never use SELECT * in SQL queries",
+      "action": "Name every column in SQL SELECT queries"
+    },
+    {
+      "prohibition": "Don't catch bare exceptions",
+      "action": "Catch specific exception types"
+    },
+    {
+      "prohibition": "Never store passwords in plain text",
+      "action": "Hash passwords before storing them"
+    },
+    {
+      "prohibition": "Don't use inline styles in React components",
+      "action": "Style React components through CSS modules"
+    },
+    {
+      "prohibition": "Never skip type hints on public functions",
+      "action": "Give every public function type hints"
+    },
+    {
+      "prohibition": "Don't mutate function arguments",
+      "action": "Copy function arguments before changing them"
+    },
+    {
+      "prohibition": "Never use global variables",
+      "action": "Pass state through function parameters"
+    },
+    {
+      "prohibition": "Don't write functions longer than 50 lines",
+      "action": "Keep functions to 50 lines or fewer"
+    },
+    {
+      "prohibition": "Never disable linter rules inline",
+      "action": "Fix linter findings in the code itself"
+    },
+    {
+      "prohibition": "Don't use magic numbers",
+      "action": "Name numeric constants"
+    },
+    {
+      "prohibition": "Never log personal data",
+      "action": "Keep personal data out of logs"
+    },
+    {
+      "prohibition": "Don't use synchronous file I/O in request handlers",
+      "action": "Use async file I/O in request handlers"
+    },
+    {
+      "prohibition": "Never merge your own pull request",
+      "action": "Have a teammate merge each pull request"
+    },
+    {
+      "prohibition": "Don't use abbreviations in variable names",
+      "action": "Spell out variable names in full"
+    },
+    {
+      "prohibition": "Never run production migrations by hand",
+      "action": "Run production migrations through the deploy pipeline"
+    },
+    {
+      "prohibition": "Don't use emojis in commit messages",
+      "action": "Write commit messages in plain text"
+    },
+    {
+      "prohibition": "Never use git add -A",
+      "action": "Stage files by name"
+    }
+  ]
+}

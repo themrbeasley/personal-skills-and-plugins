@@ -1,0 +1,19 @@
+{
+  "name": "beas-reflect",
+  "version": "1.0.0",
+  "description": "Captures your corrections and turns them into CLAUDE.md notes written as the action to take. Based on claude-reflect by Bayram Annakov.",
+  "author": {
+    "name": "Mr. Beasley",
+    "url": "https://github.com/themrbeasley"
+  },
+  "repository": "https://github.com/themrbeasley/personal-skills-and-plugins",
+  "license": "MIT",
+  "keywords": [
+    "claude-code",
+    "self-learning",
+    "corrections",
+    "CLAUDE.md",
+    "memory",
+    "learnings"
+  ]
+}
