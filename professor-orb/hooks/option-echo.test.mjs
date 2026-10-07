@@ -383,6 +383,23 @@ console.log("an edit is checked only where it wrote:");
   });
   check("an edit whose new text is not in the file checks the whole body", r.output.includes("contentOptionEcho"), true);
   rmSync(f.dir, { recursive: true, force: true });
+
+  // Only optionEcho reads the pre-edit body. Every other rule still checks the
+  // whole file, so an em dash on a line the edit never touched is still caught.
+  // The em dash rule ships as a warning and a warning's text never reaches a
+  // passing run's output here, so this fixture raises it to a block.
+  const g = fixture("edit-other-rules", "The crew left—quietly.\n\nThe crew went home.", OFFERED, said);
+  const convPath = path.join(g.dir, ".professor-orb", "conventions.json");
+  const conv = JSON.parse(readFileSync(convPath, "utf8"));
+  conv.settings[0].rules.contentNoEmDashes.enforcement = "block";
+  writeFileSync(convPath, JSON.stringify(conv));
+  writeFileSync(g.file, readFileSync(g.file, "utf8").replace("The crew went home.", "The crew went home after midnight."));
+  const r2 = runValidator(g.dir, g.file, g.transcript, "s1", {
+    toolName: "Edit",
+    toolInput: { old_string: "The crew went home.", new_string: "The crew went home after midnight." },
+  });
+  check("an edit still runs every other rule over the whole file", r2.output.includes("contentNoEmDashes"), true);
+  rmSync(g.dir, { recursive: true, force: true });
 })();
 
 console.log("fail-silent contract:");

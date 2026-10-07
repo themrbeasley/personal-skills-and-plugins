@@ -10,6 +10,12 @@
 //
 // Nearest wins: a worktree under .claude/worktrees/ carries its own
 // .professor-orb and must never resolve to the checkout around it.
+//
+// Known limit: a folder that never ran setup but sits inside one that did
+// resolves to the outer project. Its files then fall outside the outer project's
+// prong roots, so block-excluded lets them through where its no-conventions
+// fallback used to check every markdown file. Setup tracks .professor-orb, so a
+// worktree of a set-up project has its own and does not hit this.
 
 import { existsSync } from "node:fs";
 import path from "node:path";

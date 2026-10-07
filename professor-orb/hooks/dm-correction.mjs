@@ -112,9 +112,9 @@ function searchTerms(text) {
 }
 
 // The parsed conventions file, or null when it is absent or unreadable.
-function readConventions(cwd) {
+function readConventions(projectRoot) {
   try {
-    const conventions = JSON.parse(readFileSync(path.resolve(cwd, ".professor-orb", "conventions.json"), "utf8"));
+    const conventions = JSON.parse(readFileSync(path.resolve(projectRoot, ".professor-orb", "conventions.json"), "utf8"));
     return conventions && typeof conventions === "object" ? conventions : null;
   } catch {
     return null;
@@ -127,7 +127,7 @@ function readConventions(cwd) {
 // correction preamble plus an explicit "could not locate it" message. An empty
 // array here means the search found nothing to look in, not that the hook
 // failed to run.
-function laneRoots(conventions, cwd) {
+function laneRoots(conventions, projectRoot) {
   if (!conventions) return [];
 
   const settings = Array.isArray(conventions.settings) ? conventions.settings : [];
@@ -145,7 +145,7 @@ function laneRoots(conventions, cwd) {
 
   const roots = [];
   for (const rel of candidates) {
-    const abs = path.resolve(cwd, rel);
+    const abs = path.resolve(projectRoot, rel);
     try {
       if (statSync(abs).isDirectory()) roots.push(abs);
     } catch {
