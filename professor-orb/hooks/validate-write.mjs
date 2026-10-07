@@ -865,17 +865,31 @@ function dmMessages(transcriptPath) {
 // covers the DM's own prose case. This check's job stops at "the DM
 // substantially wrote this", not "the DM endorsed this".
 //
-// The homebrew prong is exempt. This check guards records of what happened,
-// where an option only points at a topic. In a homebrew design the option IS
-// the decision: the homebrew skill routes every structured rules call through
-// AskUserQuestion, and /catalog runs on text the DM already confirmed. On
-// 2026-09-29 this check blocked a spell entry whose rule the DM had picked,
-// reviewed, and cataloged, and no confirmation could clear it. The exemption
-// lives here rather than as a rule `scope` because setup's resync detects
-// drift by rule ID only, so a changed scope would never reach an installed
-// project.
+// Two places are exempt: the homebrew prong and prep briefs. This check guards
+// records of what happened, where an option only points at a topic. In both
+// exempt places the option IS the decision. The homebrew skill routes every
+// structured rules call through AskUserQuestion, and /catalog runs on text the
+// DM already confirmed; on 2026-09-29 this check blocked a spell entry whose
+// rule the DM had picked, reviewed, and cataloged, and no confirmation could
+// clear it. Prep writes each north star the DM picks from report-drawn options
+// in the same "Last session / Next" form as the option, so on 2026-10-07 this
+// check blocked a brief's first north star by construction. A brief is a plan,
+// and nothing downstream reads it as a record: chronicler takes only its Lore
+// Resolution list.
+//
+// Prep is NOT exempted by accepting a sentence whose words appear in an earlier
+// session report. Containment cannot tell planned from happened: a report line
+// saying someone "meets the party next session" would let a later report say
+// they met the party, which is the 2026-09-18 failure again.
+//
+// Both exemptions live here rather than as a rule `scope` because setup's
+// resync detects drift by rule ID only, so a changed scope would never reach
+// an installed project.
+const PREP_BRIEF = /-PREP\.md$/i;
+
 function checkOptionEcho(params, ctx) {
   if (ctx.prongKind === "homebrew") return true;
+  if (ctx.prongKind === "session-reports" && PREP_BRIEF.test(ctx.fileName)) return true;
   const minWords = typeof params.minContentWords === "number" ? params.minContentWords : 4;
   const threshold = typeof params.overlapThreshold === "number" ? params.overlapThreshold : 0.4;
   const proseThreshold = typeof params.proseThreshold === "number" ? params.proseThreshold : 0.5;

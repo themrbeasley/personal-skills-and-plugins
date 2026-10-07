@@ -241,6 +241,27 @@ console.log("the homebrew catalog is exempt:");
   rmSync(dir, { recursive: true, force: true });
 })();
 
+// The 2026-10-07 North Star 1 and the option it was drawn from, verbatim from
+// that session's options record and block message.
+const NORTH_STAR_OPTION =
+  "Horatio at Large Luigi's. Last session: Zelex drew Donjon and vanished. Next: Jace's Giff Drunken Master, Horatio Fastfist, meets the party at Large Luigi's Happy Beholder while they wait on Gwen.";
+const NORTH_STAR =
+  "**Last session:** Zelex drew Donjon and vanished, and Jace's new PC was set to meet the party at Large Luigi's Happy Beholder while they wait on Gwen.";
+
+console.log("prep briefs are exempt:");
+(function () {
+  // Prep writes a north star in the same two-part form as the option the DM
+  // picked it from, so it echoes that option by construction. The same
+  // sentence in a report still blocks.
+  const { dir, file, transcript } = fixture("prep", NORTH_STAR, [NORTH_STAR_OPTION], "let's prep tonight");
+  check("the north star blocks in a report", runValidator(dir, file, transcript).output.includes("contentOptionEcho"), true);
+  const brief = path.join(dir, "session-reports", "adjustice", "clean-hands", "prep", "2026-10-07-TBD-PREP.md");
+  mkdirSync(path.dirname(brief), { recursive: true });
+  writeFileSync(brief, ["---", "type: Session Prep", "---", "", NORTH_STAR, ""].join("\n"));
+  check("the same north star passes in a prep brief", runValidator(dir, brief, transcript).output.includes("contentOptionEcho"), false);
+  rmSync(dir, { recursive: true, force: true });
+})();
+
 console.log("one session cannot read another's options:");
 (function () {
   // Before 1.20.0 the record was one file in .professor-orb/, read without

@@ -146,7 +146,7 @@
       "category": "content",
       "check": "optionEcho",
       "enforcement": "block",
-      "description": "Outside the homebrew catalog, a sentence restating a question option this session offered appears in the DM's own prose before it is written.",
+      "description": "Outside the homebrew catalog and prep briefs, a sentence restating a question option this session offered appears in the DM's own prose before it is written.",
       "params": { "overlapThreshold": 0.4, "minContentWords": 4, "proseThreshold": 0.5 }
     },
     "contentPronounDeclaration": {
