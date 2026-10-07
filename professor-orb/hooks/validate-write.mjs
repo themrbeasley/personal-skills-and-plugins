@@ -843,6 +843,37 @@ function dmMessages(transcriptPath) {
   return said.length > 0 ? said : null;
 }
 
+// The body as it stood before an Edit, rebuilt by putting old_string back
+// where new_string now sits. optionEcho checks only the sentences an edit
+// wrote: on 2026-10-07 a one-line edit to a session report was blocked over a
+// sentence the debrief wrote a week earlier, matched against an option
+// written from that very sentence that day, and its only remedies were cutting
+// approved text or making the DM retell it. Every other rule still checks the
+// whole file.
+//
+// Compared with LF line endings throughout, because parseFrontmatter
+// normalizes CRLF and an edit's strings need not match the file's endings.
+// Returns null, meaning "check the whole body", when the edited spot cannot be
+// found exactly once: new_string is not in the file, or appears more than once
+// without replace_all, so any one occurrence could be the edit.
+function priorBodyOfEdit(fileContent, toolInput) {
+  const lf = (s) => s.replace(/\r\n/g, "\n");
+  const oldString = toolInput.old_string;
+  const newString = toolInput.new_string;
+  if (typeof oldString !== "string" || typeof newString !== "string") return null;
+  const now = lf(fileContent);
+  // A deletion wrote no sentence, so everything in the file was already there.
+  if (newString === "") {
+    const parsed = parseFrontmatter(now);
+    return parsed ? parsed.body : null;
+  }
+  const pieces = now.split(lf(newString));
+  if (pieces.length < 2) return null;
+  if (pieces.length > 2 && toolInput.replace_all !== true) return null;
+  const before = parseFrontmatter(pieces.join(lf(oldString)));
+  return before ? before.body : null;
+}
+
 // Refuses a body sentence that restates an option this session offered AND that
 // the DM never put in prose themselves. The signature of the 2026-09-18 bug: a
 // sentence in the report that the pipeline wrote rather than the DM.
@@ -913,7 +944,12 @@ function checkOptionEcho(params, ctx) {
 
   const offeredSets = offered.map((text) => ({ text, words: contentWords(text) }));
 
+  // On an Edit, a sentence the file already held is not this write's; see
+  // priorBodyOfEdit.
+  const prior = typeof ctx.priorBody === "string" ? new Set(bodySentences(ctx.priorBody)) : null;
+
   for (const sentence of bodySentences(ctx.body)) {
+    if (prior && prior.has(sentence)) continue;
     const words = contentWords(sentence);
     // A sentence with few content words cannot be distinguished from an option
     // by overlap alone, and flagging it would be noise on every index line.
@@ -1338,6 +1374,9 @@ function main() {
     process.exit(0);
   }
 
+  // optionEcho checks only the sentences an Edit wrote; see priorBodyOfEdit.
+  const priorBody = toolName === "Edit" ? priorBodyOfEdit(fileContent, toolInput) : null;
+
   const ctx = {
     projectRoot,
     toolName,
@@ -1356,6 +1395,7 @@ function main() {
     conventions,
     transcriptPath,
     sessionId,
+    priorBody,
   };
 
   const blockViolations = [];

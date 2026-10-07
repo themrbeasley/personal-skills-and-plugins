@@ -332,6 +332,59 @@ console.log("a save made from a subfolder is checked like one from the root:");
   rmSync(dir, { recursive: true, force: true });
 })();
 
+console.log("an edit is checked only where it wrote:");
+(function () {
+  // 2026-10-07: a one-line edit to a session report was blocked over a
+  // sentence the debrief wrote a week before the option it was matched
+  // against, an option written from that very sentence.
+  const said = "we wrapped up at the warehouse, pretty short night";
+  // Writes the report as it stood before the edit, applies the edit on disk,
+  // and runs the validator with the Edit payload. Returns whether the
+  // option-echo rule fired.
+  function echoAfterEdit(name, beforeBody, oldString, newString, opts = {}) {
+    const f = fixture(name, beforeBody, OFFERED, said);
+    const before = readFileSync(f.file, "utf8");
+    let after = opts.replaceAll ? before.split(oldString).join(newString) : before.replace(oldString, newString);
+    if (opts.crlf) after = after.replace(/\n/g, "\r\n");
+    writeFileSync(f.file, after);
+    const r = runValidator(f.dir, f.file, f.transcript, "s1", {
+      toolName: "Edit",
+      toolInput: { old_string: oldString, new_string: newString, replace_all: opts.replaceAll === true },
+    });
+    rmSync(f.dir, { recursive: true, force: true });
+    return r.output.includes("contentOptionEcho");
+  }
+
+  const cases = [
+    ["an unrelated line added to a report already holding an echo passes",
+      [LAUNDERED + "\n\nThe crew went home.", "The crew went home.", "The crew went home after midnight."], false],
+    ["an edit that adds the echo blocks",
+      ["The crew went home.", "The crew went home.", "The crew went home.\n\n" + LAUNDERED], true],
+    ["a deletion passes",
+      [LAUNDERED + "\n\nThe crew went home.", "\n\nThe crew went home.", ""], false],
+    ["an edit to the frontmatter alone passes",
+      [LAUNDERED, "type: Session Report", "type: Session Report\ntags: [recap]"], false],
+    ["a replace_all edit is diffed",
+      [LAUNDERED + "\n\nThe crew left.\n\nThe crew left.", "The crew left.", "The crew went home.", { replaceAll: true }], false],
+    ["a new_string found twice checks the whole body",
+      [LAUNDERED + "\n\nThe crew went home.\n\nThe crew left.", "The crew left.", "The crew went home."], true],
+    ["a multi-line edit to a CRLF file is still diffed",
+      [LAUNDERED + "\n\nThe crew went home.", "The crew went home.", "The crew went home after midnight.\nThey slept late.", { crlf: true }], false],
+  ];
+  for (const [name, args, expected] of cases) {
+    check(name, echoAfterEdit(name.replace(/\W+/g, "-").slice(0, 40), ...args), expected);
+  }
+
+  // The edited text is no longer in the file, so the edit cannot be located.
+  const f = fixture("edit-not-found", LAUNDERED, OFFERED, said);
+  const r = runValidator(f.dir, f.file, f.transcript, "s1", {
+    toolName: "Edit",
+    toolInput: { old_string: "The crew left.", new_string: "nowhere in this file" },
+  });
+  check("an edit whose new text is not in the file checks the whole body", r.output.includes("contentOptionEcho"), true);
+  rmSync(f.dir, { recursive: true, force: true });
+})();
+
 console.log("fail-silent contract:");
 (function () {
   let f = fixture("no-state", LAUNDERED, null, "");
