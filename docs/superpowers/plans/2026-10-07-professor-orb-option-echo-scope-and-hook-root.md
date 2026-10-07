@@ -14,11 +14,11 @@
 
 | Task | State |
 | --- | --- |
-| 1. Hooks find the project from any folder | not started |
-| 2. Prep briefs skip the option-echo check | not started |
-| 3. On an Edit, check only the sentences it wrote | not started |
-| 4. Prep asks once to save | not started |
-| 5. Release 1.22.1 and live check | not started |
+| 1. Hooks find the project from any folder | done |
+| 2. Prep briefs skip the option-echo check | done |
+| 3. On an Edit, check only the sentences it wrote | done |
+| 4. Prep asks once to save | done |
+| 5. Release 1.22.1 and live check | done |
 
 ## Global Constraints
 
