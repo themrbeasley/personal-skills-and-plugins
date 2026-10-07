@@ -505,5 +505,32 @@ console.log("a project naming no exclusions still keeps NSFW-tagged files out:")
   rmSync(dir, { recursive: true, force: true });
 })();
 
+console.log("a correction sent from a subfolder searches the whole project:");
+(function () {
+  // 2026-10-07: from a subfolder the hook found no conventions.json, searched
+  // nothing, and said no line matched.
+  const dir = project(
+    "subfolder",
+    [{ name: "adjustice", kbRoot: "kb/adjustice", sessionReportsRoot: "session-reports/adjustice" }],
+    {
+      "session-reports/adjustice/clean-hands/2026-09-18-Clean-Hands-REPORT.md": md(
+        "Session Report",
+        "The reporter asked what the team was called, and they answered on camera."
+      ),
+    }
+  );
+  const said = "That NEVER happened, the reporter never asked what the team was called";
+  const fromRoot = runHook(said, dir);
+  const fromSub = runHook(said, path.join(dir, "session-reports", "adjustice", "clean-hands"));
+  report(
+    [
+      ["finds the line from the subfolder", fromSub.includes("The reporter asked what the team was called"), true],
+      ["prints exactly what it prints from the root", fromSub === fromRoot, true],
+    ],
+    fromSub
+  );
+  rmSync(dir, { recursive: true, force: true });
+})();
+
 console.log(`\n${passed} passed, ${failures.length} failed`);
 if (failures.length > 0) process.exit(1);

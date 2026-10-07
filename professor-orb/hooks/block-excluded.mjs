@@ -44,6 +44,7 @@
 
 import { readFileSync, existsSync, statSync } from "node:fs";
 import path from "node:path";
+import { projectRootFrom } from "./project-root.mjs";
 
 // Used only when conventions.json cannot be read or names no vocabulary of its
 // own. Deliberately non-empty: a project that installed this hook wants
@@ -179,7 +180,7 @@ function matchedTag(frontmatter, tags) {
 // timeout, and a hook that times out is a hook that silently allows, which is
 // the failure this whole feature exists to prevent. Over-blocking costs one
 // extra step; under-blocking costs the thing being protected.
-function grepLeakMode(toolInput, projectRoot, roots) {
+function grepLeakMode(toolInput, cwd, projectRoot, roots) {
   const mode =
     typeof toolInput.output_mode === "string" && toolInput.output_mode
       ? toolInput.output_mode
@@ -187,11 +188,11 @@ function grepLeakMode(toolInput, projectRoot, roots) {
   const onlyMatching = toolInput["-o"] === true;
   if (mode !== "content" && !onlyMatching) return null;
 
-  // Grep defaults to the current working directory when path is omitted, which
-  // is the project root and therefore contains every prong.
+  // Grep searches the working folder when path is omitted. That folder sits at
+  // or below the project root, so measuring from the root can only over-block.
   const searchPath =
     typeof toolInput.path === "string" && toolInput.path
-      ? path.resolve(projectRoot, toolInput.path)
+      ? path.resolve(cwd, toolInput.path)
       : projectRoot;
 
   // With no roots resolved, scope is unknown and the same fail-closed rule
@@ -225,8 +226,11 @@ function main() {
   const toolInput = input.tool_input || {};
   const toolName = typeof input.tool_name === "string" ? input.tool_name : "";
 
-  const projectRoot =
-    typeof input.cwd === "string" && input.cwd.length > 0 ? input.cwd : process.cwd();
+  // cwd follows the session's shell; the conventions and prong roots belong to
+  // the project above it. A path the tool call supplied resolves from cwd, as
+  // the harness resolves it.
+  const cwd = typeof input.cwd === "string" && input.cwd.length > 0 ? input.cwd : process.cwd();
+  const projectRoot = projectRootFrom(cwd);
 
   let tags = FALLBACK_TAGS;
   let roots = [];
@@ -265,10 +269,10 @@ function main() {
     // A readable conventions.json that names no excluded tags is a project
     // that opted out; anything else (missing, malformed, or configured) gates.
     if (conventionsReadable && !configuredExclusions) process.exit(0);
-    const leak = grepLeakMode(toolInput, projectRoot, roots);
+    const leak = grepLeakMode(toolInput, cwd, projectRoot, roots);
     if (leak === null) process.exit(0);
     try {
-      if (statSync(path.resolve(projectRoot, toolInput.path)).isFile()) grepFile = toolInput.path;
+      if (statSync(path.resolve(cwd, toolInput.path)).isFile()) grepFile = toolInput.path;
     } catch {
       // No path, or nothing at it: a folder search, refused below.
     }
@@ -294,7 +298,7 @@ function main() {
   if (!target) process.exit(0);
   if (!target.toLowerCase().endsWith(".md")) process.exit(0);
 
-  const absFilePath = path.resolve(projectRoot, target);
+  const absFilePath = path.resolve(cwd, target);
 
   // With roots resolved, restrict to them. With none resolved, check every
   // markdown file rather than none.

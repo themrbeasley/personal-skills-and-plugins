@@ -9,6 +9,7 @@
 import { readFileSync, existsSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
 import os from "node:os";
+import { projectRootFrom } from "./project-root.mjs";
 
 function readStdin() {
   try {
@@ -1236,8 +1237,11 @@ function main() {
     process.exit(0);
   }
 
-  const projectRoot =
-    typeof input.cwd === "string" && input.cwd.length > 0 ? input.cwd : process.cwd();
+  // cwd follows the session's shell and can be any folder inside the project;
+  // projectRootFrom climbs from it to the project. A path the tool call
+  // supplied resolves from cwd, as the harness resolves it.
+  const cwd = typeof input.cwd === "string" && input.cwd.length > 0 ? input.cwd : process.cwd();
+  const projectRoot = projectRootFrom(cwd);
 
   const conventionsPath = path.resolve(projectRoot, ".professor-orb", "conventions.json");
   if (!existsSync(conventionsPath)) {
@@ -1264,7 +1268,7 @@ function main() {
     process.exit(0);
   }
 
-  const absFilePath = path.resolve(projectRoot, filePath);
+  const absFilePath = path.resolve(cwd, filePath);
 
   // The owning setting is the one whose prong roots contain this file. Rules
   // are per setting, so the wrong owner means the wrong rule set.

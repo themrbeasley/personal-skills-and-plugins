@@ -77,7 +77,7 @@ const DEFAULT_CONVENTIONS = {
 // pre-1.20.0 shared location, .professor-orb/pipeline-state.json.
 function runHook(
   caseName,
-  { pipelineState, states, conventions = DEFAULT_CONVENTIONS, legacyState, versioning, legacyVersioning } = {}
+  { pipelineState, states, conventions = DEFAULT_CONVENTIONS, legacyState, versioning, legacyVersioning, fromRel } = {}
 ) {
   const dir = path.join(os.tmpdir(), `orb-pipeline-next-${process.pid}-${Math.abs(hashOf(caseName))}`);
   rmSync(dir, { recursive: true, force: true });
@@ -99,7 +99,7 @@ function runHook(
   if (legacyVersioning !== undefined) write(path.join(dir, ".professor-orb", "catalog-versioning.json"), legacyVersioning);
 
   try {
-    const out = execFileSync("node", [HOOK], { cwd: dir, encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] });
+    const out = execFileSync("node", [HOOK], { cwd: fromRel ? path.join(dir, ...fromRel.split("/")) : dir, encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] });
     return { code: 0, out };
   } catch (e) {
     return { code: e.status, out: e.stdout || "" };
@@ -384,6 +384,13 @@ for (const pollutedStep of ["__proto__", "toString", "constructor", "hasOwnPrope
   });
   check(`lastStep "${pollutedStep}": silent, no inherited Object.prototype value leaks`, r.out, "");
   check(`lastStep "${pollutedStep}": exits 0`, r.code, 0);
+}
+
+// 2026-10-07: run from a campaign folder, the hook found no conventions.json
+// and suggested nothing.
+{
+  const r = runHook("from-subfolder", { pipelineState: freshState("debrief"), fromRel: "session-reports/rolara/Camp" });
+  checkContains("run from a campaign folder, it still suggests the next step", r.out, "Next: /prep", true);
 }
 
 report();

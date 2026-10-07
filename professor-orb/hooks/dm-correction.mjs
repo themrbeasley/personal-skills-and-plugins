@@ -19,6 +19,7 @@
 
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
+import { projectRootFrom } from "./project-root.mjs";
 
 // Correction-shaped language. Deliberately narrow: this hook runs on every DM
 // message, so each pattern added here is a lane grep added to some ordinary
@@ -389,15 +390,18 @@ function main() {
   const prompt = typeof input.prompt === "string" ? input.prompt : "";
   if (!looksLikeCorrection(prompt)) process.exit(0);
 
-  const cwd = typeof input.cwd === "string" && input.cwd.length > 0 ? input.cwd : process.cwd();
+  // cwd follows the session's shell; the search covers the project above it.
+  const projectRoot = projectRootFrom(
+    typeof input.cwd === "string" && input.cwd.length > 0 ? input.cwd : process.cwd()
+  );
   const terms = searchTerms(prompt);
-  const conventions = readConventions(cwd);
+  const conventions = readConventions(projectRoot);
   const exclusions = exclusionsFrom(conventions);
   // A root that itself sits inside a walled-off folder is never searched, as
   // the path deny rule and the sweep treat it. Measured from the project so a
   // project that happens to live under a folder of that name is not blanked.
-  const roots = laneRoots(conventions, cwd).filter(
-    (r) => !path.relative(cwd, r).split(/[\\/]/).some((s) => exclusions.segments.has(s.toLowerCase()))
+  const roots = laneRoots(conventions, projectRoot).filter(
+    (r) => !path.relative(projectRoot, r).split(/[\\/]/).some((s) => exclusions.segments.has(s.toLowerCase()))
   );
   const { hits, truncated } = findHits(roots, terms, exclusions);
 
@@ -417,7 +421,7 @@ function main() {
     out.push(`${hits.length} line${hits.length === 1 ? " in this project mentions" : "s in this project mention"} it:`);
     out.push("");
     for (const hit of hits) {
-      const rel = path.relative(cwd, hit.file).split(path.sep).join("/");
+      const rel = path.relative(projectRoot, hit.file).split(path.sep).join("/");
       out.push(`  ${rel}:${hit.line}  ${hit.text}`);
     }
     out.push("");

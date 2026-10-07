@@ -42,7 +42,7 @@ function hashOf(s) {
 
 // conventions may be null (write no file) or a raw string (write it verbatim,
 // so a malformed file can be exercised).
-function runHook({ conventions, files, targetRel, toolName = "Read", pathKey = "file_path" }) {
+function runHook({ conventions, files, targetRel, toolName = "Read", pathKey = "file_path", cwdRel = "" }) {
   const dir = path.join(os.tmpdir(), `orb-excl-${process.pid}-${Math.abs(hashOf(targetRel + toolName))}`);
   rmSync(dir, { recursive: true, force: true });
   mkdirSync(dir, { recursive: true });
@@ -59,7 +59,7 @@ function runHook({ conventions, files, targetRel, toolName = "Read", pathKey = "
   }
 
   const payload = JSON.stringify({
-    cwd: dir,
+    cwd: cwdRel ? path.join(dir, cwdRel) : dir,
     tool_name: toolName,
     tool_input: { [pathKey]: path.join(dir, targetRel) },
   });
@@ -310,7 +310,7 @@ console.log("\n=== Grep content gate ===");
 // A Grep over a folder names no single file, so the per-article tag check
 // cannot apply. What it can do is refuse the output modes that return body
 // text at all. A Grep whose path is one file gets the per-article check.
-function runGrep({ conventions, files, toolInput, targetRel }) {
+function runGrep({ conventions, files, toolInput, targetRel, cwdRel = "" }) {
   const dir = path.join(os.tmpdir(), `orb-excl-grep-${process.pid}-${Math.abs(hashOf(targetRel))}`);
   rmSync(dir, { recursive: true, force: true });
   mkdirSync(dir, { recursive: true });
@@ -324,9 +324,11 @@ function runGrep({ conventions, files, toolInput, targetRel }) {
     mkdirSync(path.dirname(abs), { recursive: true });
     writeFileSync(abs, JSON.stringify(conventions, null, 2), "utf8");
   }
+  // With cwdRel set, a relative path stays relative, as Grep receives it.
   const resolved = { ...toolInput };
-  if (typeof resolved.path === "string") resolved.path = path.join(dir, resolved.path);
-  const payload = JSON.stringify({ cwd: dir, tool_name: "Grep", tool_input: resolved });
+  if (typeof resolved.path === "string" && !cwdRel) resolved.path = path.join(dir, resolved.path);
+  const cwd = cwdRel ? path.join(dir, cwdRel) : dir;
+  const payload = JSON.stringify({ cwd, tool_name: "Grep", tool_input: resolved });
   try {
     const out = execFileSync("node", [HOOK], { input: payload, encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] });
     return { code: 0, out: out.trim(), err: "" };
@@ -458,6 +460,45 @@ function runGrep({ conventions, files, toolInput, targetRel }) {
     targetRel: "grep-no-conventions",
   });
   check("with no conventions.json, content-mode grep is denied", r.code, 2);
+}
+
+console.log("=== from a subfolder ===");
+
+{
+  // 2026-10-07: from a subfolder the hook found no conventions.json and fell
+  // back to its built-in tag, so a project's own tag went unchecked.
+  const r = runHook({
+    conventions: CONVENTIONS,
+    files: { "settings/w/people/A.md": tagged("Excluded") },
+    targetRel: "settings/w/people/A.md",
+    cwdRel: "settings/w",
+  });
+  check("an article with the project's own tag is denied from a subfolder", r.code, 2);
+}
+
+{
+  // A relative Grep path resolves from the working folder, as Grep resolves it.
+  const r = runGrep({
+    conventions: CONVENTIONS,
+    files: { "session-reports/w/c/A.md": plain },
+    toolInput: { pattern: "x", path: "w", output_mode: "content" },
+    targetRel: "grep-relative-from-subfolder",
+    cwdRel: "session-reports",
+  });
+  check("a content grep given a relative prong path from a subfolder is denied", r.code, 2);
+}
+
+{
+  // With no path, Grep searches the working folder. The hook measures from the
+  // project root instead, which can only over-block, never under-block.
+  const r = runGrep({
+    conventions: CONVENTIONS,
+    files: { "settings/w/people/A.md": plain, "docs/notes.md": "notes\n" },
+    toolInput: { pattern: "x", output_mode: "content" },
+    targetRel: "grep-no-path-from-docs",
+    cwdRel: "docs",
+  });
+  check("a content grep with no path from a folder outside every prong is still denied", r.code, 2);
 }
 
 console.log(`\n${passed}/${passed + failures.length} expectations met.`);

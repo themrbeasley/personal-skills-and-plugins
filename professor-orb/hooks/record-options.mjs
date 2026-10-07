@@ -28,6 +28,7 @@
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { projectRootFrom } from "./project-root.mjs";
 
 // The session id becomes part of a file name. Anything but a plain token (a
 // path separator, "..", a dot, an empty string) writes nothing rather than a
@@ -47,7 +48,7 @@ function main() {
   const cwd = typeof input.cwd === "string" && input.cwd.length > 0 ? input.cwd : process.cwd();
   // Setup never ran, so professor-orb is not in use here and there is no
   // report for the record to protect.
-  if (!existsSync(path.resolve(cwd, ".professor-orb"))) process.exit(0);
+  if (!existsSync(path.resolve(projectRootFrom(cwd), ".professor-orb"))) process.exit(0);
 
   const sessionId = typeof input.session_id === "string" ? input.session_id : "";
   if (!SESSION_ID.test(sessionId)) process.exit(0);

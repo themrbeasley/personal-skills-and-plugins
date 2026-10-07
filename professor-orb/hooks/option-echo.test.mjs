@@ -85,13 +85,15 @@ function fixture(name, reportBody, offered, dmSaid, offeredSession = "s1") {
 // "session_id absent, the shape of an older harness" needs its own sentinel:
 // pass sessionId: null to omit the field from the payload entirely. Every
 // other call site either omits the argument (gets "s1") or passes a real id.
-function runValidator(dir, file, transcript, sessionId = "s1") {
+// extra: { toolName, toolInput, cwd } for a case that is not a Write made from
+// the project root.
+function runValidator(dir, file, transcript, sessionId = "s1", extra = {}) {
   const payload = {
     hook_event_name: "PostToolUse",
-    tool_name: "Write",
-    cwd: dir,
+    tool_name: extra.toolName || "Write",
+    cwd: extra.cwd || dir,
     transcript_path: transcript,
-    tool_input: { file_path: file },
+    tool_input: { file_path: file, ...(extra.toolInput || {}) },
   };
   if (sessionId !== null) payload.session_id = sessionId;
   try {
@@ -296,6 +298,16 @@ console.log("recorder and validator agree on the path:");
     env: tempEnv(dir),
   });
   check("an option the recorder saw blocks the validator's write", runValidator(dir, file, transcript, "s-e2e").blocked, true);
+  rmSync(dir, { recursive: true, force: true });
+})();
+
+console.log("a save made from a subfolder is checked like one from the root:");
+(function () {
+  // 2026-10-07: the shell sat in a campaign folder, the hook looked for
+  // conventions.json there, found none, and ran no rule at all.
+  const { dir, file, transcript } = fixture("subfolder", LAUNDERED, OFFERED, "we wrapped up at the warehouse, pretty short night");
+  const sub = path.join(dir, "session-reports", "adjustice", "clean-hands");
+  check("the 09-18 case blocks from the campaign folder", runValidator(dir, file, transcript, "s1", { cwd: sub }).blocked, true);
   rmSync(dir, { recursive: true, force: true });
 })();
 
