@@ -135,15 +135,19 @@ Do not resolve any of these yourself. Naming them is the whole job (see "Never w
 
 ### Phase 3: Review and save
 
-**Step 3a: Present the draft.** Show the complete brief to the DM. Wait for approval, requested changes, or rejection (Principle 2). Do not write any files until the DM approves. If the DM requests changes (cut a north star, add one, reword something), revise and re-present the affected sections. This is open-ended creative discussion and stays free-form; it does not need AskUserQuestion.
+**Step 3a: Present the draft and ask to save.** Show the complete brief to the DM. Then ask one AskUserQuestion whose question names the brief's north stars (Principle 15), with these three options:
 
-**Step 3b: Ask if deeper research is needed.** Now that the DM has seen the brief, ask whether there are topics they want you to dig into before finalizing. This is a structured decision and goes through AskUserQuestion: offer options such as "yes, here's what to look into," "no, the brief is ready," or similar. Specific KB articles, NPC backstories, location details, faction relationships, rules questions, or anything else. The DM specifies exactly what to look up; do not go on a broad KB reading tour on your own. Naming the topics themselves is open-ended and can stay free-form once the DM has chosen to provide them. If the DM names topics, do the research, incorporate findings into the relevant sections, and re-present the updated brief for approval.
+- **Save as written.** Go to Step 3b.
+- **Change something first.** The DM describes the change in the notes, or picks Other and says it. Talking it through stays free-form. Revise, re-present the changed sections, and ask this question again.
+- **Look into more first.** Its description lists what the brief already drew on: the session report, the previous brief, and each article or other file you read for it. The DM then sees that the lookups happened (Principle 14) and names only what goes beyond them. Read what the DM names and nothing wider, fold the findings into the brief, re-present the changed sections, and ask this question again.
 
-**Step 3c: Save the approved brief.** Follow `.professor-orb/conventions.json` if it exists (the `type` value for session prep files, its required frontmatter fields in order, and its filename suffix), otherwise the project's documented convention, otherwise `YYYY-MM-DD-[Session-Title]-PREP.md` in the campaign's session-reports folder. Writing the file goes through the project's write-time validator hook automatically; if it reports a block violation, fix the write and retry rather than working around it.
+Write files only after the DM picks "Save as written" (Principle 2).
 
-**Step 3d: Update indexes and logs** per the project's conventions.
+**Step 3b: Save the approved brief.** Follow `.professor-orb/conventions.json` if it exists (the `type` value for session prep files, its required frontmatter fields in order, and its filename suffix), otherwise the project's documented convention, otherwise `YYYY-MM-DD-[Session-Title]-PREP.md` in the campaign's session-reports folder. Writing the file goes through the project's write-time validator hook automatically; if it reports a block violation, fix the write and retry rather than working around it.
 
-**Step 3e: Confirm with the user.** Share a link to the file and a one-sentence summary. Then mention in one line that `content` can produce read-alouds, handouts, and setpieces if any north stars or handout candidates call for them.
+**Step 3c: Update indexes and logs** per the project's conventions.
+
+**Step 3d: Confirm with the user.** Share a link to the file and a one-sentence summary. Then mention in one line that `content` can produce read-alouds, handouts, and setpieces if any north stars or handout candidates call for them.
 
 ## Final act: update pipeline state
 
@@ -175,7 +179,7 @@ Apply any additional writing style rules from `.professor-orb/conventions.json` 
 - **Never write files without approval.** (Principle 2.)
 - **Never write lore content.** That is `chronicler`'s job. If a north star depends on a lore decision, note it; do not resolve it.
 - **Never write player-facing content.** That is `content`'s job. Note handout candidates; do not draft them.
-- **Never ask a structured question outside AskUserQuestion.** The Phase 1 catch-up batch and the Phase 3 research decision are both mandatory AskUserQuestion calls; plain-text questions in chat are not a substitute for either.
+- **Never ask a structured question outside AskUserQuestion.** The Phase 1 catch-up batch and the Phase 3 save question are both mandatory AskUserQuestion calls; plain-text questions in chat are not a substitute for either.
 - **Never create unnecessary auxiliary files.** This skill produces: the session brief, and any indexes or logs the project's conventions call for. No scratch files, execution logs, or manifests.
 
 ## How this skill connects to the others

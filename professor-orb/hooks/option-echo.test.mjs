@@ -85,13 +85,15 @@ function fixture(name, reportBody, offered, dmSaid, offeredSession = "s1") {
 // "session_id absent, the shape of an older harness" needs its own sentinel:
 // pass sessionId: null to omit the field from the payload entirely. Every
 // other call site either omits the argument (gets "s1") or passes a real id.
-function runValidator(dir, file, transcript, sessionId = "s1") {
+// extra: { toolName, toolInput, cwd } for a case that is not a Write made from
+// the project root.
+function runValidator(dir, file, transcript, sessionId = "s1", extra = {}) {
   const payload = {
     hook_event_name: "PostToolUse",
-    tool_name: "Write",
-    cwd: dir,
+    tool_name: extra.toolName || "Write",
+    cwd: extra.cwd || dir,
     transcript_path: transcript,
-    tool_input: { file_path: file },
+    tool_input: { file_path: file, ...(extra.toolInput || {}) },
   };
   if (sessionId !== null) payload.session_id = sessionId;
   try {
@@ -239,6 +241,27 @@ console.log("the homebrew catalog is exempt:");
   rmSync(dir, { recursive: true, force: true });
 })();
 
+// The 2026-10-07 North Star 1 and the option it was drawn from, verbatim from
+// that session's options record and block message.
+const NORTH_STAR_OPTION =
+  "Horatio at Large Luigi's. Last session: Zelex drew Donjon and vanished. Next: Jace's Giff Drunken Master, Horatio Fastfist, meets the party at Large Luigi's Happy Beholder while they wait on Gwen.";
+const NORTH_STAR =
+  "**Last session:** Zelex drew Donjon and vanished, and Jace's new PC was set to meet the party at Large Luigi's Happy Beholder while they wait on Gwen.";
+
+console.log("prep briefs are exempt:");
+(function () {
+  // Prep writes a north star in the same two-part form as the option the DM
+  // picked it from, so it echoes that option by construction. The same
+  // sentence in a report still blocks.
+  const { dir, file, transcript } = fixture("prep", NORTH_STAR, [NORTH_STAR_OPTION], "let's prep tonight");
+  check("the north star blocks in a report", runValidator(dir, file, transcript).output.includes("contentOptionEcho"), true);
+  const brief = path.join(dir, "session-reports", "adjustice", "clean-hands", "prep", "2026-10-07-TBD-PREP.md");
+  mkdirSync(path.dirname(brief), { recursive: true });
+  writeFileSync(brief, ["---", "type: Session Prep", "---", "", NORTH_STAR, ""].join("\n"));
+  check("the same north star passes in a prep brief", runValidator(dir, brief, transcript).output.includes("contentOptionEcho"), false);
+  rmSync(dir, { recursive: true, force: true });
+})();
+
 console.log("one session cannot read another's options:");
 (function () {
   // Before 1.20.0 the record was one file in .professor-orb/, read without
@@ -297,6 +320,86 @@ console.log("recorder and validator agree on the path:");
   });
   check("an option the recorder saw blocks the validator's write", runValidator(dir, file, transcript, "s-e2e").blocked, true);
   rmSync(dir, { recursive: true, force: true });
+})();
+
+console.log("a save made from a subfolder is checked like one from the root:");
+(function () {
+  // 2026-10-07: the shell sat in a campaign folder, the hook looked for
+  // conventions.json there, found none, and ran no rule at all.
+  const { dir, file, transcript } = fixture("subfolder", LAUNDERED, OFFERED, "we wrapped up at the warehouse, pretty short night");
+  const sub = path.join(dir, "session-reports", "adjustice", "clean-hands");
+  check("the 09-18 case blocks from the campaign folder", runValidator(dir, file, transcript, "s1", { cwd: sub }).blocked, true);
+  rmSync(dir, { recursive: true, force: true });
+})();
+
+console.log("an edit is checked only where it wrote:");
+(function () {
+  // 2026-10-07: a one-line edit to a session report was blocked over a
+  // sentence the debrief wrote a week before the option it was matched
+  // against, an option written from that very sentence.
+  const said = "we wrapped up at the warehouse, pretty short night";
+  // Writes the report as it stood before the edit, applies the edit on disk,
+  // and runs the validator with the Edit payload. Returns whether the
+  // option-echo rule fired.
+  function echoAfterEdit(name, beforeBody, oldString, newString, opts = {}) {
+    const f = fixture(name, beforeBody, OFFERED, said);
+    const before = readFileSync(f.file, "utf8");
+    let after = opts.replaceAll ? before.split(oldString).join(newString) : before.replace(oldString, newString);
+    if (opts.crlf) after = after.replace(/\n/g, "\r\n");
+    writeFileSync(f.file, after);
+    const r = runValidator(f.dir, f.file, f.transcript, "s1", {
+      toolName: "Edit",
+      toolInput: { old_string: oldString, new_string: newString, replace_all: opts.replaceAll === true },
+    });
+    rmSync(f.dir, { recursive: true, force: true });
+    return r.output.includes("contentOptionEcho");
+  }
+
+  const cases = [
+    ["an unrelated line added to a report already holding an echo passes",
+      [LAUNDERED + "\n\nThe crew went home.", "The crew went home.", "The crew went home after midnight."], false],
+    ["an edit that adds the echo blocks",
+      ["The crew went home.", "The crew went home.", "The crew went home.\n\n" + LAUNDERED], true],
+    ["a deletion passes",
+      [LAUNDERED + "\n\nThe crew went home.", "\n\nThe crew went home.", ""], false],
+    ["an edit to the frontmatter alone passes",
+      [LAUNDERED, "type: Session Report", "type: Session Report\ntags: [recap]"], false],
+    ["a replace_all edit is diffed",
+      [LAUNDERED + "\n\nThe crew left.\n\nThe crew left.", "The crew left.", "The crew went home.", { replaceAll: true }], false],
+    ["a new_string found twice checks the whole body",
+      [LAUNDERED + "\n\nThe crew went home.\n\nThe crew left.", "The crew left.", "The crew went home."], true],
+    ["a multi-line edit to a CRLF file is still diffed",
+      [LAUNDERED + "\n\nThe crew went home.", "The crew went home.", "The crew went home after midnight.\nThey slept late.", { crlf: true }], false],
+  ];
+  for (const [name, args, expected] of cases) {
+    check(name, echoAfterEdit(name.replace(/\W+/g, "-").slice(0, 40), ...args), expected);
+  }
+
+  // The edited text is no longer in the file, so the edit cannot be located.
+  const f = fixture("edit-not-found", LAUNDERED, OFFERED, said);
+  const r = runValidator(f.dir, f.file, f.transcript, "s1", {
+    toolName: "Edit",
+    toolInput: { old_string: "The crew left.", new_string: "nowhere in this file" },
+  });
+  check("an edit whose new text is not in the file checks the whole body", r.output.includes("contentOptionEcho"), true);
+  rmSync(f.dir, { recursive: true, force: true });
+
+  // Only optionEcho reads the pre-edit body. Every other rule still checks the
+  // whole file, so an em dash on a line the edit never touched is still caught.
+  // The em dash rule ships as a warning and a warning's text never reaches a
+  // passing run's output here, so this fixture raises it to a block.
+  const g = fixture("edit-other-rules", "The crew left—quietly.\n\nThe crew went home.", OFFERED, said);
+  const convPath = path.join(g.dir, ".professor-orb", "conventions.json");
+  const conv = JSON.parse(readFileSync(convPath, "utf8"));
+  conv.settings[0].rules.contentNoEmDashes.enforcement = "block";
+  writeFileSync(convPath, JSON.stringify(conv));
+  writeFileSync(g.file, readFileSync(g.file, "utf8").replace("The crew went home.", "The crew went home after midnight."));
+  const r2 = runValidator(g.dir, g.file, g.transcript, "s1", {
+    toolName: "Edit",
+    toolInput: { old_string: "The crew went home.", new_string: "The crew went home after midnight." },
+  });
+  check("an edit still runs every other rule over the whole file", r2.output.includes("contentNoEmDashes"), true);
+  rmSync(g.dir, { recursive: true, force: true });
 })();
 
 console.log("fail-silent contract:");

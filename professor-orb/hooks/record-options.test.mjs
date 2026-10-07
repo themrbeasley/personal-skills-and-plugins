@@ -43,14 +43,14 @@ function fixture(name) {
 
 // The recorder resolves os.tmpdir() from these variables (TEMP and TMP on
 // Windows, TMPDIR elsewhere), so each fixture's record lands in its own tmp/.
-function run(dir, sessionId, questions) {
+function run(dir, sessionId, questions, cwd = dir) {
   const tmp = path.join(dir, "tmp");
   execFileSync("node", [HOOK], {
     input: JSON.stringify({
       hook_event_name: "PostToolUse",
       tool_name: "AskUserQuestion",
       session_id: sessionId,
-      cwd: dir,
+      cwd,
       tool_input: { questions },
     }),
     encoding: "utf8",
@@ -121,6 +121,18 @@ console.log("a session id that is not a plain token writes nothing:");
   const dir = fixture("no-session");
   run(dir, undefined, ASKED);
   check("no session id: no file written", tempEntries(dir), []);
+  rmSync(dir, { recursive: true, force: true });
+})();
+
+console.log("a question asked from a subfolder is recorded:");
+(function () {
+  // 2026-10-07: three question rounds asked while the shell sat in a campaign
+  // folder never reached the record, so optionEcho had nothing to compare.
+  const dir = fixture("subfolder");
+  const sub = path.join(dir, "session-reports", "w", "Camp");
+  mkdirSync(sub, { recursive: true });
+  run(dir, "s1", ASKED, sub);
+  check("the options are recorded", state(dir, "s1") !== null, true);
   rmSync(dir, { recursive: true, force: true });
 })();
 

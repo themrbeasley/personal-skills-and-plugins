@@ -4,8 +4,9 @@
 // Pipeline state is kept per campaign, at
 // <sessionReportsRoot>/<campaign>/pipeline-state.json, so it reaches main in
 // the campaign's own /log commit and two campaigns never share a slot. This
-// hook reads .professor-orb/conventions.json from the current working
-// directory for each setting's sessionReportsRoot, reads the state file in
+// hook reads .professor-orb/conventions.json from the project holding the
+// current working directory (see project-root.mjs) for each setting's
+// sessionReportsRoot, reads the state file in
 // every folder directly under that root, and prints one line per campaign
 // whose last completed step is recent: the campaign's folder name, then the
 // suggestion. Purely mechanical: no model judgment, no conversation parsing.
@@ -28,6 +29,7 @@
 
 import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
+import { projectRootFrom } from "./project-root.mjs";
 
 const STALE_MS = 2 * 60 * 60 * 1000; // 2 hours
 
@@ -140,13 +142,13 @@ function suggestionFor(state, mode) {
 }
 
 function main() {
-  const cwd = process.cwd();
-  const conventions = readJson(path.resolve(cwd, ".professor-orb", "conventions.json"));
+  const projectRoot = projectRootFrom(process.cwd());
+  const conventions = readJson(path.resolve(projectRoot, ".professor-orb", "conventions.json"));
   // A v1 or v2 file has no settings array and so no sessionReportsRoot to
   // look under. Silent until setup resyncs it to v3.
   const settings =
     conventions && Array.isArray(conventions.settings) ? conventions.settings : [];
-  const mode = readVersioningMode(cwd);
+  const mode = readVersioningMode(projectRoot);
 
   const lines = [];
   for (const setting of settings) {
@@ -154,7 +156,7 @@ function main() {
     if (typeof root !== "string" || root.length === 0) continue;
     let names;
     try {
-      names = readdirSync(path.resolve(cwd, root)).sort();
+      names = readdirSync(path.resolve(projectRoot, root)).sort();
     } catch {
       continue;
     }
@@ -162,7 +164,7 @@ function main() {
     // it, so its read returns null and it is skipped like any campaign that
     // has not run a pipeline step yet.
     for (const name of names) {
-      const state = readJson(path.resolve(cwd, root, name, "pipeline-state.json"));
+      const state = readJson(path.resolve(projectRoot, root, name, "pipeline-state.json"));
       const line = suggestionFor(state, mode);
       if (line) lines.push(`${name}: ${line}`);
     }

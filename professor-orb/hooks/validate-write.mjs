@@ -9,6 +9,7 @@
 import { readFileSync, existsSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
 import os from "node:os";
+import { projectRootFrom } from "./project-root.mjs";
 
 function readStdin() {
   try {
@@ -842,6 +843,37 @@ function dmMessages(transcriptPath) {
   return said.length > 0 ? said : null;
 }
 
+// The body as it stood before an Edit, rebuilt by putting old_string back
+// where new_string now sits. optionEcho checks only the sentences an edit
+// wrote: on 2026-10-07 a one-line edit to a session report was blocked over a
+// sentence the debrief wrote a week earlier, matched against an option
+// written from that very sentence that day, and its only remedies were cutting
+// approved text or making the DM retell it. Every other rule still checks the
+// whole file.
+//
+// Compared with LF line endings throughout, because parseFrontmatter
+// normalizes CRLF and an edit's strings need not match the file's endings.
+// Returns null, meaning "check the whole body", when the edited spot cannot be
+// found exactly once: new_string is not in the file, or appears more than once
+// without replace_all, so any one occurrence could be the edit.
+function priorBodyOfEdit(fileContent, toolInput) {
+  const lf = (s) => s.replace(/\r\n/g, "\n");
+  const oldString = toolInput.old_string;
+  const newString = toolInput.new_string;
+  if (typeof oldString !== "string" || typeof newString !== "string") return null;
+  const now = lf(fileContent);
+  // A deletion wrote no sentence, so everything in the file was already there.
+  if (newString === "") {
+    const parsed = parseFrontmatter(now);
+    return parsed ? parsed.body : null;
+  }
+  const pieces = now.split(lf(newString));
+  if (pieces.length < 2) return null;
+  if (pieces.length > 2 && toolInput.replace_all !== true) return null;
+  const before = parseFrontmatter(pieces.join(lf(oldString)));
+  return before ? before.body : null;
+}
+
 // Refuses a body sentence that restates an option this session offered AND that
 // the DM never put in prose themselves. The signature of the 2026-09-18 bug: a
 // sentence in the report that the pipeline wrote rather than the DM.
@@ -864,17 +896,31 @@ function dmMessages(transcriptPath) {
 // covers the DM's own prose case. This check's job stops at "the DM
 // substantially wrote this", not "the DM endorsed this".
 //
-// The homebrew prong is exempt. This check guards records of what happened,
-// where an option only points at a topic. In a homebrew design the option IS
-// the decision: the homebrew skill routes every structured rules call through
-// AskUserQuestion, and /catalog runs on text the DM already confirmed. On
-// 2026-09-29 this check blocked a spell entry whose rule the DM had picked,
-// reviewed, and cataloged, and no confirmation could clear it. The exemption
-// lives here rather than as a rule `scope` because setup's resync detects
-// drift by rule ID only, so a changed scope would never reach an installed
-// project.
+// Two places are exempt: the homebrew prong and prep briefs. This check guards
+// records of what happened, where an option only points at a topic. In both
+// exempt places the option IS the decision. The homebrew skill routes every
+// structured rules call through AskUserQuestion, and /catalog runs on text the
+// DM already confirmed; on 2026-09-29 this check blocked a spell entry whose
+// rule the DM had picked, reviewed, and cataloged, and no confirmation could
+// clear it. Prep writes each north star the DM picks from report-drawn options
+// in the same "Last session / Next" form as the option, so on 2026-10-07 this
+// check blocked a brief's first north star by construction. A brief is a plan,
+// and nothing downstream reads it as a record: chronicler takes only its Lore
+// Resolution list.
+//
+// Prep is NOT exempted by accepting a sentence whose words appear in an earlier
+// session report. Containment cannot tell planned from happened: a report line
+// saying someone "meets the party next session" would let a later report say
+// they met the party, which is the 2026-09-18 failure again.
+//
+// Both exemptions live here rather than as a rule `scope` because setup's
+// resync detects drift by rule ID only, so a changed scope would never reach
+// an installed project.
+const PREP_BRIEF = /-PREP\.md$/i;
+
 function checkOptionEcho(params, ctx) {
   if (ctx.prongKind === "homebrew") return true;
+  if (ctx.prongKind === "session-reports" && PREP_BRIEF.test(ctx.fileName)) return true;
   const minWords = typeof params.minContentWords === "number" ? params.minContentWords : 4;
   const threshold = typeof params.overlapThreshold === "number" ? params.overlapThreshold : 0.4;
   const proseThreshold = typeof params.proseThreshold === "number" ? params.proseThreshold : 0.5;
@@ -898,7 +944,12 @@ function checkOptionEcho(params, ctx) {
 
   const offeredSets = offered.map((text) => ({ text, words: contentWords(text) }));
 
+  // On an Edit, a sentence the file already held is not this write's; see
+  // priorBodyOfEdit.
+  const prior = typeof ctx.priorBody === "string" ? new Set(bodySentences(ctx.priorBody)) : null;
+
   for (const sentence of bodySentences(ctx.body)) {
+    if (prior && prior.has(sentence)) continue;
     const words = contentWords(sentence);
     // A sentence with few content words cannot be distinguished from an option
     // by overlap alone, and flagging it would be noise on every index line.
@@ -1236,8 +1287,11 @@ function main() {
     process.exit(0);
   }
 
-  const projectRoot =
-    typeof input.cwd === "string" && input.cwd.length > 0 ? input.cwd : process.cwd();
+  // cwd follows the session's shell and can be any folder inside the project;
+  // projectRootFrom climbs from it to the project. A path the tool call
+  // supplied resolves from cwd, as the harness resolves it.
+  const cwd = typeof input.cwd === "string" && input.cwd.length > 0 ? input.cwd : process.cwd();
+  const projectRoot = projectRootFrom(cwd);
 
   const conventionsPath = path.resolve(projectRoot, ".professor-orb", "conventions.json");
   if (!existsSync(conventionsPath)) {
@@ -1264,7 +1318,7 @@ function main() {
     process.exit(0);
   }
 
-  const absFilePath = path.resolve(projectRoot, filePath);
+  const absFilePath = path.resolve(cwd, filePath);
 
   // The owning setting is the one whose prong roots contain this file. Rules
   // are per setting, so the wrong owner means the wrong rule set.
@@ -1320,6 +1374,9 @@ function main() {
     process.exit(0);
   }
 
+  // optionEcho checks only the sentences an Edit wrote; see priorBodyOfEdit.
+  const priorBody = toolName === "Edit" ? priorBodyOfEdit(fileContent, toolInput) : null;
+
   const ctx = {
     projectRoot,
     toolName,
@@ -1338,6 +1395,7 @@ function main() {
     conventions,
     transcriptPath,
     sessionId,
+    priorBody,
   };
 
   const blockViolations = [];
