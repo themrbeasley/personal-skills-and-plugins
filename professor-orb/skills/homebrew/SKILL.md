@@ -45,13 +45,21 @@ Homebrew work happens in phases. Recognize which phase the user is in:
 - **Reviewing**: Something already written. Work through it systematically, language, balance, edge cases, automation. Provide fixes alongside problems.
 - **Advising**: Helping someone else with their homebrew. Stay setting-agnostic. Apply the same standards.
 
+A request whose list of options is open-ended ("etc.", "stuff like that", "things like") is Brainstorming until the DM says the list is complete. No formatted item text appears before then.
+
 If the phase is not obvious, ask before diving in. If the ambiguity is a structured choice (for example, which of two directions to draft toward), use AskUserQuestion; a simple "which phase are you in" check can stay conversational.
+
+---
+
+## First Step: Settle Scope Before Drafting
+
+For a new design, or any request with an open-ended list, restate the DM's idea and its list in one short message, then ask what else belongs on it and what must stay off. Keep this a conversation in plain text. Scope is the DM's to shape, so offer no menus of rarity, breadth, or mishaps here, and write no mechanics, charge pools, or rarity numbers yet. Move on once the DM says the list is complete.
 
 ---
 
 ## Tiered Design Intervention
 
-Start at the lowest intervention level that achieves the design goal, then escalate only as needed:
+Start at the lowest intervention level that achieves the design goal, then escalate only as needed. Benchmarking at Level 1 begins once scope is agreed (see First Step above).
 
 **Level 0, Ad-hoc modification**: Adjust an existing published stat block, spell, item, or NPC. The smallest possible change.
 
@@ -216,9 +224,17 @@ Default to setting-agnostic, generic D&D 5.5e tone. Do not invent flavor text, f
 
 ## Output Formats
 
+**Before the first formatted draft of any type**, read three things, in this order:
+
+1. The type's section in `../../commands/references/catalog-type-templates.md` (relative to this skill): `spell`, `magic-item`, `feat`, `feature`, `monster and npc`, `species`, `subclass`, or `class`. That is the layout `/catalog` will capture, so the draft takes its shape.
+2. One or two catalogued entries of the same type in the project's homebrew catalog, when one exists. Match their layout and phrasing.
+3. `references/2024-glossary-phrases.md`, for the phrasing the draft must use.
+
+Then draft in the type's format:
+
 - **Stat blocks and ability entries**: 2024 PHB/MM formatting conventions.
 - **Spells**: 2024 format, school, casting time, range, components, duration, description.
-- **Items**: 2024 magic item format, type, attunement, mechanical text.
+- **Items**: the `magic-item` template's shape: category, rarity, attunement, charges, effect prose.
 - **HTML**: Only when explicitly requested (typically for VTT handouts/journals).
 - **Brainstorming**: Prose and bullets. No stat block format until the mechanic is solid.
 - **Review output**: Enumerate features first, then address language, balance, automation, and clarity. Provide fixes alongside problems.
@@ -229,9 +245,13 @@ Default to setting-agnostic, generic D&D 5.5e tone. Do not invent flavor text, f
 
 A homebrew design is ready to catalog once you and the DM have finalized it in this skill, iterated on and confirmed. It does not need to be implemented in Foundry VTT, on paper, or anywhere else first; the finalized design produced here is the primary thing `/catalog` captures.
 
+**Confirming "final".** Show the complete design, then ask one plain-text question: "Is this final?" Only the DM's yes to that question confirms it. A menu answer settles only the choice that menu offered; never treat answered menus as the design being finished.
+
 Once the DM confirms a design is finalized, mention the `/catalog` command as the way to capture it into the knowledge base. Say this once, at the natural end of the design flow, not on every message. All catalogued homebrew is playtest material, so the DM can re-run `/catalog` later to version a revision, including tweaks that come out of actually implementing it at the table. This skill does not run cataloging itself and does not write the catalog entry; `/catalog` is a separate command the DM runs when ready. Where the project names a VTT, mention in the same breath that you can author the import file for this design, per VTT Import-File Authoring above.
 
-**Offer the Design Notes block while the reasoning is fresh.** If the design conversation
+**Offer the Design Notes block while the reasoning is fresh.** Start collecting from the first
+draft: each record is a decision the DM made, so note it when the DM makes it, and leave out
+choices that were only mine. If the design conversation
 produced decisions worth recording — an alternative rejected, a benchmark named, a departure
 from published convention made deliberately, a constraint that shaped the design — offer to
 compose the entry's Design Notes block now, before the DM leaves for `/catalog`. The
@@ -260,7 +280,7 @@ everything else this skill produces reaches capture.
 - **Never catalog homebrew yourself.** Point to `/catalog`; do not write catalog entries or KB files from this skill.
 - **Never construct a compendium UUID or a module asset path.** Read one from a same-world reference export, or leave the activity out and hand it off.
 - **Never write pipeline state.** This skill is outside the session pipeline.
-- **Never use a plain-text question in place of AskUserQuestion for a structured decision** (tier choice, picking between design directions, accepting a balance call). Open-ended creative discussion stays free-form.
+- **Never use a plain-text question in place of AskUserQuestion for a structured decision** (tier choice, picking between design directions, accepting a balance call). Open-ended creative discussion stays free-form, and so do scope and the "Is this final?" check.
 
 ## How this skill connects to the others
 
