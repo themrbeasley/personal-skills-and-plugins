@@ -2,7 +2,7 @@
 
 - **Date:** 2026-10-16
 - **Branch:** `claude/bold-lehmann-0b0eb8`
-- **Status:** tested, waiting on the user's read of the skill text
+- **Status:** tested and merged to `main` 2026-10-16, not installed: the user is not yet convinced they need it. Installing is the junction in decision 1.
 
 ## Goal
 
@@ -16,7 +16,7 @@ Success looks like this:
 
 ## Decisions (settled 2026-10-16)
 
-1. **User level, same setup as `land`.** The master copy is a new top-level folder, `unfuck/`, and `~/.claude/skills/unfuck` is a folder junction to the main checkout's `unfuck/`, so an edit goes live when it lands on `main`. The user needs it in every project (wonderdungeon and the rest), and a user-level skill is the only shape typed as plain `/unfuck`.
+1. **User level, same setup as `land`.** The master copy is a new top-level folder, `unfuck/`, and installing it means making `~/.claude/skills/unfuck` a folder junction to the main checkout's `unfuck/`, so an edit goes live when it lands on `main`. The user needs it in every project (wonderdungeon and the rest), and a user-level skill is the only shape typed as plain `/unfuck`.
 2. **Callable by Claude.** No `disable-model-invocation`, for the reason `land` gives: requiring the typed command when Claude already knows the skill is wrong.
 3. **The source line gets corrected, not only logged.** Checked against the real case (wonderdungeon commit 0770b7d, the Shadows button): that fix logged the reversal under "Changed after delivery" but left the spec's goal line, the plan's Task 13 and the results file's "What was built" line describing the button as current. The skill rewrites the spec line to say what the user means now, marks old lines in plans and results as history in place, and searches again until every mention is true or marked.
 4. **A lost user gets a map before a question.** "Over my head" often means the user can't name the wrong thing. The skill gives a five-line map (asked for, agreed, built, waiting on them) and then asks which part feels wrong.

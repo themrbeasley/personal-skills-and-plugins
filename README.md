@@ -12,7 +12,7 @@ A personal collection of Claude Code skills, plugins, and a Cloudflare-Workers M
 - **[google-tasks-mcp/](google-tasks-mcp/)** — Remote MCP server exposing Google Tasks via OAuth, built on Cloudflare Workers + Durable Objects.
 - **[sequencer/](sequencer/)** — A Claude Code skill for building Foundry VTT Sequencer visual-effect macros (integrates with Midi-QOL, DAE, and Portal).
 - **[land/](land/)** — A user-level Claude Code skill: `/land` commits a branch, merges it into local main, and pushes main once you confirm, in any repo.
-- **[unfuck/](unfuck/)**, a user-level Claude Code skill: `/unfuck` gets you back to what you meant when an approved spec or plan built the wrong thing, and corrects the written record so it matches.
+- **[unfuck/](unfuck/)**, a user-level Claude Code skill: `/unfuck` gets you back to what you meant when an approved spec or plan built the wrong thing, and corrects the written record so it matches. Drafted and tested, not installed.
 - **docs/** — Design specs and implementation plans.
 
 See [CLAUDE.md](CLAUDE.md) for architecture notes and per-project commands.

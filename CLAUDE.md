@@ -84,7 +84,7 @@ Builds Foundry VTT Sequencer visual-effect macros (projectiles, impacts, auras, 
 
 ## `unfuck/`: user-level Claude Code skill
 
-`/unfuck` gets back to what the user meant when something approved in a spec or plan turns out wrong: it finds the line that allowed it and every place it landed, proposes the smallest way back, and after one OK makes the change and corrects the spec, plan and results so the record matches. Same setup as `land`: this folder is the master copy, `~/.claude/skills/unfuck` is a junction to it in the main checkout, and it stays callable by Claude. Layout: `SKILL.md` only. Spec: `docs/superpowers/specs/2026-10-16-unfuck-skill-design.md`.
+`/unfuck` gets back to what the user meant when something approved in a spec or plan turns out wrong: it finds the line that allowed it and every place it landed, proposes the smallest way back, and after one OK makes the change and corrects the spec, plan and results so the record matches. **Not installed** (2026-10-16): the user is deciding whether to use it. To install, make `~/.claude/skills/unfuck` a junction to the main checkout's `unfuck/`, the same setup as `land`; it stays callable by Claude. Layout: `SKILL.md` only. Spec: `docs/superpowers/specs/2026-10-16-unfuck-skill-design.md`.
 
 ## `sequencer-workspace/` and `docs/`
 
