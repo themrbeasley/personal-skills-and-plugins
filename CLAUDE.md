@@ -2,6 +2,8 @@
 
 Each top-level directory is an independent, self-contained project. No shared build, root package, or cross-project tooling.
 
+Work on the Boxaid plugin (`boxaid-call-ops`) in its own private repo, `C:\Users\jorda\GitHub\boxaid-call-ops`: it moved out of this repo, history included, on 2026-11-03.
+
 ## `professor-orb/` — Claude Code plugin (most active)
 
 Post-session workflow plugin for D&D DMs. Distributed through `.claude-plugin/marketplace.json` at the repo root. A release bumps `version` in **both** that file and `professor-orb/.claude-plugin/plugin.json` — they must match.
@@ -31,14 +33,6 @@ for f in $(find professor-orb -name "*.test.mjs" | sort); do node "$f" || break;
 ```
 
 Read the relevant spec in `docs/superpowers/` before changing behavior it describes.
-
-## `boxaid-call-ops/` — Claude Code plugin
-
-Closes out a Boxaid support call. `/call-start` opens one (Tune-Up Snapshot, scratchpad, call mode armed). `/teardown` fans the write-back artifacts — KB page, call-log row, service report, cover email — over a workflow for-loop, verifies each adversarially for PII and convention, then splits them into what Claude writes and what the operator commits by hand. Layout: `commands/`, `agents/`, `hooks/`; no skills.
-
-**Every leg of the fan-out runs unconditionally.** No model judgment about whether one is needed.
-
-Depends on sidecars in the *consumer* repo (the workflow `.js`, `report-template.html`, the call-mode hooks), not shipped here.
 
 ## `foundryvtt/` — Claude Code plugin
 
