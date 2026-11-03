@@ -5,7 +5,6 @@ A personal collection of Claude Code skills, plugins, and a Cloudflare-Workers M
 ## Contents
 
 - **[professor-orb/](professor-orb/)** — Claude Code plugin: a post-session workflow suite for D&D DMs (debrief → prep → content / chronicler pipeline, plus homebrew design, chronology, and knowledge-base migration).
-- **[boxaid-call-ops/](boxaid-call-ops/)** — Claude Code plugin: opens and closes out a Boxaid support call, fanning the write-back artifacts over a verified workflow.
 - **[foundryvtt/](foundryvtt/)** — Claude Code plugin: a Foundry VTT toolkit whose `live-test` skill tries module and automation changes in a live world, as Gamemaster and as a player, on throwaway actors.
 
 - **[beas-reflect/](beas-reflect/)**, a Claude Code plugin: captures your corrections and turns them into CLAUDE.md notes written as the action to take. Based on [claude-reflect](https://github.com/BayramAnnakov/claude-reflect) by Bayram Annakov.
