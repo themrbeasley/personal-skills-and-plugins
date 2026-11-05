@@ -45,6 +45,8 @@ Also read, when they exist:
 
 ### Phase 1: Orient and catch up
 
+**Open the note file.** Once the campaign is known, open `.professor-orb/proposals/notes-prep-<campaign>.md` as SHARED-PRINCIPLES Principle 8 describes, including its question if the file already exists. Give it one heading per question in Step 1b, plus a Changes heading for what the DM asks for at review. Step 1b's answers feed Section 1 and exist nowhere else until the brief is saved, and this skill usually runs in the same conversation as `debrief`, when context is fullest.
+
 **Step 1a: Check elapsed time.** Compare the session report's date against today's date. If time has passed (it almost always has), assume the DM has been working on things since the report was written (Principle 5).
 
 **Step 1b: Ask the DM what's happened since the report.** This question set is mandatory and goes through the AskUserQuestion tool, never plain chat text. Use a single AskUserQuestion batch covering:
@@ -56,11 +58,11 @@ Also read, when they exist:
 
 Do not ask more than one question batch in Phase 1. Free-form elaboration the DM volunteers alongside their answers is welcome and stays as regular conversation; it is only the question set itself that must go through AskUserQuestion.
 
-**Step 1c: Listen and trust.** Whatever the DM says is done, is done. Whatever the DM says happened, happened. If the DM's answers conflict with the report, the DM is correct. Note conflicts so the DM is aware, but follow their direction (Principle 3).
+**Step 1c: Listen and trust.** Whatever the DM says is done, is done. Whatever the DM says happened, happened. If the DM's answers conflict with the report, the DM is correct. Note conflicts so the DM is aware, but follow their direction (Principle 3). Add the answers and anything the DM volunteers to the note file before you reply.
 
 ### Phase 2: Draft the brief
 
-Build the brief with five sections in this order:
+Read the note file back, then build the brief with five sections in this order:
 
 #### Section 1: Work Review
 
@@ -141,13 +143,15 @@ Do not resolve any of these yourself. Naming them is the whole job (see "Never w
 - **Change something first.** The DM describes the change in the notes, or picks Other and says it. Talking it through stays free-form. Revise, re-present the changed sections, and ask this question again.
 - **Look into more first.** Its description lists what the brief already drew on: the session report, the previous brief, and each article or other file you read for it. The DM then sees that the lookups happened (Principle 14) and names only what goes beyond them. Read what the DM names and nothing wider, fold the findings into the brief, re-present the changed sections, and ask this question again.
 
-Write files only after the DM picks "Save as written" (Principle 2).
+Write the brief and its indexes only after the DM picks "Save as written" (Principle 2).
 
 **Step 3b: Save the approved brief.** Follow `.professor-orb/conventions.json` if it exists (the `type` value for session prep files, its required frontmatter fields in order, and its filename suffix), otherwise the project's documented convention, otherwise `YYYY-MM-DD-[Session-Title]-PREP.md` in the campaign's session-reports folder. Writing the file goes through the project's write-time validator hook automatically; if it reports a block violation, fix the write and retry rather than working around it.
 
 **Step 3c: Update indexes and logs** per the project's conventions.
 
 **Step 3d: Confirm with the user.** Share a link to the file and a one-sentence summary. Then mention in one line that `content` can produce read-alouds, handouts, and setpieces if any north stars or handout candidates call for them.
+
+**Step 3e: Delete the note file** (Principle 8), because the brief now holds what it held. That leaves the brief and any indexes or logs the project's conventions call for, and nothing else of this run.
 
 ## Final act: update pipeline state
 
@@ -176,11 +180,10 @@ Apply any additional writing style rules from `.professor-orb/conventions.json` 
 - **Never invent north stars the report and DM do not support.** If neither the report nor the DM mentioned a thing, do not prep for it (Principle 7).
 - **Never list player objectives as DM prep.** (Principle 4.)
 - **Never re-list completed work as open items.** If the DM says it's done, it's done. (Principle 3.)
-- **Never write files without approval.** (Principle 2.)
+- **Never write the brief without approval.** (Principle 2.)
 - **Never write lore content.** That is `chronicler`'s job. If a north star depends on a lore decision, note it; do not resolve it.
 - **Never write player-facing content.** That is `content`'s job. Note handout candidates; do not draft them.
 - **Never ask a structured question outside AskUserQuestion.** The Phase 1 catch-up batch and the Phase 3 save question are both mandatory AskUserQuestion calls; plain-text questions in chat are not a substitute for either.
-- **Never create unnecessary auxiliary files.** This skill produces: the session brief, and any indexes or logs the project's conventions call for. No scratch files, execution logs, or manifests.
 
 ## How this skill connects to the others
 

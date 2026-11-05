@@ -10,7 +10,7 @@ Do not silently prefer a document over a direct statement from the DM.
 
 ## 2. Propose, then execute
 
-No pipeline skill writes, edits, or creates files without the DM's explicit approval. The workflow for every skill is:
+This gate covers everything the project keeps: no pipeline skill writes, edits, or creates a file the project keeps without the DM's explicit approval. A note file (Principle 8) is deleted when its job ends, so it sits outside the gate and needs no approval. The workflow for every skill is:
 
 1. Gather inputs (read reports, articles, CLAUDE.md).
 2. Draft the output (report, prep brief, content piece, lore proposal).
@@ -22,7 +22,7 @@ The DM reviews the product before it becomes a file. This is a hard gate, not a 
 
 **A proposal written to a file reaches the DM as that file.** This binds every component that writes one for approval, pipeline or not: `chronicler`'s lore-update proposal, `/migrate`'s plan, and `setup`'s migration manifest on the path where setup presents it as a proposal. Each time you write or revise the file, deliver it in that turn with the host's file-delivery tool (SendUserFile in the Claude desktop app), and give its absolute path, which is where the DM edits it by hand. Ask for approval in the turn that delivers it. With no file-delivery tool, the absolute path is the pointer. `.professor-orb/proposals/` is git-ignored, so in a worktree session a proposal exists only inside that worktree, and a path relative to the project root sends the DM to a checkout that does not have it.
 
-**One exception, and it does not generalize.** The schema migration the `setup` skill runs, and only that one operation, in that one skill, is exempt. What replaces the gate there is a verified snapshot commit taken before any mutation of the DM's material, one confirmation of the prong mapping before any file moves, and an after-action report naming every change and the command that undoes them. The exemption is conditional on that snapshot: with no version control, or if the snapshot assertion fails, there is no verified hash and therefore no gate to replace, so setup presents its migration manifest as a proposal and waits for approval like everything else. Every pipeline skill remains gated with no exception of any kind, and so does every other mutation setup makes.
+**One exception, and it does not generalize.** The schema migration the `setup` skill runs, and only that one operation, in that one skill, is exempt. What replaces the gate there is a verified snapshot commit taken before any mutation of the DM's material, one confirmation of the prong mapping before any file moves, and an after-action report naming every change and the command that undoes them. The exemption is conditional on that snapshot: with no version control, or if the snapshot assertion fails, there is no verified hash and therefore no gate to replace, so setup presents its migration manifest as a proposal and waits for approval like everything else. Every pipeline skill's output remains gated with no exception of any kind, and so does every other mutation setup makes.
 
 ## 3. Ask, listen, trust
 
@@ -61,9 +61,17 @@ Everything written must be traceable to a session report, the DM's direct statem
 
 ## 8. Scope discipline
 
-Do not create files, memory entries, or auxiliary documents beyond what the skill's output specifies. Do not do "while I'm in there" rewrites. Do not create scratch files, execution logs, or manifests unless the project's conventions call for them.
+Leave the project holding only what the skill's output specifies, and change only what the job asked you to change. Anything else, whether a "while I'm in there" rewrite, an execution log, or a manifest, is something the DM never reviewed and now has to find. Write an execution log or a manifest only when the project's conventions call for one.
 
-Professor-orb's own conventions call for exactly one: the migration manifest `setup` writes before its schema migration. It is required rather than incidental, and it is written to a tracked path so that a half-applied run is diagnosable from the repository alone. That is the only standing exception, and it licenses no scratch file, no execution log, and no second manifest anywhere else.
+Professor-orb's own conventions call for exactly one: the migration manifest `setup` writes before its schema migration. It is required rather than incidental, and it is written to a tracked path so that a half-applied run is diagnosable from the repository alone. That is the only standing exception.
+
+**Keep running notes in a note file.** Until the output is written, what the DM told you exists only in the conversation, where a long account blurs and a context compaction or a closed session can lose it. `debrief` and `prep` keep a note file for the whole job. Any other skill or command may open one when the DM's talk runs long. Session material goes here rather than in a memory entry, because a memory entry outlives the job and loads into conversations that have nothing to do with it.
+
+- **Where it lives.** `.professor-orb/proposals/notes-<skill>-<campaign>.md`, plain markdown with no frontmatter; a job with no campaign names its subject instead. Setup git-ignores that folder, so no commit can carry the file. It sits outside every prong root, so the write-time validator passes over it. The `dm-correction` hook searches that folder, so a correction finds the stale line there too. When `.professor-orb/` does not exist, use a `professor-orb-notes/` folder under the system temp directory, and leave creating `.professor-orb/` to setup.
+- **Opening it.** Write it without asking, and tell the DM its absolute path in one line so they can read or edit it. If the file already exists, an earlier run ended before deleting it: read it, then ask one AskUserQuestion that says what it holds (Principle 15), with the options "Pick up from these notes" and "Start clean". Starting clean deletes it first.
+- **Keeping it.** Add what the DM said before you reply to it, in their words and in the order they said it. Record what they said rather than what a question option offered, because report text drawn from an option is what `contentOptionEcho` refuses; a bare pick is a topic to ask about in their words. The file holds the DM's statements and your open questions, with your own guesses kept out, so anything you draft from it traces back to the DM (Principle 7). When the DM corrects something, fix the line here without asking.
+- **Reading it back.** Read it before each round of questions and before drafting. That makes a compaction harmless without your having to notice one, and it picks up anything the DM edited by hand (Principle 1).
+- **Closing it.** Delete it as the step before the skill's final act, when the output is on disk and nothing is left to read from it. If the run stops before that, leave it in place so the next run can offer it back, and delete it only if the DM says to throw it away.
 
 ## 9. Conventions file is authoritative
 

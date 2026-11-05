@@ -40,7 +40,22 @@ If it is a new campaign, ask for the campaign's display name in the same questio
 
 **If you found no existing reports or templates,** add one more question to this batch asking what structure the DM wants for reports (offer to model it on common patterns, or to keep it simple and iterate). Keep intake to a couple of questions total.
 
-**Invite bulk memory.** Once the campaign is settled, prompt the DM openly: "Walk me through the session, tell it however feels natural, and I'll take notes and interrogate you after." This is bulk memory: a free-form recall dump. It is entirely optional and welcome at any level of completeness, from nothing to an exhaustive play-by-play. While the DM narrates, note who appeared, where they went, what changed in the world, what the PCs did and gained and lost, and any loose threads. Do not interrupt with structured questions during this narration.
+**Open the note file.** Once the campaign is settled, open `.professor-orb/proposals/notes-debrief-<campaign>.md` as SHARED-PRINCIPLES Principle 8 describes, including its question if the file already exists. Give it these three sections, because they are what keeps a rambling account straight:
+
+```
+# Debrief notes: <campaign>
+
+## Heard
+In the order the DM told it, in their words.
+
+## Entities
+Every named NPC, faction, location, item, species, and cosmological concept touched.
+
+## Still to ask
+Anything the DM parked for later, any gap, and anything that does not add up.
+```
+
+**Invite bulk memory.** Then prompt the DM openly: "Walk me through the session, tell it however feels natural, and I'll take notes and interrogate you after." This is bulk memory: a free-form recall dump. It is entirely optional and welcome at any level of completeness, from nothing to an exhaustive play-by-play. While the DM narrates, add each message to the note file before you reply: who appeared, where they went, what changed in the world, what the PCs did and gained and lost, and any loose threads. When the DM parks something ("I'll get to the ship later"), put it under Still to ask so it comes back as a question. When they double back, fix the earlier line. Do not interrupt with structured questions during this narration.
 
 **Bulk memory is raw material, not a substitute for interrogation.** No matter how complete the DM's recap is, Phase 2 still runs in full. A thorough recap can narrow what Phase 2 needs to cover, but it can never justify skipping or shortening it.
 
@@ -48,7 +63,7 @@ If it is a new campaign, ask for the campaign's display name in the same questio
 
 This phase is mandatory and every question in it goes through the AskUserQuestion tool. Never substitute a plain-text question in chat for a structured question during interrogation, and never skip this phase because bulk memory in Phase 1 seemed thorough. Always run at least one full round of AskUserQuestion here, regardless of how much the DM already covered.
 
-**What to probe.** Before every round, look up each entity the round will touch, per SHARED-PRINCIPLES Principle 14: its article, the campaign's earlier reports, and any character sheet. Compare what intake and the files tell you against this checklist, and ask about what neither answers:
+**What to probe.** Before every round, read the note file back, then look up each entity the round will touch, per SHARED-PRINCIPLES Principle 14: its article, the campaign's earlier reports, and any character sheet. Compare what the note file and the project's files tell you against this checklist, and ask about what neither answers:
 
 1. **Session metadata.** IRL session date. In-game date and passage of time. Session title (offer 2-3 suggestions, let them pick or write their own).
 2. **Players and PCs present.** Which PCs were at the table, which players were absent, how absent PCs were handled.
@@ -58,7 +73,7 @@ This phase is mandatory and every question in it goes through the AskUserQuestio
 6. **Lore revelations, split into two buckets.** New canon established (things the DM invented or decided at the table that are now true) versus canon discovered (things the PCs learned that were already true).
 7. **Cliffhangers and open threads.** What is unresolved? What was foreshadowed? What has changed in the world that the party does not yet know about?
 
-**Round discipline.** Batch questions 2-4 per AskUserQuestion call. Do not ask about anything already answered in intake, a prior round, or the files. Do not ask filler. Anything a question proposes, such as a dice pool, is written out in the question itself (Principle 15).
+**Round discipline.** Batch questions 2-4 per AskUserQuestion call. Do not ask about anything already answered in intake, a prior round, or the files. Do not ask filler. Anything a question proposes, such as a dice pool, is written out in the question itself (Principle 15). Add each round's answers to the note file before you start the next round.
 
 **The DM ends interrogation, not you.** Every round's batch must include an explicit option letting the DM stop: something like "Done, write the report" alongside "Keep going." Do not decide on your own that you have enough and move to Phase 3; keep running rounds until the DM picks the option to stop. If you genuinely have no more gaps to probe, say so and offer the same explicit choice rather than silently ending the phase.
 
@@ -74,11 +89,11 @@ sentence that restates an option this session offered, so breaking this rule
 costs a blocked write rather than a false report. Write the option as a question
 and neither fires.
 
-**Track entities as you go.** Throughout intake and interrogation, keep a running list of every named NPC, faction, location, item, species, and cosmological concept touched in the session. You will pass this list to the `lore` agent in Phase 4.
+**Track entities in the note file.** Throughout intake and interrogation, keep its Entities section current with every named NPC, faction, location, item, species, and cosmological concept touched in the session. You will pass this list to the `lore` agent in Phase 4.
 
 ### Phase 3: Report writing
 
-**Draft the report.** If the project has a report template, use it. If it has existing reports, match their structure. If neither exists, build one covering: metadata, narrative recap, PCs present, NPCs and factions, locations, items in the story, lore revelations (new canon and discovered canon), and open threads. The open threads section describes the state of the world, not a list of tasks for the DM. Fill every section; for sections with nothing to report, write a stub rather than omitting it, downstream skills need predictable structure.
+**Draft the report.** Read the note file back and draft from it. If the project has a report template, use it. If it has existing reports, match their structure. If neither exists, build one covering: metadata, narrative recap, PCs present, NPCs and factions, locations, items in the story, lore revelations (new canon and discovered canon), and open threads. The open threads section describes the state of the world, not a list of tasks for the DM. Fill every section; for sections with nothing to report, write a stub rather than omitting it, downstream skills need predictable structure.
 
 **Every report carries a Lore Candidates section, whichever structure source won.** This is the one section to append when a template or the existing reports do not already have one, because it is the durable carrier the `chronicler` skill reads as its backbone; without it chronicler falls back to reading the whole report and pulls campaign material into articles. Seed it in this phase from what you already tracked: entities touched this session that have no KB article, new canon that needs capturing, and anything the DM flagged during interrogation. Write each as an unchecked item so it can be ticked later:
 
@@ -91,7 +106,7 @@ and neither fires.
 
 Cross-reference aggressively using whatever link format the project uses. If unsure whether an article exists, still link it: dead links in reports are acceptable because downstream tools use them to identify article candidates.
 
-**Present the draft for review.** Show the complete report draft to the DM. Wait for approval, requested changes, or rejection (Principle 2). Do not write any files until the DM approves. If the DM requests changes, revise and re-present the affected sections.
+**Present the draft for review.** Show the complete report draft to the DM. Wait for approval, requested changes, or rejection (Principle 2). Write the report and its indexes only after the DM approves. If the DM requests changes, revise and re-present the affected sections.
 
 **Determine the filename and frontmatter.** Follow `conventions.json` if it exists (the `type` value for session reports, its required frontmatter fields in order, and its filename suffix), otherwise the project's documented convention, otherwise `YYYY-MM-DD-[Session-Title]-REPORT.md`. Save to the campaign's session-reports folder, creating it if it does not exist. Writing the file goes through the project's write-time validator hook automatically; if it reports a block violation, fix the write and retry rather than working around it.
 
@@ -103,7 +118,7 @@ Do not proceed to Phase 4 until the report file exists on disk.
 
 ### Phase 4: Lore agent handoff
 
-Once the report is written, spawn the `lore` agent with the report's file path and the full entity list you tracked in Phases 1 and 2. It checks each entity's article against the report in turn and returns one structured proposal: non-obvious connections, contradictions, lore candidates, and entities without articles.
+Once the report is written, spawn the `lore` agent with the report's file path and the note file's full entity list. It checks each entity's article against the report in turn and returns one structured proposal: non-obvious connections, contradictions, lore candidates, and entities without articles.
 
 Wait for the `lore` agent to return its findings, then **merge them into the report's Lore Candidates section**. This is the second and last write to the report, and it is what makes the agent's analysis durable rather than dying with this conversation. If the agent's response includes its own "Lore Candidates" bucket, use it directly: it is already the items from Update Proposal and Entities Without Articles, restated as checkboxes. Otherwise, map its output sections yourself, as follows:
 
@@ -124,6 +139,8 @@ Present the merged section to the DM for approval (Principle 2), then update the
 If the `lore` agent is unavailable or the DM declines the handoff, the Lore Candidates section you seeded in Phase 3 stands as written and final: do not make it conditional on the agent, and skip the second write entirely. The section needs no further annotation: it already reflects debrief's own findings from Phase 3, and Phase 4 simply never runs its merge on this branch. Do not attempt the deep KB cross-referencing yourself; that is the `lore` agent's job. Phase 2's lookups served its questions and end with them.
 
 **Present the report to the DM.** Share a link to the report file and a one-sentence summary. Do not lecture the user about what is in the file.
+
+**Delete the note file** (Principle 8), on every branch of this phase, because the report now holds what it held. That leaves this skill's outputs and nothing else of this run: the session report, the campaign index (if new or updated), and the master index (if applicable).
 
 ## Final act: update pipeline state
 
@@ -156,7 +173,6 @@ Apply any additional writing style rules from `conventions.json` or the project'
 - **Never update lore articles yourself.** That is the `chronicler` skill's job, working from the `lore` agent's proposal. You write the report and hand off, you do not edit character, location, or faction articles.
 - **Never ask the user more than about four questions per AskUserQuestion call.** Batch tight.
 - **Never write an option whose text could be a sentence in the report.** An option asks. The answer comes back in the DM's prose, and `contentOptionEcho` blocks the write if it does not.
-- **Never create unnecessary auxiliary files.** This skill produces: the session report, the campaign index (if new or updated), and the master index (if applicable). No scratch files, execution logs, or manifests.
 
 ## How this skill connects to the others
 

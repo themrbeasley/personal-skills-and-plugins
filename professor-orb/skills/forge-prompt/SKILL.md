@@ -166,7 +166,7 @@ The DM returning with a result is a **Diagnose** re-entry. The loop closes throu
 
 The loop is complete when the DM says they are satisfied, or when Questions has nothing blocking left and Suggestions has nothing materially impactful left.
 
-**Nothing goes to disk during the loop.** SHARED-PRINCIPLES Principle 2: propose, then execute. When the loop closes, present the final prompt and ask what to save. A prompt used once and thrown away is a legitimate outcome; do not insist.
+**The prompt goes to disk only when the loop closes.** SHARED-PRINCIPLES Principle 2: propose, then execute. When the loop closes, present the final prompt and ask what to save. A prompt used once and thrown away is a legitimate outcome; do not insist.
 
 One offer at the close: **save the prompt.** On approval, write to:
 
