@@ -159,7 +159,7 @@ If the project has an existing chronology document, match its structure instead 
 
 ### Phase 5: Review
 
-Present the complete draft to the DM. Wait for approval, requested changes, or rejection. Do not write any files until the DM approves. If the DM requests changes, revise the affected sections and re-present.
+Present the complete draft to the DM. Wait for approval, requested changes, or rejection. Write the draft to disk only after the DM approves. If the DM requests changes, revise the affected sections and re-present.
 
 Also surface, separately from the draft:
 
@@ -186,7 +186,7 @@ Because this skill sits outside the session pipeline, it does not write pipeline
 - **Never treat a declaration as campaign-wide.** Each one covers exactly one named phenomenon, stored on that phenomenon's own article.
 - **Never write a KB article other than the chronology document itself.** Declarations and corrections to other articles are drafted here and handed to `chronicler`, which writes them.
 - **Never assume a calendar system.** Discover from KB articles.
-- **Never write files without approval.** Propose-then-execute. (SHARED-PRINCIPLES.md Principle 2.)
+- **Never write a draft to disk without approval.** Propose-then-execute. (SHARED-PRINCIPLES.md Principle 2.)
 - **Never write pipeline state.** This skill is outside the session pipeline.
 - **Never produce player-facing content.** This skill produces DM reference documents. If the DM wants a player-facing timeline visualization, point them to the `content` skill.
 - **Never duplicate KB articles' purpose.** A chronology is a temporal index, not a replacement for entity articles. Cross-reference; do not restate.

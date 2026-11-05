@@ -204,7 +204,7 @@ If any check fails, revise before saving.
 
 ### Phase 4: Review and save
 
-**Step 4a: present drafts for review.** Show each drafted piece to the DM. For markdown, show the text. For a Foundry fragment or printable page, show the rendered HTML content and describe how it will look. Wait for approval, requested changes, or rejection. Do not write any files until the DM approves. If the DM requests changes, revise and re-present. If a revision suggests more than one reasonable direction, offer the drafted options via AskUserQuestion rather than picking one silently.
+**Step 4a: present drafts for review.** Show each drafted piece to the DM. For markdown, show the text. For a Foundry fragment or printable page, show the rendered HTML content and describe how it will look. Wait for approval, requested changes, or rejection. Write the drafts to disk only after the DM approves. If the DM requests changes, revise and re-present. If a revision suggests more than one reasonable direction, offer the drafted options via AskUserQuestion rather than picking one silently.
 
 **Step 4b: save approved content.** Write each approved file to the content directory using the project's conventions. Create the directory if it does not exist.
 

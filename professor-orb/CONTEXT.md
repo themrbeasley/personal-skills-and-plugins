@@ -114,7 +114,7 @@ NPC keeps the same locked visual descriptors across sessions. Read for the draft
 subject alone, never as a style or structure reference for anything else, because a
 corpus mined broadly leaks one subject's choices into another subject's prompt. Styles
 live in the style catalog below, not here. Deliberately not a registry in
-`.professor-orb/`: Principle 8 licenses exactly one auxiliary document and this is
+`.professor-orb/`: Principle 8 licenses exactly one standing document and this is
 not it, and a locked descriptor is authored rather than derived so it could not live
 in the gitignored tier. KB canon outranks the corpus; the corpus holds only the
 rendering delta the generator needed, and a rendering choice never travels back into
@@ -378,6 +378,16 @@ re-deriving intent from the discussion. What you approved is what lands on disk.
 A lore item the DM declines for good goes in the file's section 7 and is deleted
 from the report and the brief at execution, so `prep` never carries it forward.
 _Avoid_: proposal dumps in chat, chronicler improvising beyond the approved text
+
+**note file**:
+A skill's running record of what the DM has said during a job whose output is not
+written yet, at `.professor-orb/proposals/notes-<skill>-<campaign>.md` and deleted when
+the job ends. It lets a rambling account, a context compaction, or a closed session
+lose nothing, and a run that stops early leaves it for the next run to offer back.
+`debrief` and `prep` always keep one. `chronicler` does not, because its inputs are on
+disk and its proposal file already holds its working state. Principle 8 defines it.
+Working material only: outside the approval gate and read by no other skill.
+_Avoid_: keeping session material in a memory entry, committing it, citing it as a source
 
 **temporal triage**:
 The flow the historian's inconsistency flags feed into. A flagged inconsistency
