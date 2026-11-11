@@ -36,7 +36,10 @@ Read the relevant spec in `docs/superpowers/` before changing behavior it descri
 
 ## `foundryvtt/` — Claude Code plugin
 
-Foundry VTT toolkit, listed in `marketplace.json`. One skill, `skills/live-test/SKILL.md` (`/foundryvtt:live-test`): starts Foundry and tests a change live through the browser as Gamemaster and as a permanent Test Player account, on throwaway actors, logging problems to a report. Model-invoked at a plan's testing stage. Table-specific on purpose (port, LAN address, test actors, module quirks). Spec: `docs/superpowers/specs/2026-09-30-foundryvtt-plugin-design.md`.
+Foundry VTT toolkit, listed in `marketplace.json`. Three skills, all model-invoked and table-specific on purpose (port, LAN address, test actors, module quirks):
+- `skills/live-test/SKILL.md` (`/foundryvtt:live-test`): starts Foundry and tests a change live through the browser as Gamemaster and as a permanent Test Player account, on throwaway actors, logging problems to a report. Runs at a plan's testing stage. Spec: `docs/superpowers/specs/2026-09-30-foundryvtt-plugin-design.md`.
+- `skills/condense-scenes-to-levels/SKILL.md`: merges a map split one scene per floor into one base scene with one v14 Level per floor (walls, lights, tokens, combat, stairs).
+- `skills/rig-hazard-region/SKILL.md`: sets off a 2024 DMG hazard or trap from a region through Midi Region Activity and the Multitrap token, with approved, tested, recorded extras. Spec: `docs/superpowers/specs/2026-11-11-rig-hazard-region-design.md`.
 
 - **Installed per project at local scope**, never user level, so Foundry context stays out of unrelated sessions.
 - **Installs are cached by version.** A change reaches projects only when `version` goes up in both `foundryvtt/.claude-plugin/plugin.json` and its `marketplace.json` entry; they must match. `/land` offers the bump when a branch changed `foundryvtt/`.
