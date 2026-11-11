@@ -13,7 +13,7 @@ Some hazards need more than the baseline: an animation, a stop-and-pause, a cond
 
 Only the moment the hazard goes off is automated. Ongoing effects (sinking, suffocation, escape checks, moving through floors) stay manual, and so do touch hazards: a region can't tell when someone touches something. Flying is the GM's call at the table: the baseline fires on any entry, so the GM raises a flyer's elevation and waves off a result when one sets something off anyway.
 
-This is prep-time work. Sign in, test and clean up as `foundryvtt:live-test` says (its WHO, START, JOIN, READY, POPUPS, PLACE and DRAG blocks by name), in the world the user names, on a scratch scene that is viewed and never activated. If anyone but the GM is connected, stop and ask.
+This is prep-time work. Sign in, test and clean up as `foundryvtt:live-test` says (its WHO, START, JOIN, READY, POPUPS, PLACE and DRAG blocks by name), in the world the user names. Build and test the rig on a scratch scene (a clone of the real scene's walls and levels, viewed and never activated), then create the same region and token on the real scene once it passes: the user's OK in step 4 covers that. If anyone but the GM is connected, stop and ask.
 
 ## Commands
 
@@ -35,7 +35,7 @@ JSON.stringify({actor: actor?.name, item: item?.name, desc: item?.system.descrip
 const scene = game.scenes.viewed, lid = "<level id>", at = {x: 0, y: 0};
 await scene.view({level: lid});
 const src = game.scenes.contents.flatMap(s => s.tokens.contents).find(t => /^multitrap/i.test(t.name));
-const o = src.toObject(); delete o._id; delete o._movementHistory; delete o._regions;
+const o = src ? src.toObject() : (await fromUuidSync(window.__h.actor).getTokenDocument()).toObject(); delete o._id; delete o._movementHistory; delete o._regions;
 Object.assign(o, {level: lid, hidden: true, x: at.x, y: at.y, elevation: scene.levels.get(lid).elevation.bottom});
 (await scene.createEmbeddedDocuments("Token", [o]))[0].id
 ```
@@ -109,8 +109,8 @@ Area activities (the statue's cone, a gas cube): Midi fires the activity at the 
 2. **Read the item** with FIND MULTITRAP, fill its table row, and name the activity for the band.
 3. **Look for recorded extras** with FIND EXTRAS, by the hazard's name.
 4. **Propose the setup in one message and wait for the user's OK.** Say: the region and its level, the Multitrap token's spot, the Midi rules (trigger and activity), whether `oncePerTurn` is on, whether to add core's Pause Game behavior (it stops the token and pauses, but only when a player moved it, never when a GM did), the area gap if the activity has an area, recorded extras to reuse, and what stays manual. Create nothing before the OK.
-5. **Build what was approved.** PLACE MULTITRAP, MAKE REGION, ADD MIDI RULES, then Pause Game or an extra if approved.
-6. **Test.** With `foundryvtt:live-test`'s PLACE and DRAG blocks, put each test token outside the region, then bring it in by dragging. A displace placement inside the region fires it, so never place a token inside. Check, moved by the GM and by the Test Player:
+5. **Build what was approved** on the scratch scene: PLACE MULTITRAP, MAKE REGION, ADD MIDI RULES, then Pause Game or an extra if approved. Make the scratch scene with `Scene.create` from the real scene's `toObject()`, minus its tokens, lights, tiles, drawings, notes, sounds, regions and templates, and set its `tokenVision` to false so the player's canvas isn't dark.
+6. **Test** on the scratch scene, then **build the same on the real scene** and delete the scratch scene. With `foundryvtt:live-test`'s PLACE and DRAG blocks, put each test token outside the region, then bring it in by dragging. A displace placement inside the region fires it, so never place a token inside. Check, moved by the GM and by the Test Player:
    - walking in sets it off, and walking through does too;
    - the damage or effect lands on the token. The Multitrap actor is GM-owned, so Midi runs the activity on the GM's client even when a player moved: the roll window ("Normal" button, `button[data-action="normal"]`) opens in the GM tab, and the mover's token stays paused until someone answers it. Answer it, then check the token finished its move (`token._source.x`, since `token.x` is the animated value);
    - the Multitrap token itself doesn't set it off;

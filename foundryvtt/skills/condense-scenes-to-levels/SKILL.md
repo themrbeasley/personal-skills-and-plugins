@@ -17,7 +17,7 @@ Sign in, READY and POPUPS work as in `foundryvtt:live-test` (the GM tab at `http
 
 All blocks run in `javascript_tool` in the GM tab. State carries between calls in `window.__c`.
 
-**BACKUP.** Before any write: an in-memory copy of every scene, the base scene's wall count (PERCEPTIVE FIX compares against it), and a list the later blocks add the ids they create to, so cleanup can check against it. Saving the JSON to disk is a browser download: ask the user first (`saveDataToFile(JSON.stringify(window.__c.json[name]), "application/json", name + ".json")`).
+**BACKUP.** Before any write: an in-memory copy of every scene, the base scene's wall count (PERCEPTIVE FIX compares against it), and a `created` list that LEVELS adds the new Level ids to (the other blocks' results are checked by their own counts). Saving the JSON to disk is a browser download: ask the user first (`saveDataToFile(JSON.stringify(window.__c.json[name]), "application/json", name + ".json")`).
 
 ```js
 const names = ["<base scene>", "<source 1>", "<source 2>"];
@@ -41,22 +41,24 @@ window.__c.src.map(id => game.scenes.get(id)).map(s => [s.name, key(s) === key(b
 const base = game.scenes.get(window.__c.base);
 const floors = [ // [source scene name or "base", level name, floor number]
   ["base", "<name>", 0], ["<source 1>", "<name>", 1]];
-await base.levels.get("defaultLevel0000").update({name: floors[0][1], "elevation.bottom": 0, "elevation.top": 9, "background.src": base.background.src});
-const made = await base.createEmbeddedDocuments("Level", floors.slice(1).map(([s, name, n]) => ({
-  name, elevation: {bottom: n * 10, top: n * 10 + 9}, background: {src: game.scenes.getName(s).background.src}})));
+await base.levels.get("defaultLevel0000").update({name: floors[0][1], "elevation.bottom": floors[0][2] * 10, "elevation.top": floors[0][2] * 10 + 9});
+// A Level also holds foreground, fog, background color and texture settings (anchor, scale, fit), so copy the source's own Level, not just its image.
+const made = await base.createEmbeddedDocuments("Level", floors.slice(1).map(([s, name, n]) => {
+  const o = game.scenes.getName(s).firstLevel.toObject(); delete o._id;
+  return {...o, name, sort: n * 100, elevation: {bottom: n * 10, top: n * 10 + 9}}; }));
 window.__c.lv = Object.fromEntries(floors.map(([s, , n], i) => [s, i ? made[i - 1].id : "defaultLevel0000"])); // keyed "base", then by source scene name
 window.__c.created.push(...made.map(l => l.id));
 base.levels.map(l => [l.id, l.name, l.elevation.bottom, l.elevation.top, l.background.src])
 ```
 
-**BASE TO BASE LEVEL.** An empty `levels` set means every level, so the base scene's own walls, lights, tiles and regions show on every floor until each is assigned to the base level. Tokens carry a single `level` instead of a `levels` set. Lights also get `elevation` 0. Run it before any copy, so it only touches the base scene's own documents. VIEW LEVEL first, since it updates tokens.
+**BASE TO BASE LEVEL.** An empty `levels` set means every level, so the base scene's own walls, lights, tiles and regions show on every floor until each is assigned to the base level. Tokens carry a single `level` instead of a `levels` set. Lights also get `elevation` at the base Level's bottom. Run it after LEVELS and before any copy, so it only touches the base scene's own documents. VIEW LEVEL first, since it updates tokens.
 
 ```js
 const base = game.scenes.get(window.__c.base);
 await base.view({level: "defaultLevel0000"});
 const out = {};
 for (const coll of ["walls", "lights", "tiles", "drawings", "regions", "notes", "sounds"]) {
-  const ups = base[coll].filter(d => !d.levels?.size).map(d => ({_id: d.id, levels: ["defaultLevel0000"], ...(coll === "lights" ? {elevation: 0} : {})}));
+  const ups = base[coll].filter(d => !d.levels?.size).map(d => ({_id: d.id, levels: ["defaultLevel0000"], ...(coll === "lights" ? {elevation: base.levels.get("defaultLevel0000").elevation.bottom} : {})}));
   if (ups.length) await base.updateEmbeddedDocuments(base[coll].documentName, ups);
   out[coll] = ups.length;
 }
@@ -105,7 +107,7 @@ for (const [name, lid] of Object.entries(window.__c.lv)) {
 out
 ```
 
-Read the printout, then fix each level. Delete the `orphans` (`base.deleteEmbeddedDocuments("Wall", ids)`) on levels where Perceptive rebuilt helpers. For each dangling door, take the three helpers on that level nearest the door's midpoint that no live door references, set the door's `flags.perceptive.LockPeekingWallIDsFlag` to their ids, then set each helper's `c` to the door's `c` (Perceptive lays a diagonal door's helpers as two halves plus one full wall, so nearest-by-midpoint is the match, not equal coords). Re-run until every level shows `walls === source`, no `dangling` and no `orphans`.
+Read the printout, then fix each level. Delete the `orphans` (`base.deleteEmbeddedDocuments("Wall", ids)`) on the copied floors where Perceptive rebuilt helpers, and show the user the ids first. Leave the `"base"` level's own helpers alone. For each dangling door, take the three helpers on that level nearest the door's midpoint that no live door references, set the door's `flags.perceptive.LockPeekingWallIDsFlag` to their ids, then set each helper's `c` to the door's `c` (Perceptive lays a diagonal door's helpers as two halves plus one full wall, so nearest-by-midpoint is the match, not equal coords). Re-run until every level shows `walls === source`, no `dangling` and no `orphans`.
 
 **COPY LIGHTS.** Set `elevation` to the level's bottom. Without it a light falls back to whichever level is being viewed.
 
@@ -139,15 +141,19 @@ for (const t of s.tokens.filter(t => !t.actorLink)) {
 rows
 ```
 
-Re-run until it returns `[]`.
+Re-run until it returns `[]`, at most three times: a field that still differs is listed for the user.
 
-**COPY OTHERS.** Tiles, drawings, notes and sounds, and regions that are not stairs, the same way as the walls. Skip any region that has a `teleportToken` behavior: it points at the source scenes, and STAIRS rebuilds it. Tell the user about every region you skip.
+**COPY OTHERS.** Tiles, drawings, notes and sounds, and regions that are not stairs, the same way as the walls. Elevation is absolute on the merged scene, so shift each copy up by the level's bottom, the way COPY TOKENS does: a region bounded [0, 9] on floor 2 (20 to 29) would never fire. Skip any region that has a `teleportToken` behavior: it points at the source scenes, and STAIRS rebuilds it. Other behaviors (change level, toggle behavior, scripts with uuids) may also point at the source scenes: list every copied region's behaviors and tell the user about each one that does, and each region you skip.
 
 ```js
 const base = game.scenes.get(window.__c.base);
-const s = game.scenes.getName("<source>"), lid = window.__c.lv["<source>"], out = {};
+const s = game.scenes.getName("<source>"), lid = window.__c.lv["<source>"], bottom = base.levels.get(lid).elevation.bottom, out = {};
 for (const coll of ["tiles", "drawings", "regions", "notes", "sounds"]) {
-  const docs = s[coll].filter(d => !(coll === "regions" && d.behaviors.some(b => b.type === "teleportToken"))).map(d => { const o = d.toObject(); delete o._id; o.levels = [lid]; return o; });
+  const docs = s[coll].filter(d => !(coll === "regions" && d.behaviors.some(b => b.type === "teleportToken"))).map(d => {
+    const o = d.toObject(); delete o._id; o.levels = [lid];
+    if (coll === "regions") { for (const k of ["bottom", "top"]) if (typeof o.elevation?.[k] === "number") o.elevation[k] += bottom; }
+    else if (typeof o.elevation === "number") o.elevation += bottom;
+    return o; });
   if (docs.length) out[coll] = (await base.createEmbeddedDocuments(s[coll].documentName, docs)).length + " of " + s[coll].size;
 }
 out
@@ -164,7 +170,7 @@ await game.scenes.get(window.__c.base).view({level: window.__c.lv["<source>"]});
 ```js
 const old = game.combats.get("<old combat id>");
 const c = await Combat.create({scene: window.__c.base, active: old.active, round: old.round, turn: old.turn, flags: foundry.utils.deepClone(old.flags)});
-await c.createEmbeddedDocuments("Combatant", old.combatants.map(x => x.toObject()), {keepId: true});
+await c.createEmbeddedDocuments("Combatant", old.combatants.map(x => ({...x.toObject(), sceneId: window.__c.base})), {keepId: true}); // sceneId decides which scene's token a combatant resolves to
 ({same: JSON.stringify(c.turns.map(x => x.id)) === JSON.stringify(old.turns.map(x => x.id)), round: [old.round, c.round], turn: [old.turn, c.turn]})
 ```
 
@@ -192,14 +198,14 @@ await up.createEmbeddedDocuments("RegionBehavior", [tp(dn)]); await dn.createEmb
 3. **SIZES.** Stop on any mismatch (see the block).
 4. **LEVELS, then BASE TO BASE LEVEL.** Print the Levels and check names, elevations and backgrounds before copying. `window.__c.lv` maps `"base"` and each source scene's name to its level id.
 5. **Per source scene, in floor order:**
-   - COPY WALLS, then WALL SIGNATURE. Expect `same: true`.
+   - COPY WALLS, then WALL SIGNATURE. Expect equal counts and two empty lists.
    - PERCEPTIVE FIX, until every level reads clean.
    - COPY LIGHTS.
    - VIEW LEVEL, then COPY TOKENS, then RESTORE DELTA until it returns `[]`.
-   - COPY OTHERS. If a copied tile, drawing or note has an `elevation` field, set it the way COPY LIGHTS does and tell the user.
+   - COPY OTHERS, then read the behaviors it lists.
 6. **Duplicates.** A linked actor that appears on two source scenes becomes two tokens. List them and ask the user which to keep, then delete the other.
-7. **Combat.** If a source scene has one, run MOVE COMBAT. Check the turn order printed, and delete the old combat only after the user confirms.
-8. **Stairs.** Rebuild each stair that COPY OTHERS skipped with STAIRS: the shape comes from the source region's `shapes[0]`, the stair number from the digits in its name, and the squares are the same on both floors. A combat already on the base scene needs no move. Then test every pair both ways with a 1x1 and a 2x2 token (`foundryvtt:live-test` covers VIEW LEVEL and how to move a token): the traveller must land on the right floor at that floor's elevation, not 4 ft up.
+7. **Combat.** A combat already on the base scene needs no move. If a source scene has one, run MOVE COMBAT. Check the turn order printed, and delete the old combat only after the user confirms.
+8. **Stairs.** Rebuild each stair that COPY OTHERS skipped with STAIRS: the shape comes from the source region's `shapes[0]`, the stair number from the digits in its name, and the squares are the same on both floors. Then test every pair both ways with a 1x1 and a 2x2 token (`foundryvtt:live-test` covers VIEW LEVEL and how to move a token): the traveller must land on the right floor at that floor's elevation, not 4 ft up.
 9. **Check the whole scene.** View each level and confirm its background, that walls and lights show only on their own floor, and that doors open. Read the console for new errors.
 10. **Leave the originals.** Move the source scenes (not the base scene) into a folder named for the job and report. Delete them only on the user's word, after they have walked the new scene.
 

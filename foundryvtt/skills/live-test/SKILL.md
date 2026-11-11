@@ -64,7 +64,7 @@ for (const a of [...foundry.applications.instances.values()]) if (a.rendered && 
 document.querySelectorAll('#notifications li').forEach(n => n.remove()); "cleared"
 ```
 
-**PLACE** (JS, GM tab). Puts a token at a spot without walking it, for setting up a region test. View the token's level first: moving or updating a token through the API throws "Cannot read properties of undefined (reading 'parent')" in `includedInLevel` unless this client is viewing that level. `token.update({x, y})` is wall-constrained in v14, so move it as a displacement that ignores walls. A displacement skips Move In region traps, so the token can start beside a trap without setting it off. A token created inside a region does set it off, so place test tokens outside the region first.
+**PLACE** (JS, GM tab). Puts a token at a spot without walking it, for setting up a region test. View the token's level first: moving or updating a token through the API throws "Cannot read properties of undefined (reading 'parent')" in `includedInLevel` unless this client is viewing that level. `token.update({x, y})` is wall-constrained in v14, so move it as a displacement that ignores walls. A displacement skips core's Token Move In region events, so the token can start beside such a trap without setting it off. Midi's regions listen to Token Enter, which a displacement still fires (see Region triggers in step 6). A token created inside a region does set it off, so place test tokens outside the region first.
 
 ```js
 const scene = game.scenes.viewed, tok = scene.tokens.get("<token id>");
