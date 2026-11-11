@@ -42,6 +42,8 @@ Read the repo's root `CLAUDE.md` first. A heading named "Landing", at any level,
 
 ## 4. Merge into local main
 
+Before the first command here, when this session entered `BRANCH`'s worktree with `EnterWorktree`, call `ExitWorktree` with `action: "keep"` (load it with ToolSearch if it is deferred). The session's worktree lock refuses every `git -C "<MAIN>"` command until the session leaves, and `keep` leaves `BRANCH` and its worktree exactly as they are. Every command from here on names its checkout, so the session's new working directory changes nothing else.
+
 1. `git -C "<MAIN>" status --porcelain`. Lines starting with `??` are untracked files in the main checkout and stay where they are. Any other line is an uncommitted change to a tracked file there: list those lines and stop. When the Landing section lists choices for a blocked merge, offer them instead and carry out the one the user picks, leaving every listed file exactly as it is.
 2. Merge:
    - Default: `git -C "<MAIN>" merge --no-ff BRANCH -m "<title>"`. `<title>` is `Merge <plugin> X.Y.Z: <summary>` when the branch moves a plugin's version to X.Y.Z (several: `Merge <plugin> X.Y.Z, <plugin> A.B.C: <summary>`), otherwise `Merge <area>: <summary>`. `<area>` is the `area` most of the branch's `type(area): summary` commits name; when they name none, the top-level folder the branch changed most, or `repo tooling` for files at the root or under `.claude/`. `<summary>` is `$ARGUMENTS` when given; otherwise a short phrase in the voice of `git log --merges --oneline -5`.
