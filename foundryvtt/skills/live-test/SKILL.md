@@ -64,6 +64,32 @@ for (const a of [...foundry.applications.instances.values()]) if (a.rendered && 
 document.querySelectorAll('#notifications li').forEach(n => n.remove()); "cleared"
 ```
 
+**PLACE** (JS, GM tab). Puts a token at a spot without walking it, for setting up a region test. View the token's level first: moving or updating a token through the API throws "Cannot read properties of undefined (reading 'parent')" in `includedInLevel` unless this client is viewing that level. `token.update({x, y})` is wall-constrained in v14, so move it as a displacement that ignores walls. A displacement skips Move In region traps, so the token can start beside a trap without setting it off. A token created inside a region does set it off, so place test tokens outside the region first.
+
+```js
+const scene = game.scenes.viewed, tok = scene.tokens.get("<token id>");
+await scene.view({level: tok.level});
+await tok.move([{x: 0, y: 0, action: "displace"}], {constrainOptions: {ignoreWalls: true}}); "placed"
+```
+
+**DRAG** (JS, then `left_click_drag`). Arrow keys don't reach the canvas in the browser pane, so walk a token by dragging it. This turns a canvas point into screen coordinates; take a screenshot first so the pane has a size, then drag from the token's point to the target's. Run it in the tab that owns the token. A walked drag is wall-constrained and stops at a wall: to test a token across a wall from a region, PLACE it where a clear path leads to the region's edge, then DRAG it in.
+
+```js
+const t = canvas.stage.worldTransform, r = canvas.app.view.getBoundingClientRect();
+const screen = (x, y) => ({x: Math.round(r.left + t.a * x + t.c * y + t.tx), y: Math.round(r.top + t.b * x + t.d * y + t.ty)});
+JSON.stringify({from: screen(0, 0), to: screen(0, 0)})
+```
+
+**GM HALF** (JS, GM tab). An Execute Script region behavior runs on every client, and the active GM may be the user's own Gamemaster client, not Claude's tab. When a region script has a mover half (`event.user.isSelf`) and a GM half (`game.user.isActiveGM`), test the GM half from one tab: make this tab the active GM for a moment and call the behavior with a fake event, then put it back.
+
+```js
+const region = game.scenes.viewed.regions.get("<region id>"), behavior = region.behaviors.find(b => b.type === "executeScript");
+Object.defineProperty(game.user, "isActiveGM", {get: () => true, configurable: true});
+try { await behavior.system._handleRegionEvent({name: "tokenMoveIn", data: {token: game.scenes.viewed.tokens.get("<token id>"), movement: null}, user: game.user, region, behavior}); }
+finally { delete game.user.isActiveGM; }
+"ran"
+```
+
 ## Your Task
 
 ### Steps
@@ -81,7 +107,7 @@ document.querySelectorAll('#notifications li').forEach(n => n.remove()); "cleare
    - In the GM tab, find or create the account: `game.users.getName("Test Player") ?? await User.create({ name: "Test Player", role: CONST.USER_ROLES.TRUSTED })`. It's permanent: one per world, Trusted Player role, no password, kept after every test.
    - Open a second tab with `tabs_create` and navigate it to **http://127.0.0.1:8678/join**. It's the same server under another address, so the browser keeps this sign-in separate from the GM tab. Run JOIN as `Test Player`, then READY and POPUPS. Expect `user: "Test Player"` and `gm: false`.
    - Note both tab ids and pass `tabId` on every browser call. `location.origin` tells them apart: localhost is the GM, 127.0.0.1 is the Test Player.
-   - Keep the GM tab signed in for the whole wave. Modules carry out many player actions in the GM's browser, such as damage and effects on tokens the player doesn't own.
+   - Keep the GM tab signed in for the whole wave. Modules carry out many player actions in the GM's browser, such as damage and effects on tokens the player doesn't own. Never sign out and back in within one tab to switch sides: the Test Player stays in the 127.0.0.1 tab and the GM stays in the localhost tab.
 4. **Pick a test report file** in the current workspace (for example `<workspace>/reports/live-test-<date>.md`). Create it if needed.
 5. **Set up without touching real characters:**
    - Before the first test, record the ids of all actors, items, chat messages, folders and scenes, plus the tokens on the test scene. Cleanup checks against this list.
@@ -98,6 +124,8 @@ document.querySelectorAll('#notifications li').forEach(n => n.remove()); "cleare
      - the windows that open on the player's screen: roll windows, Epic Rolls prompts (Midi sends player saves there when `playerRollSaves` is `"rer"`), Midi reaction prompts. Answer them in the Test Player tab;
      - what the player's chat cards show and hide: NPC names, whispered and blind rolls.
    - A feature only a GM can use gets "n/a" on the player side, with the reason, in its report row.
+   - **Region triggers.** Place the test token outside the region with PLACE, then walk it in with DRAG, from the Test Player tab for the player's side and from the GM tab for the GM's. Give every test token an actor: DAE's updateToken hook throws on an actorless token. A Midi Region Activity region fires on any entry, a displace placement included, so a token placed inside it sets it off.
+   - **A script's two halves.** A region script usually has a mover half and a GM half, as separate gates (`event.user.isSelf` stops the token on the mover's client; `game.user.isActiveGM` does the rest). They are not one condition: the player's move runs the first half in the player's tab and the second in the GM's tab. Test the GM half from one tab with GM HALF.
    - Bring the tab you're working in to the front with `tabs_select`, and keep the Browser pane showing: a hidden pane or a background tab stalls dice, animations and the canvas. If a player step stalls waiting on the GM, bring the GM tab forward.
    - For repeatable runs from the console, in either tab: `MidiQOL.completeActivityUse(activity, { midiOptions: { targetUuids, autoRollAttack: true, fastForwardAttack: true, autoRollDamage: "always", fastForwardDamage: true } }, { configure: false })`.
    - When testing a forced crit, re-roll a natural 20. It crits anyway, so it proves nothing.
