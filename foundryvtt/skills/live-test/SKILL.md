@@ -72,12 +72,13 @@ await scene.view({level: tok.level});
 await tok.move([{x: 0, y: 0, action: "displace"}], {constrainOptions: {ignoreWalls: true}}); "placed"
 ```
 
-**DRAG** (JS, then `left_click_drag`). Arrow keys don't reach the canvas in the browser pane, so walk a token by dragging it. This turns a canvas point into screen coordinates; take a screenshot first so the pane has a size, then drag from the token's point to the target's. Run it in the tab that owns the token. A walked drag is wall-constrained and stops at a wall: to test a token across a wall from a region, PLACE it where a clear path leads to the region's edge, then DRAG it in.
+**DRAG** (JS, then `left_click_drag`). Arrow keys don't reach the canvas in the browser pane, so walk a token by dragging it. Pan to the token first (`canvas.animatePan`). This turns a canvas point into coordinates in the screenshot's frame: `<frame width>` is the width a screenshot reports ("coordinate frame: 800x621"), which is smaller than the page, so a raw page coordinate lands in the wrong place. Take a screenshot first, then drag from the token's centre to the target's. Run it in the tab that owns the token. A paused game stops players moving (Foundry starts paused): unpause with `game.togglePause(false, {broadcast: true})` in the GM tab. A dark scratch scene hides the player's canvas: set its `tokenVision` to false. A walked drag is wall-constrained and stops at a wall: to test a token across a wall from a region, PLACE it where a clear path leads to the region's edge, then DRAG it in.
 
 ```js
 const t = canvas.stage.worldTransform, r = canvas.app.view.getBoundingClientRect();
-const screen = (x, y) => ({x: Math.round(r.left + t.a * x + t.c * y + t.tx), y: Math.round(r.top + t.b * x + t.d * y + t.ty)});
-JSON.stringify({from: screen(0, 0), to: screen(0, 0)})
+const k = <frame width> / window.innerWidth;
+const screen = (x, y) => ({x: Math.round(k * (r.left + t.a * x + t.c * y + t.tx)), y: Math.round(k * (r.top + t.b * x + t.d * y + t.ty))});
+JSON.stringify({from: screen(0, 0), to: screen(0, 0)}) // canvas points: the token's and the target's centres
 ```
 
 **GM HALF** (JS, GM tab). An Execute Script region behavior runs on every client, and the active GM may be the user's own Gamemaster client, not Claude's tab. When a region script has a mover half (`event.user.isSelf`) and a GM half (`game.user.isActiveGM`), test the GM half from one tab: make this tab the active GM for a moment and call the behavior with a fake event, then put it back.
